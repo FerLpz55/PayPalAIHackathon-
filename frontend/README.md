@@ -1,16 +1,63 @@
-# React + Vite
+# TallerClaro Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Responsive React frontend for the PayPal AI Hackathon carpentry quote and order management project. The interface follows the connected Penpot file and keeps every unsupported integration visibly in demo mode.
 
-Currently, two official plugins are available:
+## Run locally
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+```bash
+npm ci
+npm run dev
+```
 
-## React Compiler
+Open the local URL printed by Vite. The project requires Node.js with npm. To create and inspect a production build:
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+```bash
+npm run lint
+npm run build
+npm run preview
+```
 
-## Expanding the ESLint configuration
+## Screens and routes
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+The app uses hash routes so the current screen can be opened directly without a router dependency.
+
+| Route | Screen |
+| --- | --- |
+| `#/dashboard` | Workshop summary and recent orders |
+| `#/orders` | Searchable order list and status filter |
+| `#/quotes` | Latest estimate and quotes awaiting approval |
+| `#/receipts` | Receipt uploads and spending summary |
+| `#/accounting` | Illustrative monthly income and expenses |
+| `#/customer/new` | Customer project request |
+| `#/customer/quote` | Cost breakdown and 50% deposit example |
+| `#/customer/tracking` | Order progress, receipt list, and payment summary |
+| `#/order/TC-1048` | Workshop order details and status editor |
+
+## Demo behavior
+
+- Sample orders, illustrative totals, and user-entered receipt file names are stored in local browser storage.
+- Quote generation uses a fixed sample estimate; it does not call an AI service or calculate a real price.
+- The “Approve example quote” and “Pay with PayPal” journey updates local demo state only. No payment request is sent and no charge is made.
+- Speech input uses the browser Web Speech API when available. Unsupported browsers receive a text-input fallback.
+- Receipt files are not uploaded or retained; the UI only records their names in local demo data.
+- Use browser developer tools to clear the `tallerclaro.demo.v1` local storage key and restore the initial examples.
+
+## Project structure
+
+```text
+src/
+  App.jsx                 Routes, reusable UI, and screen components
+  App.css                 Responsive styles and shared design tokens
+  index.css               Document-level reset
+  services/mockApi.js     Replaceable local demo service
+docs/
+  API_CONTRACT.md         Proposed backend handoff and data models
+```
+
+## Accessibility and responsive behavior
+
+The interface uses semantic landmarks, labeled fields, visible focus styles, keyboard-operable controls, live status/error messages, reduced-motion handling, and a mobile navigation drawer. Layouts adapt at 760 px and 1100 px; short landscape viewports also collapse the workshop sidebar and use a two-column metric layout. The order table remains horizontally scrollable when its columns cannot fit.
+
+## Backend handoff
+
+Replace the functions in `src/services/mockApi.js` with the agreed API client. Keep server-side pricing and payment verification authoritative. The endpoint names in `docs/API_CONTRACT.md` are a proposal and require backend agreement. No backend, database, authentication system, AI provider, or PayPal SDK is included in this frontend.
