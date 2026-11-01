@@ -1,0 +1,11 @@
+# Local PostgreSQL data and backup artifacts
+data/
+pgdata/
+backups/
+*.dump
+*.backup
+*.sql.gz
+*.sql.bz2
+*.sql.xz
+.pgpass
+pg_service.conf

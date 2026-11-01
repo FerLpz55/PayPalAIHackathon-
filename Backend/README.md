@@ -68,7 +68,9 @@ Las responsabilidades anteriores son reglas para las próximas implementaciones.
 Crear subpaquetes de cotizaciones, pedidos, pagos, puertos y adaptadores cuando
 contengan código real. Lo mismo aplica a migraciones, pruebas unitarias y de
 integración, dependencias HTTP y manejadores de errores: no se crean placeholders.
-La base de datos, ORM, migraciones, autenticación, reglas de precios y proveedores
+El motor elegido es PostgreSQL. Los scripts SQL y archivos relacionados vivirán
+en [`database/`](../database/README.md), en la raíz del repositorio. El esquema,
+la conexión, ORM, migraciones, autenticación, reglas de precios y proveedores
 se definirán antes de implementar los respectivos casos de uso.
 
 La IA propone una estimación; las reglas del dominio validan el importe pagable.

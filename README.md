@@ -99,6 +99,7 @@ See [backend setup and architecture](Backend/README.md) for configuration and la
 
 - `frontend/` - React 19 and Vite application.
 - `Backend/` - Python/FastAPI layered monolith foundation and API test.
+- `database/` - PostgreSQL schema scripts and related files; schema and backend connection are pending. See the [database guide](database/README.md).
 - `docs/superpowers/plans/2026-10-31-fastapi-layers.md` - backend architecture, implemented foundation, and pending work.
 - `frontend/docs/API_CONTRACT.md` - proposed API boundary, data models, and backend requirements.
 - `frontend/docs/DESIGN_REFERENCE.md` - Penpot screens and visual values inspected for implementation.

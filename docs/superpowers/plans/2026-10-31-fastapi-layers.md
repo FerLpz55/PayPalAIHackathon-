@@ -36,7 +36,11 @@ La composición es el punto donde se conectan las implementaciones.
 
 ## Continuación pendiente
 
-Elegir base de datos y política de precios antes de desarrollar persistencia
+PostgreSQL es el motor elegido. `database/`, en la raíz, centraliza los scripts
+SQL y archivos relacionados; todavía no hay esquema ni conexión implementados.
+Los adaptadores Python de persistencia permanecen en infraestructura del backend.
+
+Definir el esquema y la política de precios antes de desarrollar persistencia
 y generación de cotizaciones. Luego implementar una operación completa por vez:
 generar y consultar cotización, aprobar y crear pedido, iniciar y verificar pago,
 consultar y actualizar pedido con autorización. Definir política de acceso del
