@@ -60,4 +60,9 @@ The interface uses semantic landmarks, labeled fields, visible focus styles, key
 
 ## Backend handoff
 
+The repository now includes a Python/FastAPI layered monolith foundation in
+`../Backend/`, with only `GET /api/health` implemented. This frontend still uses
+local mocks. See the [backend guide](../Backend/README.md) and
+[architecture plan](../docs/superpowers/plans/2026-10-31-fastapi-layers.md).
+
 Replace the functions in `src/services/mockApi.js` with the agreed API client. Keep server-side pricing and payment verification authoritative. The endpoint names in `docs/API_CONTRACT.md` are a proposal and require backend agreement. No backend, database, authentication system, AI provider, or PayPal SDK is included in this frontend.

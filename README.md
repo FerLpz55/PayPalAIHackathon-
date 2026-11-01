@@ -1,10 +1,12 @@
 # TallerClaro
 
-TallerClaro is a PayPal AI Hackathon project for carpentry quotes, customer payment journeys, and workshop order tracking. The current repository contains a responsive React frontend demonstration. The backend, AI quote service, database, authentication, and PayPal integration are not implemented yet.
+TallerClaro is a PayPal AI Hackathon project for carpentry quotes, customer payment journeys, and workshop order tracking. The repository contains a React/Vite frontend demonstration and a Python/FastAPI backend foundation organized as a layered monolith. The backend currently exposes only a health endpoint; database persistence, business use cases, authentication, AI, and PayPal integration remain pending.
 
 ## Current project status
 
 The frontend follows the connected Penpot design and includes workshop and customer screens. Example orders, estimates, payment states, and receipt records are illustrative. Demo actions are stored in the browser and do not contact PayPal, charge a customer, upload a receipt, or call an AI service.
+
+The frontend still uses its local mock service and is not connected to the backend. The backend architecture and current scope are defined in the [backend plan](docs/superpowers/plans/2026-10-31-fastapi-layers.md); [backend setup](Backend/README.md) documents the runnable implementation.
 
 ## Run the current project locally
 
@@ -54,6 +56,26 @@ npm run preview
 
 `npm run preview` serves the generated `frontend/dist` build locally. Stop either local server with `Ctrl+C` in its terminal.
 
+## Run the backend locally
+
+With Python 3.11 or newer, from the repository root:
+
+```bash
+cd Backend
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install -e '.[dev]'
+uvicorn tallerclaro.main:app --app-dir src --reload
+```
+
+On Windows PowerShell, activate with `.venv\Scripts\Activate.ps1`.
+The API runs at `http://127.0.0.1:8000`; `/docs` provides the generated OpenAPI UI.
+`GET /api/health` returns `200` with `{"status":"ok"}`. This checks application
+liveness, not database or provider connectivity. Run `python -m pytest` from
+`Backend/` to execute the backend tests.
+
+See [backend setup and architecture](Backend/README.md) for configuration and layer responsibilities.
+
 ## Demo data and limitations
 
 - The mock service stores workshop examples and interactions in the browser's `localStorage` key `tallerclaro.demo.v1`.
@@ -76,6 +98,8 @@ npm run preview
 ## Repository layout
 
 - `frontend/` - React 19 and Vite application.
+- `Backend/` - Python/FastAPI layered monolith foundation and API test.
+- `docs/superpowers/plans/2026-10-31-fastapi-layers.md` - backend architecture, implemented foundation, and pending work.
 - `frontend/docs/API_CONTRACT.md` - proposed API boundary, data models, and backend requirements.
 - `frontend/docs/DESIGN_REFERENCE.md` - Penpot screens and visual values inspected for implementation.
 - `REQUIREMENTS.md` - product scope and functional/non-functional requirements.

@@ -25,6 +25,7 @@ The product is a web application for a carpentry business. A workshop may review
 ## Capabilities and Constraints
 
 - The repository contains a React 19 and Vite web frontend.
+- The backend is a Python/FastAPI layered monolith foundation. Only `GET /api/health` is implemented; the frontend remains connected to its local mock service.
 - The required order stages are `pending`, `paid`, `in_progress`, and `delivered`; the designs also show quote sent and ready to finish states.
 - PayPal Sandbox payments, AI quote generation, pricing validation, authenticated workshop actions, and persisted backend data are not implemented in the frontend.
 - Demo data may be stored in browser local storage. It must not be described as backend-verified or as a real payment.
@@ -39,7 +40,8 @@ The product name is TallerClaro. The inspected Penpot file is the primary visual
 
 - `REQUIREMENTS.md` defines product scope, business rules, and technical constraints.
 - The connected Penpot file contains four workshop screens and three customer journey screens.
-- No backend API specification or production credentials are present in the repository.
+- `docs/superpowers/plans/2026-10-31-fastapi-layers.md` defines the backend architecture and delivery scope; `Backend/README.md` documents setup and the implemented health endpoint.
+- `frontend/docs/API_CONTRACT.md` proposes future business endpoints and data models; those endpoints are not implemented.
 
 ## Product Principles
 

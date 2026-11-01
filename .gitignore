@@ -220,3 +220,40 @@ __marimo__/
 .streamlit/secrets.toml
 
 node_modules/
+
+# Local environment variants; only sanitized templates may be committed
+.env.*
+!.env.example
+!.env.template
+.envrc.*
+
+# Credentials, private keys, and local service configuration
+.aws/
+.ssh/
+.secrets/
+secrets/
+credentials.json
+credentials-*.json
+service-account*.json
+*-service-account.json
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+id_rsa*
+id_ed25519*
+.npmrc
+.netrc
+
+# Local IDE/agent state and runtime data
+.idea/
+*.iml
+.vscode/
+.agents/
+.codex/
+*.sqlite
+*.sqlite3
+*.db
+*.db-journal
+uploads/
