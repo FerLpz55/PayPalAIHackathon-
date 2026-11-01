@@ -37,18 +37,20 @@ La composición es el punto donde se conectan las implementaciones.
 ## Continuación pendiente
 
 PostgreSQL es el motor elegido. `database/`, en la raíz, centraliza los scripts
-SQL y archivos relacionados; todavía no hay esquema ni conexión implementados.
-Los adaptadores Python de persistencia permanecen en infraestructura del backend.
+SQL y archivos relacionados. El esquema inicial ya esta implementado en
+`database/schema.sql`, con datos de demo en `seeds/demo.sql` y pruebas de
+aceptacion en `tests/schema_test.sql`. La conexion de FastAPI a PostgreSQL y
+los adaptadores Python de persistencia siguen pendientes.
 
-Definir el esquema y la política de precios antes de desarrollar persistencia
-y generación de cotizaciones. Luego implementar una operación completa por vez:
-generar y consultar cotización, aprobar y crear pedido, iniciar y verificar pago,
-consultar y actualizar pedido con autorización. Definir política de acceso del
-cliente sin introducir cuentas fuera del alcance del MVP.
+Implementar una operacion completa por vez: generar y consultar cotizacion,
+aprobar y crear pedido, iniciar y verificar pago, consultar y actualizar pedido
+con autorizacion. Definir politica de acceso del cliente sin introducir cuentas
+fuera del alcance del MVP.
 
-Antes de pagos, definir moneda, redondeo, anticipos y vigencia. Mantener pago y
-producción separados y procesar confirmaciones verificadas de forma idempotente.
-Las rutas de negocio aún no existen; no devolver éxitos simulados desde esta base.
+La moneda (MXN), redondeo por renglon, anticipo del 50 % y vigencia quedaron
+documentados en el esquema y en `database/README.md`. Mantener pago y produccion
+separados y procesar confirmaciones verificadas de forma idempotente.
+Las rutas de negocio aun no existen; no devolver exitos simulados desde esta base.
 
 ## Validación
 

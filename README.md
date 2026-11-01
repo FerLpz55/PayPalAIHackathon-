@@ -1,6 +1,6 @@
 # TallerClaro
 
-TallerClaro is a PayPal AI Hackathon project for carpentry quotes, customer payment journeys, and workshop order tracking. The repository contains a React/Vite frontend demonstration and a Python/FastAPI backend foundation organized as a layered monolith. The backend currently exposes only a health endpoint; database persistence, business use cases, authentication, AI, and PayPal integration remain pending.
+TallerClaro is a PayPal AI Hackathon project for carpentry quotes, customer payment journeys, and workshop order tracking. The repository contains a React/Vite frontend demonstration and a Python/FastAPI backend foundation organized as a layered monolith. The backend currently exposes only a health endpoint. The PostgreSQL schema is defined under `database/` but is not yet connected to FastAPI. Business use cases, authentication, AI, and PayPal integration remain pending.
 
 ## Current project status
 
