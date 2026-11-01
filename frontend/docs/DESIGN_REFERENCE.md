@@ -18,7 +18,7 @@ The connected Penpot project was queried through its MCP connection. The file co
 
 ## Visual values
 
-The code centralizes the inspected palette as CSS custom properties in `src/App.css`.
+The code centralizes the inspected palette as CSS custom properties in `src/styles/app.css`.
 
 | Use | Value |
 | --- | --- |

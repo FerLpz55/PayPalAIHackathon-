@@ -1,13 +1,5 @@
 # Frontend API Contract
 
-## Current backend status
-
-The backend is a Python/FastAPI layered monolith foundation. Its only implemented
-endpoint is `GET /api/health`, returning `200 {"status":"ok"}`. The frontend is
-not connected to it. The [backend plan](../../docs/superpowers/plans/2026-10-31-fastapi-layers.md)
-defines architecture and delivery scope; the endpoints and models below remain
-proposals for future business use cases.
-
 The frontend currently uses `src/services/mockApi.js`. Replace that module with an HTTP implementation while keeping the view-facing methods stable. The mock writes local demo data to `localStorage`; it does not verify prices, receipts, order permissions, or PayPal transactions.
 
 ## Suggested endpoints

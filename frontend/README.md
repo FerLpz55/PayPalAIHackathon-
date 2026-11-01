@@ -38,18 +38,29 @@ The app uses hash routes so the current screen can be opened directly without a 
 - Sample orders, illustrative totals, and user-entered receipt file names are stored in local browser storage.
 - Quote generation uses a fixed sample estimate; it does not call an AI service or calculate a real price.
 - The “Approve example quote” and “Pay with PayPal” journey updates local demo state only. No payment request is sent and no charge is made.
-- Speech input uses the browser Web Speech API when available. Unsupported browsers receive a text-input fallback.
+- The customer request is text or voice only. Speech input uses the browser Web Speech API when available; unsupported browsers receive a text-input fallback.
 - Receipt files are not uploaded or retained; the UI only records their names in local demo data.
 - Use browser developer tools to clear the `tallerclaro.demo.v1` local storage key and restore the initial examples.
 
 ## Project structure
 
+The code follows a layer-based (type-based) structure: each folder groups files by their technical role.
+
 ```text
 src/
-  App.jsx                 Routes, reusable UI, and screen components
-  App.css                 Responsive styles and shared design tokens
-  index.css               Document-level reset
+  main.jsx                Entry point
+  App.jsx                 Layout and hash routing only
+  components/
+    ui/                   Reusable building blocks (Button, Icon, Status, DataLine, ...)
+    layout/               Sidebar, Topbar, CustomerHeader, Toast
+    orders/               OrdersTable, ReceiptList
+    customer/             RequestForm, HowItWorks
+  pages/                  One file per workshop screen
+    customer/             Customer screens (request, quote review, tracking)
+  hooks/                  useDemoData, useHashRoute, useQuoteRequest, useSpeechInput
   services/mockApi.js     Replaceable local demo service
+  utils/                  formatMoney and shared constants
+  styles/                 Global reset and application styles
 docs/
   API_CONTRACT.md         Proposed backend handoff and data models
 ```
@@ -59,10 +70,5 @@ docs/
 The interface uses semantic landmarks, labeled fields, visible focus styles, keyboard-operable controls, live status/error messages, reduced-motion handling, and a mobile navigation drawer. Layouts adapt at 760 px and 1100 px; short landscape viewports also collapse the workshop sidebar and use a two-column metric layout. The order table remains horizontally scrollable when its columns cannot fit.
 
 ## Backend handoff
-
-The repository now includes a Python/FastAPI layered monolith foundation in
-`../Backend/`, with only `GET /api/health` implemented. This frontend still uses
-local mocks. See the [backend guide](../Backend/README.md) and
-[architecture plan](../docs/superpowers/plans/2026-10-31-fastapi-layers.md).
 
 Replace the functions in `src/services/mockApi.js` with the agreed API client. Keep server-side pricing and payment verification authoritative. The endpoint names in `docs/API_CONTRACT.md` are a proposal and require backend agreement. No backend, database, authentication system, AI provider, or PayPal SDK is included in this frontend.
