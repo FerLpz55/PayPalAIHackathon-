@@ -1,0 +1,134 @@
+.request-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 24px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+}
+
+.request-form__label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-primary);
+}
+
+.request-form__textarea-box {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--color-input-border);
+  border-radius: 10px;
+}
+
+.request-form__textarea-box:focus-within {
+  border-color: var(--color-primary);
+}
+
+.request-form__textarea-box textarea {
+  width: 100%;
+  border: none;
+  outline: none;
+  resize: vertical;
+  font-size: 14px;
+  line-height: 1.5;
+  color: #334155;
+  background: transparent;
+}
+
+.request-form__voice {
+  align-self: flex-end;
+  padding: 8px 14px;
+  border: none;
+  border-radius: 18px;
+  background: var(--color-primary-soft);
+  color: var(--color-primary);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.request-form__voice.is-listening {
+  background: var(--color-danger);
+  color: #fff;
+}
+
+.request-form__hint {
+  margin: -8px 0 0;
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+.request-form__row {
+  display: flex;
+  gap: 16px;
+}
+
+.request-form__field {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+.request-form__field input {
+  padding: 11px 12px;
+  border: 1px solid var(--color-input-border);
+  border-radius: var(--radius-md);
+  font-size: 14px;
+  color: #334155;
+}
+
+.request-form__field input:focus {
+  outline: none;
+  border-color: var(--color-primary);
+}
+
+.has-error,
+.request-form__field input.has-error {
+  border-color: var(--color-danger);
+}
+
+.request-form__error {
+  margin: 0;
+  font-size: 12px;
+  color: var(--color-danger);
+}
+
+.request-form__error--box {
+  padding: 12px;
+  border-radius: var(--radius-md);
+  background: #fef2f2;
+}
+
+.request-form__submit {
+  padding: 14px 20px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: var(--color-primary);
+  color: #fff;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.request-form__submit:disabled {
+  opacity: 0.7;
+  cursor: wait;
+}
+
+@media (max-width: 640px) {
+  .request-form {
+    padding: 16px;
+  }
+
+  .request-form__row {
+    flex-direction: column;
+  }
+}
