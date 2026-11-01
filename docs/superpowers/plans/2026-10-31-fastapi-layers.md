@@ -47,7 +47,7 @@ aprobar y crear pedido, iniciar y verificar pago, consultar y actualizar pedido
 con autorizacion. Definir politica de acceso del cliente sin introducir cuentas
 fuera del alcance del MVP.
 
-La moneda (MXN), redondeo por renglon, anticipo del 50 % y vigencia quedaron
+La moneda (USD), redondeo por renglon, anticipo del 50 % y vigencia quedaron
 documentados en el esquema y en `database/README.md`. Mantener pago y produccion
 separados y procesar confirmaciones verificadas de forma idempotente.
 Las rutas de negocio aun no existen; no devolver exitos simulados desde esta base.

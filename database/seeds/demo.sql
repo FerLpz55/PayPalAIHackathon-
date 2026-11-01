@@ -33,7 +33,7 @@ BEGIN
         v_id_cliente, v_id_carpintero_1,
         'Mesa de comedor de madera solida para 6 personas',
         'Mesa con patas torneadas y acabado barnizado. Incluye material y mano de obra.',
-        350.00, 'approved', 'MXN'
+        350.00, 'approved', 'USD'
     )
     RETURNING id_cotizacion INTO v_id_cotizacion;
 
@@ -52,7 +52,7 @@ BEGIN
     )
     VALUES (
         v_id_cotizacion, v_id_carpintero_1, v_codigo_pedido,
-        350.00, 175.00, 'MXN', 'pending', CURRENT_DATE + 14
+        350.00, 175.00, 'USD', 'pending', CURRENT_DATE + 14
     )
     RETURNING id_pedido INTO v_id_pedido;
 
@@ -61,7 +61,7 @@ BEGIN
         paypal_order_id, paypal_capture_id, fecha_pago
     )
     VALUES (
-        v_id_pedido, 'deposit', 175.00, 'MXN', 'pending',
+        v_id_pedido, 'deposit', 175.00, 'USD', 'pending',
         NULL, NULL, NULL
     );
 

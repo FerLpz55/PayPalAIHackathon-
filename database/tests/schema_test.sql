@@ -49,7 +49,7 @@ BEGIN
         v_id_cliente, v_id_carpintero,
         'Mesa de centro a medida',
         'Mesa de centro con cajon, madera de pino.',
-        350.00, 'approved', 'MXN'
+        350.00, 'approved', 'USD'
     )
     RETURNING id_cotizacion INTO v_id_cotizacion;
 
@@ -76,7 +76,7 @@ BEGIN
     )
     VALUES (
         v_id_cotizacion, v_id_carpintero, v_codigo,
-        350.00, 175.00, 'MXN', 'pending'
+        350.00, 175.00, 'USD', 'pending'
     )
     RETURNING id_pedido INTO v_id_pedido;
 
@@ -253,7 +253,7 @@ BEGIN
             id_cliente, id_carpintero, solicitud, descripcion,
             monto_total, estado, moneda
         )
-        VALUES (-1, v_id_carpintero, 'x', 'y', 100.00, 'approved', 'MXN');
+        VALUES (-1, v_id_carpintero, 'x', 'y', 100.00, 'approved', 'USD');
         RAISE EXCEPTION 'Caso cliente inexistente: no fue rechazado';
     EXCEPTION
         WHEN foreign_key_violation THEN
@@ -284,7 +284,7 @@ BEGIN
         )
         VALUES (
             v_id_cotizacion, v_id_carpintero_2, v_codigo,
-            350.00, 175.00, 'MXN', 'pending'
+            350.00, 175.00, 'USD', 'pending'
         );
         RAISE EXCEPTION 'Caso carpintero distinto: no fue rechazado';
     EXCEPTION
@@ -316,7 +316,7 @@ BEGIN
         )
         VALUES (
             v_id_cotizacion, v_id_carpintero, v_codigo,
-            350.00, 175.00, 'MXN', 'pending'
+            350.00, 175.00, 'USD', 'pending'
         );
         RAISE EXCEPTION 'Caso dos pedidos misma cotizacion: no fue rechazado';
     EXCEPTION
@@ -344,7 +344,7 @@ BEGIN
         id_cliente, id_carpintero, solicitud, descripcion,
         monto_total, estado, moneda
     )
-    SELECT id_cliente, id_carpintero, 'otra', 'otra', 100.00, 'approved', 'MXN'
+    SELECT id_cliente, id_carpintero, 'otra', 'otra', 100.00, 'approved', 'USD'
     FROM test_vars;
 
     BEGIN
@@ -352,7 +352,7 @@ BEGIN
             id_cotizacion, id_carpintero, codigo, monto_total,
             monto_anticipo, moneda, estado
         )
-        SELECT id_cotizacion, id_carpintero, v_codigo, 100.00, 50.00, 'MXN', 'pending'
+        SELECT id_cotizacion, id_carpintero, v_codigo, 100.00, 50.00, 'USD', 'pending'
         FROM tallerclaro.cotizacion
         WHERE solicitud = 'otra';
 
@@ -386,7 +386,7 @@ BEGIN
         )
         VALUES (
             v_id_cotizacion, v_id_carpintero, v_codigo,
-            350.00, 400.00, 'MXN', 'pending'
+            350.00, 400.00, 'USD', 'pending'
         );
         RAISE EXCEPTION 'Caso anticipo superior: no fue rechazado';
     EXCEPTION
@@ -403,7 +403,7 @@ BEGIN
         )
         VALUES (
             v_id_cotizacion, v_id_carpintero, v_codigo,
-            350.00, -10.00, 'MXN', 'pending'
+            350.00, -10.00, 'USD', 'pending'
         );
         RAISE EXCEPTION 'Caso anticipo negativo: no fue rechazado';
     EXCEPTION
@@ -435,7 +435,7 @@ BEGIN
         )
         VALUES (
             v_id_cotizacion, v_id_carpintero, v_codigo,
-            350.00, 175.00, 'MXN', 'quote_sent'
+            350.00, 175.00, 'USD', 'quote_sent'
         );
         RAISE EXCEPTION 'Caso estado desconocido: no fue rechazado';
     EXCEPTION
@@ -460,7 +460,7 @@ BEGIN
         paypal_order_id, paypal_capture_id, fecha_pago
     )
     VALUES (
-        v_id_pedido, 'deposit', 175.00, 'MXN', 'pending',
+        v_id_pedido, 'deposit', 175.00, 'USD', 'pending',
         NULL, NULL, NULL
     )
     RETURNING id_pago INTO v_id_pago;
@@ -484,7 +484,7 @@ BEGIN
             paypal_order_id, paypal_capture_id, fecha_pago
         )
         VALUES (
-            v_id_pedido, 'deposit', 175.00, 'MXN', 'completed',
+            v_id_pedido, 'deposit', 175.00, 'USD', 'completed',
             'ORDER_001', NULL, now()
         );
         RAISE EXCEPTION 'Caso completed sin capture: no fue rechazado';
@@ -499,7 +499,7 @@ BEGIN
             paypal_order_id, paypal_capture_id, fecha_pago
         )
         VALUES (
-            v_id_pedido, 'deposit', 175.00, 'MXN', 'completed',
+            v_id_pedido, 'deposit', 175.00, 'USD', 'completed',
             'ORDER_002', 'CAPTURE_002', NULL
         );
         RAISE EXCEPTION 'Caso completed sin fecha_pago: no fue rechazado';
@@ -524,7 +524,7 @@ BEGIN
         paypal_order_id, paypal_capture_id, fecha_pago
     )
     VALUES (
-        v_id_pedido, 'deposit', 10.00, 'MXN', 'completed',
+        v_id_pedido, 'deposit', 10.00, 'USD', 'completed',
         'ORDER_DUP', 'CAPTURE_DUP', now()
     );
 
@@ -534,7 +534,7 @@ BEGIN
             paypal_order_id, paypal_capture_id, fecha_pago
         )
         VALUES (
-            v_id_pedido, 'balance', 10.00, 'MXN', 'completed',
+            v_id_pedido, 'balance', 10.00, 'USD', 'completed',
             'ORDER_DUP', 'CAPTURE_OTHER', now()
         );
         RAISE EXCEPTION 'Caso order_id duplicado: no fue rechazado';
@@ -549,7 +549,7 @@ BEGIN
             paypal_order_id, paypal_capture_id, fecha_pago
         )
         VALUES (
-            v_id_pedido, 'balance', 10.00, 'MXN', 'completed',
+            v_id_pedido, 'balance', 10.00, 'USD', 'completed',
             'ORDER_OTHER', 'CAPTURE_DUP', now()
         );
         RAISE EXCEPTION 'Caso capture_id duplicado: no fue rechazado';
@@ -574,7 +574,7 @@ BEGIN
         paypal_order_id, paypal_capture_id, fecha_pago
     )
     VALUES (
-        v_id_pedido, 'deposit', 50.00, 'MXN', 'failed',
+        v_id_pedido, 'deposit', 50.00, 'USD', 'failed',
         NULL, NULL, NULL
     );
 
@@ -583,7 +583,7 @@ BEGIN
         paypal_order_id, paypal_capture_id, fecha_pago
     )
     VALUES (
-        v_id_pedido, 'deposit', 50.00, 'MXN', 'failed',
+        v_id_pedido, 'deposit', 50.00, 'USD', 'failed',
         NULL, NULL, NULL
     );
 
@@ -592,7 +592,7 @@ BEGIN
         paypal_order_id, paypal_capture_id, fecha_pago
     )
     VALUES (
-        v_id_pedido, 'deposit', 50.00, 'MXN', 'pending',
+        v_id_pedido, 'deposit', 50.00, 'USD', 'pending',
         NULL, NULL, NULL
     );
 
@@ -651,7 +651,7 @@ BEGIN
         paypal_order_id, paypal_capture_id, fecha_pago
     )
     VALUES (
-        v_id_pedido, 'balance', 10.00, 'MXN', 'pending',
+        v_id_pedido, 'balance', 10.00, 'USD', 'pending',
         NULL, NULL, NULL
     )
     RETURNING id_pago INTO v_id_pago;

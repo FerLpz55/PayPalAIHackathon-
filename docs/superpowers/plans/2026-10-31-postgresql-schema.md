@@ -16,7 +16,7 @@ Supuestos propuestos, pendientes de tus respuestas:
 
 - Conservar las seis entidades y permitir los ajustes documentados abajo.
 - PostgreSQL 18, base `tallerclaro`, esquema dedicado `tallerclaro`.
-- MXN, dos decimales monetarios y anticipo del 50 % para el ejemplo del MVP.
+- USD, dos decimales monetarios y anticipo del 50 % para el ejemplo del MVP.
   El porcentaje es una política del backend; no se fija como CHECK del esquema.
 - Ejecución local con `psql`. El SQL de esquema será SQL puro y también podrá
   ejecutarse desde DataGrip o pgAdmin seleccionando la base correcta.
@@ -50,9 +50,9 @@ No editar el script inicial para actualizar bases ya utilizadas.
   Añadir `CHECK (btrim(campo) <> '')` a textos obligatorios.
 - Importes: `numeric(14,2)`; cantidades: `numeric(12,3)`. Nada de `float` o `money`.
   Excluir `NaN` además de comprobar signo; los límites de precisión excluyen infinito.
-- `moneda`: `text NOT NULL DEFAULT 'MXN' CHECK (moneda = 'MXN')` en cotización,
+- `moneda`: `text NOT NULL DEFAULT 'USD' CHECK (moneda = 'USD')` en cotización,
   pedido y pago mientras el MVP sea de una sola moneda. Si eliges USD, sustituir
-  MXN en todos los lugares; no permitir monedas diferentes por accidente.
+  USD en todos los lugares; no permitir monedas diferentes por accidente.
 - Fechas de eventos: `timestamptz`; fecha estimada: `date`.
   `fecha_creacion DEFAULT now()` y `ultima_actualizacion DEFAULT now()`.
 - Estados: `text` con CHECK nombrado, sin ENUM PostgreSQL para facilitar cambios.
@@ -106,7 +106,7 @@ registro constituye una cuenta autenticada. No hacer `nombre_taller` único.
 | descripcion | text NULL mientras falte información; no vacío si existe |
 | monto_total | numeric(14,2) NULL en borradores; finito y >= 0 si existe |
 | estado | text DEFAULT 'draft' |
-| moneda | MXN según convención |
+| moneda | USD según convención |
 | fecha_creacion, ultima_actualizacion | timestamptz DEFAULT now() |
 
 CHECK de estado: `draft`, `needs_information`, `pending_review`, `approved`,
@@ -166,7 +166,7 @@ derivará de pagos completados, no de la columna `estado` de pedido.
 | id_pedido | FK a pedido |
 | tipo | text CHECK IN ('deposit','balance') |
 | monto | numeric(14,2), finito y > 0 |
-| moneda | MXN según convención |
+| moneda | USD según convención |
 | estado | text DEFAULT 'pending'; CHECK IN ('pending','completed','failed','cancelled') |
 | paypal_order_id | text NULL; UNIQUE; no vacío si existe |
 | paypal_capture_id | adición: text NULL; UNIQUE; no vacío si existe |
@@ -292,7 +292,7 @@ Crear dos carpinteros, un cliente ficticio, una cotización y dos detalles:
 
 - Material: cantidad 2.000 × 100.00 = 200.00.
 - Mano de obra: cantidad 1.000 × 150.00 = 150.00.
-- Total: 350.00 MXN; anticipo 175.00; saldo 175.00.
+- Total: 350.00 USD; anticipo 175.00; saldo 175.00.
 
 Crear un pedido pending y un intento de anticipo pending, con IDs PayPal NULL.
 No insertar pagos completed con identificadores ficticios en los datos de demo:

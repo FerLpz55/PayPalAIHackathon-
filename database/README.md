@@ -38,7 +38,7 @@ sin duplicarla. No editar `schema.sql` para actualizar bases ya utilizadas.
 - Seis tablas de negocio: `cliente`, `carpintero`, `cotizacion`,
   `detalle_cotizacion`, `pedido`, `pago`.
 - Convenciones: columnas en español, `snake_case`, PK `bigint GENERATED ALWAYS AS
-  IDENTITY`, importes `numeric(14,2)`, cantidades `numeric(12,3)`, moneda `MXN`,
+  IDENTITY`, importes `numeric(14,2)`, cantidades `numeric(12,3)`, moneda `USD`,
   fechas `timestamptz`, estados como `text` con `CHECK`, nombres calificados.
 
 ### Cambios respecto al diagrama original

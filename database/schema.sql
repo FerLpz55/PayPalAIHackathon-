@@ -66,7 +66,7 @@ CREATE TABLE tallerclaro.cotizacion (
     descripcion             text,
     monto_total             numeric(14,2),
     estado                  text NOT NULL DEFAULT 'draft',
-    moneda                  text NOT NULL DEFAULT 'MXN',
+    moneda                  text NOT NULL DEFAULT 'USD',
     fecha_creacion          timestamptz NOT NULL DEFAULT now(),
     ultima_actualizacion    timestamptz NOT NULL DEFAULT now(),
 
@@ -89,7 +89,7 @@ CREATE TABLE tallerclaro.cotizacion (
         'approved',
         'rejected'
     )),
-    CONSTRAINT ck_cotizacion_moneda CHECK (moneda = 'MXN'),
+    CONSTRAINT ck_cotizacion_moneda CHECK (moneda = 'USD'),
     CONSTRAINT ck_cotizacion_datos_aprobacion CHECK (
         estado NOT IN ('pending_review', 'approved')
         OR (descripcion IS NOT NULL AND monto_total IS NOT NULL AND monto_total > 0)
@@ -139,7 +139,7 @@ CREATE TABLE tallerclaro.pedido (
     codigo                  text NOT NULL,
     monto_total             numeric(14,2) NOT NULL,
     monto_anticipo          numeric(14,2) NOT NULL,
-    moneda                  text NOT NULL DEFAULT 'MXN',
+    moneda                  text NOT NULL DEFAULT 'USD',
     estado                  text NOT NULL DEFAULT 'pending',
     fecha_creacion          timestamptz NOT NULL DEFAULT now(),
     ultima_actualizacion    timestamptz NOT NULL DEFAULT now(),
@@ -155,7 +155,7 @@ CREATE TABLE tallerclaro.pedido (
     CONSTRAINT ck_pedido_monto_total_positivo CHECK (monto_total > 0 AND monto_total = monto_total),
     CONSTRAINT ck_pedido_anticipo_no_negativo CHECK (monto_anticipo >= 0 AND monto_anticipo = monto_anticipo),
     CONSTRAINT ck_pedido_anticipo_no_superior_total CHECK (monto_anticipo <= monto_total),
-    CONSTRAINT ck_pedido_moneda CHECK (moneda = 'MXN'),
+    CONSTRAINT ck_pedido_moneda CHECK (moneda = 'USD'),
     CONSTRAINT ck_pedido_estado CHECK (estado IN ('pending', 'paid', 'in_progress', 'delivered'))
 );
 
@@ -172,7 +172,7 @@ CREATE TABLE tallerclaro.pago (
     id_pedido               bigint NOT NULL,
     tipo                    text NOT NULL,
     monto                   numeric(14,2) NOT NULL,
-    moneda                  text NOT NULL DEFAULT 'MXN',
+    moneda                  text NOT NULL DEFAULT 'USD',
     estado                  text NOT NULL DEFAULT 'pending',
     paypal_order_id         text,
     paypal_capture_id       text,
@@ -186,7 +186,7 @@ CREATE TABLE tallerclaro.pago (
         ON DELETE RESTRICT ON UPDATE RESTRICT,
     CONSTRAINT ck_pago_tipo CHECK (tipo IN ('deposit', 'balance')),
     CONSTRAINT ck_pago_monto_positivo CHECK (monto > 0 AND monto = monto),
-    CONSTRAINT ck_pago_moneda CHECK (moneda = 'MXN'),
+    CONSTRAINT ck_pago_moneda CHECK (moneda = 'USD'),
     CONSTRAINT ck_pago_estado CHECK (estado IN ('pending', 'completed', 'failed', 'cancelled')),
     CONSTRAINT ck_pago_paypal_order_id_no_vacio CHECK (paypal_order_id IS NULL OR btrim(paypal_order_id) <> ''),
     CONSTRAINT ck_pago_paypal_capture_id_no_vacio CHECK (paypal_capture_id IS NULL OR btrim(paypal_capture_id) <> ''),
