@@ -5,7 +5,7 @@ function Toast({ error, notice, onDismiss }) {
   return (
     <div className={`toast ${error ? 'toast-error' : 'toast-success'}`} role={error ? 'alert' : 'status'}>
       <span>{error || notice}</span>
-      <button aria-label="Dismiss message" onClick={onDismiss}><Icon name="close" size={15} /></button>
+      <button type="button" aria-label="Dismiss message" onClick={onDismiss}><Icon name="close" size={15} /></button>
     </div>
   )
 }

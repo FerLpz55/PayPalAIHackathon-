@@ -29,7 +29,7 @@ function OrdersPage({ orders, loading, go }) {
             {Object.entries(STATUS_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
           </select>
         </label>
-        <span className="results-count">{filtered.length} orders</span>
+        <span className="results-count" role="status" aria-live="polite" aria-atomic="true">{filtered.length} orders</span>
       </div>
       <div className="panel table-panel">{loading ? <LoadingState /> : <OrdersTable orders={filtered} go={go} />}</div>
       <DemoNotice text="Status updates are saved in local demo data and do not contact a backend." />

@@ -70,7 +70,7 @@ function ReceiptsPage({ orders, loading, mutate }) {
             <SuccessCallout title="Demo receipt summary" text="Amounts are not verified by an AI service." />
             <DataLine label="Advance received" value={formatMoney(order.paid)} />
             <DataLine label="Receipt amounts" value={formatMoney(order.spent)} />
-            <ProgressTrack value={order.spent} total={order.paid} />
+            <ProgressTrack value={order.spent} total={order.paid} label="Receipt spending compared with the advance" />
             <p className="fine-print">A connected backend must securely store uploaded files and verify each amount against the approved quote.</p>
           </aside>
         </div>
