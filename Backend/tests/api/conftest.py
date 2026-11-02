@@ -1,0 +1,45 @@
+"""Fixtures compartidas para pruebas HTTP."""
+
+import pytest
+
+from fastapi import Request
+from fastapi.testclient import TestClient
+
+from tallerclaro.bootstrap.settings import Settings
+from tallerclaro.domain.entities import CustomerId, QuoteId
+from tallerclaro.main import create_app
+from tallerclaro.presentation.http.dependencies import (
+    get_unit_of_work,
+    require_customer_token,
+    require_workshop_credentials,
+)
+from tests.fakes import FakeAIService, FakePaymentProcessor, FakeUnitOfWork, FakeDependenciesContainer
+
+
+@pytest.fixture
+def deps():
+    return FakeDependenciesContainer()
+
+
+@pytest.fixture
+def client(deps: FakeDependenciesContainer) -> TestClient:
+    settings = Settings()
+    app = create_app(
+        settings=settings,
+        ai_service=deps.ai,
+        payment_processor=deps.payment,
+    )
+
+    def override_uow(request: Request):
+        return deps.uow
+
+    def override_workshop_credentials():
+        return 1
+
+    def override_customer_token():
+        return CustomerId(1), QuoteId(1)
+
+    app.dependency_overrides[get_unit_of_work] = override_uow
+    app.dependency_overrides[require_workshop_credentials] = override_workshop_credentials
+    app.dependency_overrides[require_customer_token] = override_customer_token
+    return TestClient(app)

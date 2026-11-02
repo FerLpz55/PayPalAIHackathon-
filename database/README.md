@@ -8,17 +8,20 @@ de TallerClaro.
 - [x] Esquema inicial implementado en `schema.sql`.
 - [x] Datos de demostración en `seeds/demo.sql`.
 - [x] Pruebas de aceptación del esquema en `tests/schema_test.sql`.
-- [ ] Conexión con FastAPI.
-- [ ] Migraciones numeradas para cambios posteriores.
+- [x] Conexión con FastAPI y repositorios PostgreSQL.
+- [x] Migraciones numeradas en `migrations/`.
+- [ ] Conectar PostgreSQL desplegado y verificar IA/PayPal.
 
 ## Organización
 
 ```text
 database/
-  README.md              este archivo
-  schema.sql             definicion inicial del esquema tallerclaro
-  seeds/demo.sql         datos ficticios de ejemplo
-  tests/schema_test.sql  pruebas SQL que revierten sus datos al finalizar
+  README.md                 este archivo
+  schema.sql                definicion inicial del esquema tallerclaro
+  seeds/demo.sql            datos ficticios de ejemplo
+  tests/schema_test.sql     pruebas SQL que revierten sus datos al finalizar
+  migrations/               cambios posteriores numerados
+    001_add_customer_link_tokens.sql
 ```
 
 Mantener una unica secuencia de cambios del esquema; no duplicarla en el backend.
@@ -105,3 +108,39 @@ deben contener unicamente valores ficticios.
 
 Consultar el [plan del backend](../docs/superpowers/plans/2026-10-31-fastapi-layers.md)
 para la arquitectura y el alcance actual.
+
+## Migraciones
+
+`schema.sql` es la base inicial. Cualquier cambio posterior se agrega como una
+migración numerada en `database/migrations/`. No modificar `schema.sql` para
+actualizar bases ya desplegadas.
+
+Ejemplo de aplicación:
+
+```bash
+psql -X -h <host> -U <app_user> -d <database> -v ON_ERROR_STOP=1 \
+  -f database/migrations/001_add_customer_link_tokens.sql
+```
+
+## Verificación antes de aplicar migraciones
+
+Antes de tocar el PostgreSQL desplegado, comprueba de forma de solo lectura la
+versión, las tablas y el esquema:
+
+```bash
+# Versión del servidor
+psql -h <host> -U <user> -d <database> -c "SELECT version();"
+
+# Tablas del esquema tallerclaro
+psql -h <host> -U <user> -d <database> -c "\dt tallerclaro.*"
+
+# Estructura de una tabla
+psql -h <host> -U <user> -d <database> -c "\d tallerclaro.cotizacion"
+
+# Verificar si una migración ya fue aplicada
+psql -h <host> -U <user> -d <database> -c \
+  "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'tallerclaro' AND table_name = 'cliente_token');"
+```
+
+Nunca ejecutes migraciones ni pruebas que escriban contra la base desplegada sin
+confirmar primero el entorno y tener un respaldo.
