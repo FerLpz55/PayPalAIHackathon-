@@ -147,6 +147,9 @@ th:first-child, td:first-child { min-width: 210px; } th:nth-child(2), td:nth-chi
 .balance-amount strong { color: var(--text); font-size: 19px; } .balance-amount span { color: #718298; }
 .payment-plan .button { min-height: 42px; } .secure-note { margin: 12px 0 0; color: var(--muted); font-size: 9px; line-height: 1.5; } .approve-button { margin-top: 14px; }
 .tracking-grid .detail-panel { min-height: 230px; } .tracking-grid .detail-panel > .section-head { margin-bottom: 12px; }
+.mobile-order-list { display: none; }
+.status-help { flex-basis: 100%; margin: 0; color: var(--muted); font-size: 10px; line-height: 1.5; }
+.status-editor { flex-wrap: wrap; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 @media (min-width: 1440px) { .page-content { padding-inline: 38px; } }
 @media (max-width: 1100px) { .sidebar { width: 205px; } .main-area { width: calc(100% - 205px); margin-left: 205px; } .page-content { padding-inline: 22px; } .metric-row { gap: 9px; } .metric { padding-inline: 12px; } .metric strong { font-size: 20px; } .receipt-layout { grid-template-columns: minmax(0, 1.4fr) minmax(225px, .9fr); gap: 12px; } }
@@ -199,4 +202,22 @@ th:first-child, td:first-child { min-width: 210px; } th:nth-child(2), td:nth-chi
   .status { min-height: 28px; min-width: 0; padding-inline: 9px; font-size: 10px; }
   .customer-header .customer-workshop { font-size: 9px; }
   .page-heading > .button { min-height: 44px; font-size: 10px; }
+}
+@media (max-width: 700px) {
+  .table-scroll { display: none; }
+  .mobile-order-list { display: grid; gap: 10px; margin: 0; padding: 10px 0; list-style: none; }
+  .mobile-order-card { min-width: 0; padding: 13px; border: 1px solid var(--line); border-radius: 9px; background: #fff; }
+  .mobile-order-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+  .mobile-order-heading > div { min-width: 0; }
+  .mobile-order-heading .project-cell { white-space: normal; line-height: 1.45; }
+  .mobile-order-meta { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; margin: 13px 0 4px; }
+  .mobile-order-meta div { min-width: 0; }
+  .mobile-order-meta dt { color: var(--muted); font-size: 10px; }
+  .mobile-order-meta dd { overflow-wrap: anywhere; margin: 3px 0 0; font-size: 12px; font-weight: 600; }
+  .mobile-order-action { min-height: 44px; margin: 4px 0 -4px -8px; padding: 0 8px; border: 0; background: transparent; color: var(--blue); font-size: 11px; font-weight: 600; text-align: left; cursor: pointer; }
+  .table-footer { font-size: 10px; }
+  .toolbar .sort-label select, .toolbar .select-label select { max-width: 100%; }
+  .status-editor { align-items: flex-start; }
+  .status-editor label { flex-basis: 100%; }
+  .status-editor select { width: 100%; }
 }

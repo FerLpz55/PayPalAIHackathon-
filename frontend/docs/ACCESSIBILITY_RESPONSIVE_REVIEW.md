@@ -19,7 +19,7 @@
 - Made the mobile navigation a labeled dialog-like drawer with an accessible trigger name/state, Escape handling, a contained Tab sequence, initial focus, and focus return. The scrim is a button and is unavailable while the drawer is closed.
 - Added dialog labeling and description, Escape handling, focus containment, initial focus, and focus restoration to the confirmation dialog.
 - Connected request form labels, required markers, hints, and error messages using native required semantics and `aria-describedby`/`aria-invalid`. Invalid submission focuses the first invalid input; user-entered values remain available while correcting errors.
-- Added live status semantics to loading and order-result feedback, improved heading structure, and exposed the orders table caption/column headers and scroll region to assistive technology.
+- Added live status semantics to loading and order-result feedback, improved heading structure, and exposed the desktop orders table caption/column headers and scroll region to assistive technology. Issue #16 adds a separate stacked order-card list at narrow widths; the inactive table/list is hidden from layout and the accessibility tree.
 - Converted order progress steps to a semantic ordered list and exposed progress values through labeled progress bars. The accounting chart now has a text equivalent for each displayed month and value.
 - Improved small-screen navigation, spacing, card/form stacking, table scrolling, quote details, and progress-step wrapping while preserving the existing palette and layout hierarchy.
 - Adjusted selected success and demo text colors to improve contrast. A browser-computed contrast spot check measured 5.39:1 for white text on the success action, 5.26:1 for the paid status, and 5.03:1 for demo notice text. These checks cover the named combinations only, not every state or rendered element.
@@ -49,7 +49,7 @@
 
 Playwright browser automation was available against the local Vite development server. No other browser or assistive technology was used.
 
-- Dashboard, Orders, Quotes, Receipts, Accounting, customer request, quote review, tracking, and order detail routes were checked at **375, 390, 430, 768, 1024, 1280, and 1440px**; no page-level horizontal overflow was found. Wide order tables remain in their labeled horizontal scroll region.
+- Dashboard, Orders, Quotes, Receipts, Accounting, customer request, quote review, tracking, and order detail routes were checked at **375, 390, 430, 768, 1024, 1280, and 1440px**; no page-level horizontal overflow was found. After Issue #16, order lists use cards through 700px and the labeled table region at wider sizes; the desktop table retains its horizontal scrolling fallback.
 - At 375px, checked that the mobile menu opens, announces expanded state, receives initial focus, closes on Escape, and restores focus to the trigger. Tab and Shift+Tab wrapped within the open drawer.
 - Checked empty customer request submission: focus moved to the first invalid field, required field errors were visible and associated, and the form retained entered values through validation. Submitted test-only demo data to exercise the quote review view; removed the demo local-storage record after testing. No real customer/payment data or payment flow was used.
 - Checked confirmation dialog labeling and keyboard focus containment; Escape closed it and returned focus to the opener.

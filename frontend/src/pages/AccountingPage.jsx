@@ -13,7 +13,8 @@ import { formatMoney } from '../utils/format.js'
 
 function AccountingPage({ orders, loading, mutate }) {
   const [showFinish, setShowFinish] = useState(false)
-  const ready = orders.find((order) => order.status === 'ready_to_finish')
+  const ready = orders.find((order) => order.status === 'ready_to_finish' && !order.demoCompletionNoteAt)
+  const completionNote = orders.find((order) => order.demoCompletionNoteAt)
   const received = orders.reduce((sum, order) => sum + order.paid, 0)
   const spent = orders.reduce((sum, order) => sum + order.spent, 0)
   const monthly = [
@@ -27,7 +28,7 @@ function AccountingPage({ orders, loading, mutate }) {
 
   const finish = async () => {
     if (!ready) return
-    await mutate(() => mockApi.updateStatus(ready.id, 'delivered'), 'Order marked delivered in demo data. No payment was charged.')
+    await mutate(() => mockApi.recordDemoCompletionNote(ready.id), 'Demo note saved locally. Production status and payment remain unchanged.')
     setShowFinish(false)
   }
 
@@ -35,15 +36,16 @@ function AccountingPage({ orders, loading, mutate }) {
     <div className="page-content">
       <PageHeading title="Illustrative workshop totals" description="Explore sample payment and expense summaries; these are not business financial records." />
       <DemoNotice text="All values on this page are demo data calculated in the browser. They are not verified payments, expenses, accounting records, or tax reports." />
+      {completionNote && <p className="info-callout" role="status" aria-live="polite">A local demo note was recorded for {completionNote.id}. Its production status and payment information were not changed.</p>}
       {ready && (
         <section className="panel finish-banner">
           <div>
             <span className="success-kicker"><Icon name="check" size={14} /> Ready to finish</span>
             <h2>{ready.project}</h2>
             <p>{ready.id} · {ready.customer} · Simulated deposit {formatMoney(ready.paid)}</p>
-            <small>Mark the work complete to update its demo status. Final payment is not processed here.</small>
+            <small>This legacy sample status has no backend mapping. Record a local demo note only; no delivery or payment will be recorded.</small>
           </div>
-          <Button variant="success" onClick={() => setShowFinish(true)}>Mark as finished</Button>
+          <Button variant="secondary" onClick={() => setShowFinish(true)}>Record demo note</Button>
         </section>
       )}
       <div className="section-head accounting-heading">
@@ -92,9 +94,9 @@ function AccountingPage({ orders, loading, mutate }) {
       )}
       {showFinish && (
         <ConfirmDialog
-          title="Mark this order as finished?"
-          text="This updates the sample order status in your browser. It will not send an invoice or charge the customer."
-          confirmLabel="Mark as finished"
+          title="Record a demo completion note?"
+          text={`Save a local note for ${ready?.id}. The order's production status will remain Ready to finish. This does not record delivery or verify or collect payment.`}
+          confirmLabel="Save demo note"
           onConfirm={finish}
           onClose={() => setShowFinish(false)}
         />

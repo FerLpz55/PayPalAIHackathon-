@@ -17,6 +17,17 @@ export const STATUS_LABELS = {
 
 export const ORDER_STATUSES = Object.keys(STATUS_LABELS)
 
+// Backend-supported order transitions considered by the demo workflow.
+// Manual `paid` updates are omitted, and the demo blocks `delivered` because it
+// cannot establish the backend-verified full-payment prerequisite. Legacy demo
+// statuses remain display-only.
+export const ORDER_STATUS_TRANSITIONS = {
+  pending: ['in_progress'],
+  paid: ['in_progress'],
+  in_progress: ['delivered'],
+  delivered: [],
+}
+
 export const PROGRESS_STATUSES = ['quote_sent', 'paid', 'in_progress', 'ready_to_finish', 'delivered']
 
 export const PROGRESS_STEPS = ['Quote approved', 'Advance paid', 'In production', 'Ready to finish']

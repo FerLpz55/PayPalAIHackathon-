@@ -1,14 +1,16 @@
+import { ORDER_STATUS_TRANSITIONS } from '../utils/constants.js'
+
 const STORAGE_KEY = 'tallerclaro.demo.v1'
 
 const seedOrders = [
-  { id: 'TC-1048', customer: 'Lucia Ramos', email: 'lucia.ramos@example.com', project: 'Two-door melamine wardrobe', amount: 18400, status: 'in_progress', date: '2026-10-21', next: 'Add receipts', paid: 9200, spent: 4980, receipts: [{ id: 'R-203', label: 'Melamine boards · 3 sheets', amount: 4200, date: 'Oct 21', state: 'verified' }, { id: 'R-204', label: 'Hinges and handles · 1 set', amount: 780, date: 'Oct 21', state: 'verified' }] },
-  { id: 'TC-1047', customer: 'Marco Silva', email: 'marco.silva@example.com', project: 'Dining table · solid pine', amount: 12800, status: 'quote_sent', date: '2026-10-20', next: 'Awaiting advance', paid: 0, spent: 0, receipts: [] },
-  { id: 'TC-1046', customer: 'Nora Cruz', email: 'nora.cruz@example.com', project: 'Linen curtains · 4 panels', amount: 6250, status: 'ready_to_finish', date: '2026-10-18', next: 'Collect balance', paid: 3125, spent: 0, receipts: [] },
-  { id: 'TC-1045', customer: 'Pablo Leon', email: 'pablo.leon@example.com', project: 'Steel garden bench', amount: 9700, status: 'in_progress', date: '2026-10-16', next: 'View order', paid: 4850, spent: 0, receipts: [] },
-  { id: 'TC-1044', customer: 'Eva Torres', email: 'eva.torres@example.com', project: 'Oak entryway shelves', amount: 5400, status: 'quote_sent', date: '2026-10-14', next: 'Awaiting advance', paid: 0, spent: 0, receipts: [] },
-  { id: 'TC-1043', customer: 'Luis Herrera', email: 'luis.herrera@example.com', project: 'Kitchen island · birch', amount: 22100, status: 'quote_sent', date: '2026-10-12', next: 'Awaiting advance', paid: 0, spent: 0, receipts: [] },
-  { id: 'TC-1042', customer: 'Sofia Vega', email: 'sofia.vega@example.com', project: 'Walnut coffee table', amount: 10900, status: 'in_progress', date: '2026-10-10', next: 'Add receipts', paid: 3600, spent: 0, receipts: [] },
-  { id: 'TC-1041', customer: 'Diego Mora', email: 'diego.mora@example.com', project: 'Pine bookcase', amount: 7900, status: 'ready_to_finish', date: '2026-10-08', next: 'Collect balance', paid: 4075, spent: 0, receipts: [] },
+  { id: 'TC-1048', customer: 'Lucia Ramos', email: 'lucia.ramos@example.com', project: 'Two-door melamine wardrobe', amount: 18400, status: 'in_progress', date: '2026-10-21', paid: 9200, spent: 4980, receipts: [{ id: 'R-203', label: 'Melamine boards · 3 sheets', amount: 4200, date: 'Oct 21', state: 'verified' }, { id: 'R-204', label: 'Hinges and handles · 1 set', amount: 780, date: 'Oct 21', state: 'verified' }] },
+  { id: 'TC-1047', customer: 'Marco Silva', email: 'marco.silva@example.com', project: 'Dining table · solid pine', amount: 12800, status: 'quote_sent', date: '2026-10-20', paid: 0, spent: 0, receipts: [] },
+  { id: 'TC-1046', customer: 'Nora Cruz', email: 'nora.cruz@example.com', project: 'Linen curtains · 4 panels', amount: 6250, status: 'ready_to_finish', date: '2026-10-18', paid: 3125, spent: 0, receipts: [] },
+  { id: 'TC-1045', customer: 'Pablo Leon', email: 'pablo.leon@example.com', project: 'Steel garden bench', amount: 9700, status: 'in_progress', date: '2026-10-16', paid: 4850, spent: 0, receipts: [] },
+  { id: 'TC-1044', customer: 'Eva Torres', email: 'eva.torres@example.com', project: 'Oak entryway shelves', amount: 5400, status: 'quote_sent', date: '2026-10-14', paid: 0, spent: 0, receipts: [] },
+  { id: 'TC-1043', customer: 'Luis Herrera', email: 'luis.herrera@example.com', project: 'Kitchen island · birch', amount: 22100, status: 'quote_sent', date: '2026-10-12', paid: 0, spent: 0, receipts: [] },
+  { id: 'TC-1042', customer: 'Sofia Vega', email: 'sofia.vega@example.com', project: 'Walnut coffee table', amount: 10900, status: 'in_progress', date: '2026-10-10', paid: 3600, spent: 0, receipts: [] },
+  { id: 'TC-1041', customer: 'Diego Mora', email: 'diego.mora@example.com', project: 'Pine bookcase', amount: 7900, status: 'ready_to_finish', date: '2026-10-08', paid: 4075, spent: 0, receipts: [] },
 ]
 
 function readStore() {
@@ -48,7 +50,7 @@ export const mockApi = {
     if (!state.quote) throw new Error('Create a quote before approving it.')
     state.quote = { ...state.quote, status: 'approved' }
     if (!state.orders.some((order) => order.id === state.quote.id)) {
-      state.orders = [{ id: state.quote.id, customer: state.quote.customer, email: state.quote.email, project: state.quote.project, amount: state.quote.total, status: 'quote_sent', date: new Date().toISOString().slice(0, 10), next: 'Awaiting advance', paid: 0, spent: 0, receipts: [] }, ...state.orders]
+      state.orders = [{ id: state.quote.id, customer: state.quote.customer, email: state.quote.email, project: state.quote.project, amount: state.quote.total, status: 'quote_sent', date: new Date().toISOString().slice(0, 10), paid: 0, spent: 0, receipts: [] }, ...state.orders]
     }
     persist()
     return delay(state.quote)
@@ -60,7 +62,6 @@ export const mockApi = {
     if (order) {
       order.paid = kind === 'deposit' ? state.quote.deposit : state.quote.total
       order.status = kind === 'deposit' ? 'in_progress' : 'paid'
-      order.next = kind === 'deposit' ? 'Track order' : 'Payment complete'
     }
     persist()
     return delay(state.quote)
@@ -68,8 +69,24 @@ export const mockApi = {
   async updateStatus(id, status) {
     const order = state.orders.find((item) => item.id === id)
     if (!order) throw new Error('This order could not be found.')
+    if (status === 'delivered') {
+      throw new Error('Delivery requires backend-verified full payment and is unavailable in the demo.')
+    }
+    if (!ORDER_STATUS_TRANSITIONS[order.status]?.includes(status)) {
+      throw new Error(`The demo does not allow changing ${order.status} to ${status}.`)
+    }
     order.status = status
-    order.next = ({ pending: 'Review quote', quote_sent: 'Awaiting advance', paid: 'Start production', in_progress: 'Add receipts', ready_to_finish: 'Collect balance', delivered: 'Complete' })[status]
+    persist()
+    return delay(order)
+  },
+  async recordDemoCompletionNote(id) {
+    const order = state.orders.find((item) => item.id === id)
+    if (!order) throw new Error('This order could not be found.')
+    if (order.status !== 'ready_to_finish') {
+      throw new Error('A demo completion note is available only for a ready-to-finish sample order.')
+    }
+    if (order.demoCompletionNoteAt) throw new Error('A demo completion note already exists for this order.')
+    order.demoCompletionNoteAt = new Date().toISOString()
     persist()
     return delay(order)
   },
