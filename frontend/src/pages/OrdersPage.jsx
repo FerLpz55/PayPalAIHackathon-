@@ -17,6 +17,7 @@ function OrdersPage({ orders, loading, go }) {
   return (
     <div className="page-content">
       <PageHeading title="Your orders" description="Keep every project moving and see what needs attention." action={<Button icon="plus" onClick={() => go('customer/new')}>New order</Button>} />
+      <DemoNotice text="The order list and status values use local demo data; changes are not sent to or saved by a workshop backend." />
       <div className="toolbar">
         <label className="search-field">
           <Icon name="search" />
@@ -32,7 +33,6 @@ function OrdersPage({ orders, loading, go }) {
         <span className="results-count" role="status" aria-live="polite" aria-atomic="true">{filtered.length} orders</span>
       </div>
       <div className="panel table-panel">{loading ? <LoadingState /> : <OrdersTable orders={filtered} go={go} />}</div>
-      <DemoNotice text="Status updates are saved in local demo data and do not contact a backend." />
     </div>
   )
 }

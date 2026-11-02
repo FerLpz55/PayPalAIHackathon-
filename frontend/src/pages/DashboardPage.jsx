@@ -19,22 +19,23 @@ function DashboardPage({ orders, loading, go }) {
   return (
     <div className="page-content">
       <PageHeading title="Good morning, Alex" description="A clear view of every job, from first request to final payment." />
+      <DemoNotice text="Orders, statuses, and totals below are sample browser data and are not connected to a workshop backend." />
       <section className="composer panel">
         <div className="composer-copy">
           <h2>What would you like to make?</h2>
-          <p>Start an order and prepare a quote for your customer.</p>
+          <p>Explore the local request and sample estimate flow.</p>
         </div>
         <button className="composer-action" onClick={() => go('customer/new')} aria-label="Create a new order"><Icon name="plus" /><span>New order</span></button>
         <button className="composer-text" onClick={() => go('customer/new')}>Describe the project to get started…</button>
         <div className="composer-footer">
-          <span>Type a request to create a demo quote</span>
-          <Button onClick={() => go('customer/new')}>Create with AI <Icon name="arrow" size={15} /></Button>
+          <span>Try the fixed-price demo estimate</span>
+          <Button onClick={() => go('customer/new')}>Open quote demo <Icon name="arrow" size={15} /></Button>
         </div>
       </section>
       <section className="metric-row" aria-label="Workshop summary">
         <Metric label="Active orders" value={pad(active)} detail="Across all stages" />
         <Metric label="Quotes to review" value={pad(review)} detail="Waiting for an advance" tone="blue" />
-        <Metric label="Payments received" value={formatMoney(received)} detail="Illustrative demo figures" tone="green" />
+        <Metric label="Simulated payments" value={formatMoney(received)} detail="Local demo figures only" tone="green" />
         <Metric label="Needs attention" value={pad(attention)} detail="Ready to finish" />
       </section>
       <div className="section-head">
@@ -52,7 +53,6 @@ function DashboardPage({ orders, loading, go }) {
           </>
         )}
       </div>
-      <DemoNotice text="Sample orders and totals are stored in this browser for demonstration. They are not connected to a workshop backend." />
     </div>
   )
 }

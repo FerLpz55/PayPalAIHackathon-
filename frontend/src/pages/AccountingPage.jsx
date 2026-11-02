@@ -2,6 +2,7 @@ import { useState } from 'react'
 import Button from '../components/ui/Button.jsx'
 import ConfirmDialog from '../components/ui/ConfirmDialog.jsx'
 import DataLine from '../components/ui/DataLine.jsx'
+import DemoNotice from '../components/ui/DemoNotice.jsx'
 import Icon from '../components/ui/Icon.jsx'
 import LoadingState from '../components/ui/LoadingState.jsx'
 import Metric from '../components/ui/Metric.jsx'
@@ -32,13 +33,14 @@ function AccountingPage({ orders, loading, mutate }) {
 
   return (
     <div className="page-content">
-      <PageHeading title="Finish the work. See what you earned." description="Track demo payments and workshop expenses in one place." />
+      <PageHeading title="Illustrative workshop totals" description="Explore sample payment and expense summaries; these are not business financial records." />
+      <DemoNotice text="All values on this page are demo data calculated in the browser. They are not verified payments, expenses, accounting records, or tax reports." />
       {ready && (
         <section className="panel finish-banner">
           <div>
             <span className="success-kicker"><Icon name="check" size={14} /> Ready to finish</span>
             <h2>{ready.project}</h2>
-            <p>{ready.id} · {ready.customer} · Advance paid {formatMoney(ready.paid)}</p>
+            <p>{ready.id} · {ready.customer} · Simulated deposit {formatMoney(ready.paid)}</p>
             <small>Mark the work complete to update its demo status. Final payment is not processed here.</small>
           </div>
           <Button variant="success" onClick={() => setShowFinish(true)}>Mark as finished</Button>
@@ -50,15 +52,15 @@ function AccountingPage({ orders, loading, mutate }) {
       {loading ? <LoadingState /> : (
         <>
           <section className="metric-row accounting-metrics">
-            <Metric label="Money received" value={formatMoney(received)} detail="Customer payments" tone="green" />
-            <Metric label="Money spent" value={formatMoney(spent)} detail="Uploaded receipt amounts" />
-            <Metric label="Remaining" value={formatMoney(received - spent)} detail="Received minus entered expenses" tone="green" />
+            <Metric label="Simulated payments" value={formatMoney(received)} detail="Local demo amounts" tone="green" />
+            <Metric label="Sample expenses" value={formatMoney(spent)} detail="Receipt amounts in demo data" />
+            <Metric label="Illustrative remainder" value={formatMoney(received - spent)} detail="Demo amounts minus sample expenses" tone="green" />
           </section>
           <div className="accounting-grid">
             <section className="panel chart-panel">
               <h3>Income and spending</h3>
               <p>Sample monthly amounts for this demonstration.</p>
-              <div className="chart" role="img" aria-label="Illustrative income and spending comparison from July to October">
+              <div className="chart" role="img" aria-label="Sample income and spending comparison from July to October">
                 {monthly.map((month) => (
                   <div className="chart-month" key={month.month}>
                     <div className="bars">
@@ -83,7 +85,7 @@ function AccountingPage({ orders, loading, mutate }) {
                   <ProgressTrack value={amount} total={spent} label={`${label} spending share`} />
                 </div>
               ))}
-              <div className="info-callout">Your money stays in your PayPal account. No live payment information is shown in this demo.</div>
+              <div className="info-callout">This demo does not connect to PayPal or move money. No verified payment information is shown.</div>
             </section>
           </div>
         </>

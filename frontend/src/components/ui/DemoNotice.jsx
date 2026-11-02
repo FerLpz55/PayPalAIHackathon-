@@ -1,7 +1,8 @@
 function DemoNotice({ text }) {
   return (
     <p className="demo-notice">
-      <span className="demo-dot" /> Demo only · {text}
+      <span className="demo-notice-label">DEMO</span>
+      <span>{text}</span>
     </p>
   )
 }

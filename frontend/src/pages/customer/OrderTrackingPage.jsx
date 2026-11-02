@@ -6,7 +6,6 @@ import LoadingState from '../../components/ui/LoadingState.jsx'
 import PageHeading from '../../components/ui/PageHeading.jsx'
 import ProgressSteps from '../../components/ui/ProgressSteps.jsx'
 import ProgressTrack from '../../components/ui/ProgressTrack.jsx'
-import SuccessCallout from '../../components/ui/SuccessCallout.jsx'
 import ReceiptList from '../../components/orders/ReceiptList.jsx'
 import { mockApi } from '../../services/mockApi.js'
 import { PROGRESS_STATUSES } from '../../utils/constants.js'
@@ -23,12 +22,13 @@ function OrderTrackingPage({ quote, orders, loading, go, mutate }) {
 
   return (
     <div className="customer-page">
-      <PageHeading title={`${quote.project} is in production`} description={`Order ${order.id} · Deposit received in the local demo. See a sample progress and receipt summary.`} />
+      <PageHeading title={`Demo tracking · ${quote.project}`} description={`Sample order ${order.id} · View simulated progress and receipt entries from this browser.`} />
+      <DemoNotice text="This tracking view uses local sample order, receipt, and payment data. It is not connected to a customer account or backend." />
       <section className="panel progress-panel"><ProgressSteps active={Math.min(3, PROGRESS_STATUSES.indexOf(order.status))} /></section>
       <div className="detail-grid tracking-grid">
         <section className="panel detail-panel">
           <div className="section-head">
-            <div><h2>Material receipts</h2><p>Sample records uploaded by the workshop.</p></div>
+            <div><h2>Material receipts</h2><p>Sample receipt entries; no files were uploaded.</p></div>
             <span className="status status-paid">{order.receipts.length} records</span>
           </div>
           {order.receipts.length
@@ -37,7 +37,7 @@ function OrderTrackingPage({ quote, orders, loading, go, mutate }) {
         </section>
         <aside className="panel detail-panel">
           <h2>Your payments</h2>
-          <SuccessCallout title={order.paid ? `Deposit of ${formatMoney(order.paid)} · demo record` : 'No payment record'} text="No PayPal payment has been verified." />
+          <div className="info-callout">{order.paid ? `Simulated payment entry: ${formatMoney(order.paid)}.` : 'No simulated payment entry.'} No PayPal transaction has been sent or verified.</div>
           <DataLine label="Estimate total" value={formatMoney(order.amount)} />
           <DataLine label="Example balance" value={formatMoney(Math.max(0, order.amount - order.paid))} />
           <ProgressTrack value={order.paid} total={order.amount} label="Demo payment progress" />
@@ -45,7 +45,6 @@ function OrderTrackingPage({ quote, orders, loading, go, mutate }) {
           <p className="fine-print">The backend must verify PayPal transactions before an order is marked paid.</p>
         </aside>
       </div>
-      <DemoNotice text="Order and payment states are local examples only." />
     </div>
   )
 }

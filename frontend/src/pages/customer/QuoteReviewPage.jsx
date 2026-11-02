@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import Button from '../../components/ui/Button.jsx'
 import DataLine from '../../components/ui/DataLine.jsx'
+import DemoNotice from '../../components/ui/DemoNotice.jsx'
 import EmptyState from '../../components/ui/EmptyState.jsx'
 import Icon from '../../components/ui/Icon.jsx'
 import LoadingState from '../../components/ui/LoadingState.jsx'
@@ -35,6 +36,7 @@ function QuoteReviewPage({ quote, orders, loading, go, mutate }) {
   return (
     <div className="customer-page">
       <PageHeading title="Your quote is ready" description={`Review the illustrative estimate for ${quote.customer}. Workshop approval and pricing are not connected.`} />
+      <DemoNotice text="This quote, its approval, and payment actions are simulated in this browser. The estimate is not AI-generated, workshop-approved, or payable." />
       <div className="quote-review-grid">
         <section className="panel quote-breakdown">
           <div className="quote-title-row">
@@ -67,10 +69,10 @@ function QuoteReviewPage({ quote, orders, loading, go, mutate }) {
             <Button variant="success" className="full" onClick={() => go('customer/tracking')}>View demo order <Icon name="arrow" size={15} /></Button>
           ) : (
             <Button variant="paypal" className="full" disabled={busy || !approved} onClick={payDeposit}>
-              {busy ? 'Updating demo…' : approved ? `Pay ${formatMoney(quote.deposit)} deposit with PayPal` : 'Waiting for workshop approval'}
+              {busy ? 'Updating demo…' : approved ? `Simulate ${formatMoney(quote.deposit)} deposit` : 'Waiting for workshop approval'}
             </Button>
           )}
-          <p className="secure-note">PayPal Sandbox demo only. This prototype does not initiate a payment.</p>
+          <p className="secure-note">Simulation only. No PayPal checkout is started and no payment is sent.</p>
           {!order && (
             <Button variant="secondary" className="full approve-button" disabled={busy || approved} onClick={approve}>
               {approved ? 'Approved in demo' : 'Approve example quote'}
