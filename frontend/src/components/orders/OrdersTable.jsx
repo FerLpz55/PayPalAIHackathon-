@@ -8,10 +8,11 @@ function OrdersTable({ orders, go }) {
     return <EmptyState title="No orders yet" text="Create a quote to see its order here." action={<Button onClick={() => go('customer/new')}>Start an order</Button>} />
   }
   return (
-    <div className="table-scroll">
+    <div className="table-scroll" role="region" aria-label="Orders table. Scroll horizontally to see all columns." tabIndex={0}>
       <table>
+        <caption className="sr-only">Workshop orders with customer, total, status, and next step.</caption>
         <thead>
-          <tr><th>Order</th><th>Client</th><th>Total</th><th>Status</th><th>Next step</th></tr>
+          <tr><th scope="col">Order</th><th scope="col">Client</th><th scope="col">Total</th><th scope="col">Status</th><th scope="col">Next step</th></tr>
         </thead>
         <tbody>
           {orders.map((order) => (
@@ -23,7 +24,7 @@ function OrdersTable({ orders, go }) {
               <td>{order.customer}</td>
               <td className="amount-cell">{formatMoney(order.amount)}</td>
               <td><Status value={order.status} /></td>
-              <td><button className="table-action" onClick={() => go(`order/${order.id}`)}>{order.next}</button></td>
+              <td><button type="button" className="table-action" onClick={() => go(`order/${order.id}`)}>{order.next}</button></td>
             </tr>
           ))}
         </tbody>

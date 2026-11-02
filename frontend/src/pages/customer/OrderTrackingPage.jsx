@@ -40,7 +40,7 @@ function OrderTrackingPage({ quote, orders, loading, go, mutate }) {
           <SuccessCallout title={order.paid ? `Deposit of ${formatMoney(order.paid)} · demo record` : 'No payment record'} text="No PayPal payment has been verified." />
           <DataLine label="Estimate total" value={formatMoney(order.amount)} />
           <DataLine label="Example balance" value={formatMoney(Math.max(0, order.amount - order.paid))} />
-          <ProgressTrack value={order.paid} total={order.amount} />
+          <ProgressTrack value={order.paid} total={order.amount} label="Demo payment progress" />
           {order.status === 'ready_to_finish' && <Button variant="paypal" className="full" onClick={payBalance}>Simulate balance payment</Button>}
           <p className="fine-print">The backend must verify PayPal transactions before an order is marked paid.</p>
         </aside>

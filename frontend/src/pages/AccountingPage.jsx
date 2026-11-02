@@ -69,6 +69,9 @@ function AccountingPage({ orders, loading, mutate }) {
                   </div>
                 ))}
               </div>
+              <p className="sr-only">
+                Monthly values: {monthly.map((month) => `${month.month}: received ${formatMoney(month.in)}, spent ${formatMoney(month.out)}`).join('. ')}.
+              </p>
               <div className="chart-legend"><span><i className="legend-income" /> Received</span><span><i className="legend-expense" /> Spent</span></div>
             </section>
             <section className="panel expense-panel">
@@ -77,7 +80,7 @@ function AccountingPage({ orders, loading, mutate }) {
               {expenses.map(([label, amount]) => (
                 <div className="expense-item" key={label}>
                   <DataLine label={label} value={formatMoney(amount)} />
-                  <ProgressTrack value={amount} total={spent} />
+                  <ProgressTrack value={amount} total={spent} label={`${label} spending share`} />
                 </div>
               ))}
               <div className="info-callout">Your money stays in your PayPal account. No live payment information is shown in this demo.</div>

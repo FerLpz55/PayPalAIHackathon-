@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import CustomerHeader from './components/layout/CustomerHeader.jsx'
 import Sidebar from './components/layout/Sidebar.jsx'
 import Toast from './components/layout/Toast.jsx'
@@ -18,6 +18,7 @@ import './styles/app.css'
 
 function App() {
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
+  const menuTriggerRef = useRef(null)
   const closeNav = useCallback(() => setMobileNavOpen(false), [])
   const { route, go } = useHashRoute(closeNav)
   const { orders, quote, loading, notice, error, refresh, mutate, dismiss } = useDemoData()
@@ -38,12 +39,13 @@ function App() {
 
   return (
     <div className={isCustomer ? 'app customer-app' : 'app'}>
-      {!isCustomer && <Sidebar active={route.split('/')[0]} open={mobileNavOpen} onClose={closeNav} go={go} />}
-      <main className="main-area">
-        {isCustomer ? <CustomerHeader /> : <Topbar route={route} onMenu={() => setMobileNavOpen((open) => !open)} />}
+      <a className="skip-link" href="#main-content">Skip to main content</a>
+      {!isCustomer && <Sidebar active={route.split('/')[0]} open={mobileNavOpen} onClose={closeNav} go={go} triggerRef={menuTriggerRef} />}
+      <div className="main-area">
+        {isCustomer ? <CustomerHeader /> : <Topbar route={route} onMenu={() => setMobileNavOpen((open) => !open)} menuOpen={mobileNavOpen} menuButtonRef={menuTriggerRef} />}
         <Toast error={error} notice={notice} onDismiss={dismiss} />
-        {renderPage()}
-      </main>
+        <main id="main-content" tabIndex="-1" inert={mobileNavOpen}>{renderPage()}</main>
+      </div>
     </div>
   )
 }
