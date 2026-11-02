@@ -35,7 +35,7 @@ export const TOPBAR_LABELS = {
 export const HOW_IT_WORKS_STEPS = [
   ['Describe your piece', 'Share the size, materials and details you know, by text or voice.'],
   ['Review a clear estimate', 'See an illustrative material and labor breakdown.'],
-  ['Pay a 50% deposit with PayPal', 'Payment is simulated; no charge is made.'],
-  ['Follow every expense', 'The demo can list receipt records from the workshop.'],
+  ['Try a simulated 50% deposit', 'No PayPal checkout is started and no charge is made.'],
+  ['Review sample receipt entries', 'File names are kept in local demo data only.'],
   ['Pay the balance when finished', 'A real final invoice requires backend and PayPal setup.'],
 ]

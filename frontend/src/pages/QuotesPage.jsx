@@ -13,6 +13,7 @@ function QuotesPage({ orders, quote, loading, go }) {
   return (
     <div className="page-content">
       <PageHeading title="Quotes" description="Review estimates and keep customers informed." action={<Button icon="plus" onClick={() => go('customer/new')}>Create quote</Button>} />
+      <DemoNotice text="Quotes and example totals are local demo data. They are not AI-generated, workshop-approved, or payable." />
       {loading ? <LoadingState /> : (
         <>
           {quote && (
@@ -39,7 +40,6 @@ function QuotesPage({ orders, quote, loading, go }) {
           </div>
         </>
       )}
-      <DemoNotice text="The demo estimate is illustrative. The backend must validate all pricing before a quote can be paid." />
     </div>
   )
 }

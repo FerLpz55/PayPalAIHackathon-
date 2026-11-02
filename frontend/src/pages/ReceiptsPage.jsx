@@ -1,12 +1,12 @@
 import { useState } from 'react'
 import DataLine from '../components/ui/DataLine.jsx'
+import DemoNotice from '../components/ui/DemoNotice.jsx'
 import EmptyState from '../components/ui/EmptyState.jsx'
 import Icon from '../components/ui/Icon.jsx'
 import LoadingState from '../components/ui/LoadingState.jsx'
 import PageHeading from '../components/ui/PageHeading.jsx'
 import ProgressTrack from '../components/ui/ProgressTrack.jsx'
 import Status from '../components/ui/Status.jsx'
-import SuccessCallout from '../components/ui/SuccessCallout.jsx'
 import { mockApi } from '../services/mockApi.js'
 import { formatMoney } from '../utils/format.js'
 
@@ -23,7 +23,8 @@ function ReceiptsPage({ orders, loading, mutate }) {
 
   return (
     <div className="page-content">
-      <PageHeading title="Material receipts" description="Keep purchase records alongside the orders they support." />
+      <PageHeading title="Material receipt demo" description="Preview local receipt-name entries alongside sample orders." />
+      <DemoNotice text="This page stores selected file names only. It does not upload or retain files, verify amounts, or create official financial documents." />
       <div className="toolbar">
         <label className="select-label">
           <span className="sr-only">Choose an order</span>
@@ -43,11 +44,11 @@ function ReceiptsPage({ orders, loading, mutate }) {
             <label className="upload-area">
               <input type="file" accept="image/png,image/jpeg,application/pdf" multiple onChange={addFiles} />
               <span className="upload-icon"><Icon name="upload" size={20} /></span>
-              <strong>Drop receipt photos here, or browse files</strong>
-              <small>JPG, PNG or PDF · Files are listed locally in this demo</small>
-              <span className="button button-secondary">Choose receipts</span>
+              <strong>Select receipt files for the local demo list</strong>
+              <small>JPG, PNG or PDF · Only the selected file names are stored</small>
+              <span className="button button-secondary">Choose files</span>
             </label>
-            <h3 className="list-label">Uploaded receipts <span>{order.receipts.length}</span></h3>
+            <h3 className="list-label">Sample receipt entries <span>{order.receipts.length}</span></h3>
             {order.receipts.length ? (
               <div className="receipt-list">
                 {order.receipts.map((receipt) => (
@@ -55,23 +56,23 @@ function ReceiptsPage({ orders, loading, mutate }) {
                     <span className={`receipt-check ${receipt.state}`}><Icon name={receipt.state === 'verified' ? 'check' : 'receipt'} size={15} /></span>
                     <div>
                       <strong>{receipt.label}</strong>
-                      <small>{receipt.id} · {receipt.date} · {receipt.state === 'verified' ? 'Sample status' : 'Awaiting backend review'}</small>
+                      <small>{receipt.id} · {receipt.date} · Sample entry · Not uploaded or reviewed</small>
                     </div>
                     <b>{receipt.amount ? formatMoney(receipt.amount) : '—'}</b>
-                    <Status value={receipt.state === 'verified' ? 'paid' : 'pending'} />
+                    <span className="status status-sample">Sample</span>
                   </div>
                 ))}
               </div>
-            ) : <EmptyState title="No receipts attached" text="Upload a photo or PDF to add it to this local demo order." />}
+            ) : <EmptyState title="No receipt entries" text="Select a file to add its name to this local demo order. The file itself is not uploaded." />}
           </section>
           <aside className="panel spending-panel">
             <h2>Spending overview</h2>
-            <p>Compare receipt entries with the advance.</p>
-            <SuccessCallout title="Demo receipt summary" text="Amounts are not verified by an AI service." />
-            <DataLine label="Advance received" value={formatMoney(order.paid)} />
-            <DataLine label="Receipt amounts" value={formatMoney(order.spent)} />
-            <ProgressTrack value={order.spent} total={order.paid} label="Receipt spending compared with the advance" />
-            <p className="fine-print">A connected backend must securely store uploaded files and verify each amount against the approved quote.</p>
+            <p>Compare sample receipt amounts with the simulated deposit.</p>
+            <div className="info-callout">Illustrative totals only. Neither payments nor receipt amounts are verified.</div>
+            <DataLine label="Simulated deposit" value={formatMoney(order.paid)} />
+            <DataLine label="Sample receipt amounts" value={formatMoney(order.spent)} />
+            <ProgressTrack value={order.spent} total={order.paid} label="Sample receipt amounts compared with simulated deposit" />
+            <p className="fine-print">A future backend integration needs authorized file storage and a defined receipt review process. No official receipt or financial record is created here.</p>
           </aside>
         </div>
       )}

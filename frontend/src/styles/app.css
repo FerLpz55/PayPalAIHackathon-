@@ -68,7 +68,8 @@ th:first-child, td:first-child { min-width: 210px; } th:nth-child(2), td:nth-chi
 .amount-cell { font-weight: 600; font-variant-numeric: tabular-nums; }
 .status { min-width: 94px; display: inline-flex; justify-content: center; align-items: center; min-height: 22px; padding: 0 10px; border-radius: 999px; color: var(--navy); background: var(--soft-blue); font-size: 9px; font-weight: 600; white-space: nowrap; }
 .status-quote_sent, .status-pending { color: #8a5a00; background: #fff4d5; } .status-ready_to_finish, .status-paid, .status-delivered { color: #067445; background: #e6f7ee; } .status-verified { color: #067445; background: #e6f7ee; }
-.demo-notice { display: flex; align-items: center; gap: 7px; margin: 14px 0 0; color: #596c80; font-size: 9px; line-height: 1.5; }
+.demo-notice { display: flex; align-items: flex-start; gap: 10px; padding: 11px 13px; margin: 14px 0 0; border: 1px solid #ead8a7; border-radius: 8px; color: #52677f; background: #fffaf0; font-size: 11px; line-height: 1.5; }
+.demo-notice-label { flex: 0 0 auto; padding: 2px 6px; border-radius: 4px; color: #6b4b00; background: #ffedbd; font-size: 9px; font-weight: 800; letter-spacing: .04em; line-height: 1.4; }
 .loading-line { padding: 32px 12px; color: var(--muted); font-size: 11px; }
 .empty-state { min-height: 160px; padding: 25px 18px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
 .empty-state h2 { margin: 10px 0 4px; font-size: 13px; } .empty-state p { max-width: 42ch; margin: 0 0 14px; color: var(--muted); font-size: 10px; line-height: 1.6; }

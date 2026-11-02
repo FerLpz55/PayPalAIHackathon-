@@ -22,6 +22,7 @@ function OrderDetailPage({ id, orders, loading, go, mutate }) {
   return (
     <div className="page-content">
       <PageHeading title={order.id} description={`${order.customer} · ${order.project}`} action={<Status value={order.status} />} />
+      <DemoNotice text="This order and its status, payment, and receipt values are local examples. Status edits are not persisted to a backend." />
       <section className="panel progress-panel"><h2>Order progress</h2><ProgressSteps active={step} /></section>
       <div className="detail-grid">
         <section className="panel detail-panel">
@@ -29,8 +30,8 @@ function OrderDetailPage({ id, orders, loading, go, mutate }) {
           <DataLine label="Project" value={order.project} />
           <DataLine label="Customer" value={order.customer} />
           <DataLine label="Estimated total" value={formatMoney(order.amount)} />
-          <DataLine label="Advance received" value={formatMoney(order.paid)} />
-          <DataLine label="Balance due" value={formatMoney(Math.max(order.amount - order.paid, 0))} />
+          <DataLine label="Simulated advance" value={formatMoney(order.paid)} />
+          <DataLine label="Illustrative balance" value={formatMoney(Math.max(order.amount - order.paid, 0))} />
           <label className="status-editor">
             Update demo status
             <select value={order.status} onChange={(event) => mutate(() => mockApi.updateStatus(order.id, event.target.value), `Order ${order.id} status updated in demo data.`)}>
@@ -40,14 +41,13 @@ function OrderDetailPage({ id, orders, loading, go, mutate }) {
         </section>
         <section className="panel detail-panel">
           <h2>Material receipts</h2>
-          <p>Receipt uploads are local demo records.</p>
+          <p>Sample receipt entries; no files were uploaded.</p>
           {order.receipts.length
             ? <ReceiptList receipts={order.receipts} />
             : <EmptyState title="No receipts yet" text="Attach purchase records from the Receipts section." action={<Button variant="secondary" onClick={() => go('receipts')}>Open receipts</Button>} />}
           <Button variant="secondary" onClick={() => go('receipts')}>Manage receipts</Button>
         </section>
       </div>
-      <DemoNotice text="Status edits are local and illustrative. A real workshop dashboard needs authenticated, server-persisted updates." />
     </div>
   )
 }

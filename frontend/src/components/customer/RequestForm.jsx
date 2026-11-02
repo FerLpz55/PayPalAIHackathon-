@@ -33,6 +33,7 @@ function RequestForm({ onQuoteCreated }) {
 
   return (
     <form className="panel request-form" onSubmit={handleSubmit} noValidate>
+      <DemoNotice text="Submitting this form creates a fixed example estimate in this browser; it does not send your request to the workshop or an AI service." />
       <label className="field-label" htmlFor="project-description">Your request <span className="required-indicator">(required)</span></label>
       <textarea
         ref={descriptionRef}
@@ -72,7 +73,7 @@ function RequestForm({ onQuoteCreated }) {
           {errors.customerName && <span id="customer-name-error" className="field-error">{errors.customerName}</span>}
         </label>
         <label>
-          <span>Email for your PayPal invoice <span className="required-indicator">(required)</span></span>
+          <span>Email for the example quote <span className="required-indicator">(required)</span></span>
           <input ref={emailRef} id="customer-email" name="email" autoComplete="email" type="email" required value={form.customerEmail} onChange={(event) => { setAttemptedSubmit(false); updateField('customerEmail', event.target.value) }} className={errors.customerEmail ? 'has-error' : ''} aria-invalid={Boolean(errors.customerEmail)} aria-describedby={errors.customerEmail ? 'customer-email-error' : undefined} disabled={isLoading} />
           {errors.customerEmail && <span id="customer-email-error" className="field-error">{errors.customerEmail}</span>}
         </label>
@@ -81,7 +82,6 @@ function RequestForm({ onQuoteCreated }) {
       <Button type="submit" disabled={isLoading} className="full">
         {isLoading ? 'Preparing your demo estimate…' : 'Get my quote'} <Icon name="arrow" size={16} />
       </Button>
-      <DemoNotice text="This estimate is a fixed example, not an AI-generated or workshop-approved price." />
     </form>
   )
 }
