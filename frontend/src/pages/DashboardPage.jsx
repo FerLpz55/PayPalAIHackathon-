@@ -6,15 +6,13 @@ import Metric from '../components/ui/Metric.jsx'
 import PageHeading from '../components/ui/PageHeading.jsx'
 import OrdersTable from '../components/orders/OrdersTable.jsx'
 import { ACTIVE_STATUSES } from '../utils/constants.js'
-import { formatMoney } from '../utils/format.js'
-
-const pad = (value) => String(value).padStart(2, '0')
 
 function DashboardPage({ orders, loading, go }) {
   const active = orders.filter((order) => ACTIVE_STATUSES.includes(order.status)).length
-  const review = orders.filter((order) => order.status === 'quote_sent').length
-  const received = orders.reduce((sum, order) => sum + order.paid, 0)
-  const attention = orders.filter((order) => order.status === 'ready_to_finish').length
+  const awaitingAdvance = orders.filter((order) => ['pending', 'quote_sent'].includes(order.status)).length
+  const inProduction = orders.filter((order) => order.status === 'in_progress').length
+  const delivered = orders.filter((order) => order.status === 'delivered').length
+  const recentOrders = [...orders].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 4)
 
   return (
     <div className="page-content">
@@ -32,24 +30,24 @@ function DashboardPage({ orders, loading, go }) {
           <Button onClick={() => go('customer/new')}>Open quote demo <Icon name="arrow" size={15} /></Button>
         </div>
       </section>
-      <section className="metric-row" aria-label="Workshop summary">
-        <Metric label="Active orders" value={pad(active)} detail="Across all stages" />
-        <Metric label="Quotes to review" value={pad(review)} detail="Waiting for an advance" tone="blue" />
-        <Metric label="Simulated payments" value={formatMoney(received)} detail="Local demo figures only" tone="green" />
-        <Metric label="Needs attention" value={pad(attention)} detail="Ready to finish" />
+      <section className="metric-row" aria-label="Demo order summary">
+        <Metric label="Active orders" value={active} detail="Not marked delivered" />
+        <Metric label="Awaiting advance" value={awaitingAdvance} detail="Pending or quote sent" tone="blue" />
+        <Metric label="In production" value={inProduction} detail="Local demo order status" />
+        <Metric label="Delivered" value={delivered} detail="Local demo order status" tone="green" />
       </section>
       <div className="section-head">
         <div>
           <h2>Your orders</h2>
-          <p>A quick look at the work moving through your shop.</p>
+          <p>A quick look at the latest sample orders.</p>
         </div>
         <a className="text-link" href="#/orders" onClick={(event) => { event.preventDefault(); go('orders') }}>View all orders <Icon name="arrow" size={14} /></a>
       </div>
       <div className="panel table-panel">
         {loading ? <LoadingState /> : (
           <>
-            <OrdersTable orders={orders.slice(0, 4)} go={go} />
-            <div className="table-footer">Showing {Math.min(4, active)} of {active} active orders</div>
+            <OrdersTable orders={recentOrders} go={go} emptyText="Orders created in the local demo will appear here." />
+            {recentOrders.length > 0 && <div className="table-footer">Showing {recentOrders.length} most recent of {orders.length} demo orders</div>}
           </>
         )}
       </div>

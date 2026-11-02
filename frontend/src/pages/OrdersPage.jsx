@@ -10,9 +10,17 @@ import { STATUS_LABELS } from '../utils/constants.js'
 function OrdersPage({ orders, loading, go }) {
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState('all')
-  const filtered = orders.filter((order) =>
-    `${order.id} ${order.customer} ${order.project}`.toLowerCase().includes(query.toLowerCase()) &&
-    (filter === 'all' || order.status === filter))
+  const [sort, setSort] = useState('newest')
+  const filtered = orders
+    .filter((order) =>
+      `${order.id} ${order.customer} ${order.project}`.toLowerCase().includes(query.trim().toLowerCase()) &&
+      (filter === 'all' || order.status === filter))
+    .sort((a, b) => {
+      if (sort === 'oldest') return a.date.localeCompare(b.date)
+      if (sort === 'amount-high') return b.amount - a.amount
+      if (sort === 'amount-low') return a.amount - b.amount
+      return b.date.localeCompare(a.date)
+    })
 
   return (
     <div className="page-content">
@@ -21,7 +29,7 @@ function OrdersPage({ orders, loading, go }) {
       <div className="toolbar">
         <label className="search-field">
           <Icon name="search" />
-          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search orders or customers" aria-label="Search orders or customers" />
+          <input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search order, customer, or project" aria-label="Search by order, customer, or project" />
         </label>
         <label className="select-label">
           <span className="sr-only">Filter by status</span>
@@ -30,9 +38,18 @@ function OrdersPage({ orders, loading, go }) {
             {Object.entries(STATUS_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
           </select>
         </label>
+        <label className="select-label sort-label">
+          <span className="sr-only">Sort orders</span>
+          <select value={sort} onChange={(event) => setSort(event.target.value)}>
+            <option value="newest">Newest first</option>
+            <option value="oldest">Oldest first</option>
+            <option value="amount-high">Amount: high to low</option>
+            <option value="amount-low">Amount: low to high</option>
+          </select>
+        </label>
         <span className="results-count" role="status" aria-live="polite" aria-atomic="true">{filtered.length} orders</span>
       </div>
-      <div className="panel table-panel">{loading ? <LoadingState /> : <OrdersTable orders={filtered} go={go} />}</div>
+      <div className="panel table-panel">{loading ? <LoadingState /> : <OrdersTable orders={filtered} go={go} emptyTitle={query || filter !== 'all' ? 'No matching orders' : 'No orders yet'} emptyText={query || filter !== 'all' ? 'Try changing your search or status filter.' : 'Orders created in the local demo will appear here.'} emptyAction={!query && filter === 'all'} />}</div>
     </div>
   )
 }

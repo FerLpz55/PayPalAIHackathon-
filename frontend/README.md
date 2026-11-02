@@ -81,7 +81,7 @@ docs/
 
 ## Accessibility and responsive behavior
 
-The interface uses semantic landmarks, labeled fields, visible focus styles, keyboard-operable controls, live status/error messages, reduced-motion handling, and a mobile navigation drawer. Layouts adapt at 900 px and 1100 px; short landscape viewports also collapse the workshop sidebar and use a two-column metric layout. The order table remains horizontally scrollable when its columns cannot fit. See [the Issue #21 review](docs/ACCESSIBILITY_RESPONSIVE_REVIEW.md) for test coverage and limitations.
+The interface uses semantic landmarks, labeled fields, visible focus styles, keyboard-operable controls, live status/error messages, reduced-motion handling, and a mobile navigation drawer. Layouts adapt at 900 px and 1100 px; short landscape viewports also collapse the workshop sidebar and use a two-column metric layout. Order lists use an accessible table on larger screens and stacked order cards on narrow screens. See [the Issue #21 review](docs/ACCESSIBILITY_RESPONSIVE_REVIEW.md) for accessibility test coverage and limitations.
 
 ## Backend handoff
 
