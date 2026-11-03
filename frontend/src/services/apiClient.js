@@ -1,9 +1,31 @@
 import { mockApi, resetDemoData as mockResetDemoData } from './mockApi.js'
 
 const API_BASE_URL = (import.meta.env?.VITE_API_BASE_URL || '').trim().replace(/\/+$/, '')
-export const isConnectedMode = Boolean(API_BASE_URL)
+export const isDemoMode = String(import.meta.env?.VITE_APP_MODE || '').trim().toLowerCase() === 'demo'
+export const isConnectedMode = !isDemoMode && Boolean(API_BASE_URL)
+export const isConfigurationMissing = !isDemoMode && !API_BASE_URL
 
 const SESSION_KEY = 'tallerclaro.session.v1'
+const PENDING_PAYMENT_KEY = 'tallerclaro.pending-payment.v1'
+const COMPLETED_PAYMENT_KEY = 'tallerclaro.completed-payment.v1'
+
+function readPendingPayment() {
+  try {
+    const value = JSON.parse(sessionStorage.getItem(PENDING_PAYMENT_KEY) || 'null')
+    return value && typeof value === 'object' ? value : null
+  } catch {
+    return null
+  }
+}
+
+function savePendingPayment(value) {
+  try {
+    sessionStorage.setItem(PENDING_PAYMENT_KEY, JSON.stringify(value))
+    return true
+  } catch {
+    return false
+  }
+}
 
 export function getSession() {
   try {
@@ -119,6 +141,7 @@ export function adaptOrderResponse(order) {
     amount: total,
     deposit,
     balance,
+    remainingBalance: order.remaining_balance == null ? null : Number(order.remaining_balance),
     status: order.status || 'pending',
     date: order.created_at ? order.created_at.slice(0, 10) : (order.date || new Date().toISOString().slice(0, 10)),
     paid: Number(order.paid_amount ?? order.paid ?? 0),
@@ -129,6 +152,9 @@ export function adaptOrderResponse(order) {
 }
 
 async function apiRequest(path, options = {}) {
+  if (!isConnectedMode) {
+    throw new Error('Backend connection is not configured. Set VITE_API_BASE_URL, or explicitly select VITE_APP_MODE=demo for sample data.')
+  }
   const session = getSession()
   const headers = {
     'Content-Type': 'application/json',
@@ -179,7 +205,7 @@ async function apiRequest(path, options = {}) {
 
 export const apiClient = {
   async listOrders() {
-    if (!isConnectedMode) {
+    if (isDemoMode) {
       return mockApi.listOrders()
     }
     const data = await apiRequest('/api/orders', { isWorkshopRoute: true })
@@ -188,7 +214,7 @@ export const apiClient = {
   },
 
   async getQuote(quoteId) {
-    if (!isConnectedMode) {
+    if (isDemoMode) {
       return mockApi.getQuote(quoteId)
     }
     const session = getSession()
@@ -205,7 +231,7 @@ export const apiClient = {
   },
 
   async createQuote(input) {
-    if (!isConnectedMode) {
+    if (isDemoMode) {
       return mockApi.createQuote(input)
     }
 
@@ -238,24 +264,14 @@ export const apiClient = {
       customerEmail,
     })
 
-    // Request proposal generation
+    // Request proposal generation through the documented route.
     try {
-      await apiRequest(`/api/quotes/${quoteId}/proposal`, {
+      await apiRequest(`/api/quotes/${quoteId}/generate`, {
         method: 'POST',
         isWorkshopRoute: true,
       })
-    } catch (proposalErr) {
-      // If /proposal is not routed, try /generate
-      if (proposalErr.status === 404) {
-        try {
-          await apiRequest(`/api/quotes/${quoteId}/generate`, {
-            method: 'POST',
-            isWorkshopRoute: true,
-          })
-        } catch {
-          // Keep quote as draft if proposal generation encounters an issue
-        }
-      }
+    } catch {
+      // Keep the persisted quote available when generation is unavailable.
     }
 
     // Retrieve full quote with calculated totals and line items
@@ -267,7 +283,7 @@ export const apiClient = {
   },
 
   async submitMissingInfo(quoteId, additionalInfo) {
-    if (!isConnectedMode) {
+    if (isDemoMode) {
       const quote = await mockApi.getQuote()
       if (quote) {
         quote.status = 'pending_review'
@@ -284,24 +300,11 @@ export const apiClient = {
     const targetId = parseNumericId(quoteId || session.activeQuoteId)
     const body = JSON.stringify({ additional_info: additionalInfo })
 
-    let updatedQuoteData
-    try {
-      updatedQuoteData = await apiRequest(`/api/quotes/${targetId}/proposal`, {
-        method: 'POST',
-        isWorkshopRoute: true,
-        body,
-      })
-    } catch (err) {
-      if (err.status === 404) {
-        updatedQuoteData = await apiRequest(`/api/quotes/${targetId}/generate`, {
-          method: 'POST',
-          isWorkshopRoute: true,
-          body,
-        })
-      } else {
-        throw err
-      }
-    }
+    const updatedQuoteData = await apiRequest(`/api/quotes/${targetId}/generate`, {
+      method: 'POST',
+      isWorkshopRoute: true,
+      body,
+    })
 
     // Refresh full quote to ensure deposit, balance, and all fields are loaded
     try {
@@ -313,7 +316,7 @@ export const apiClient = {
   },
 
   async approveQuote(quoteId) {
-    if (!isConnectedMode) {
+    if (isDemoMode) {
       return mockApi.approveQuote()
     }
 
@@ -324,7 +327,7 @@ export const apiClient = {
     })
 
     if (orderData?.id) {
-      saveSession({ activeOrderId: parseNumericId(orderData.id) })
+      saveSession({ activeOrderId: parseNumericId(orderData.id), activeOrderQuoteId: targetId })
     }
 
     // Fetch the updated quote so the UI shows approved state
@@ -333,7 +336,7 @@ export const apiClient = {
   },
 
   async rejectQuote(quoteId) {
-    if (!isConnectedMode) {
+    if (isDemoMode) {
       const quote = await mockApi.getQuote()
       if (quote) {
         quote.status = 'rejected'
@@ -351,19 +354,128 @@ export const apiClient = {
   },
 
   async getOrder(orderId) {
-    if (!isConnectedMode) {
+    if (isDemoMode) {
       const orders = await mockApi.listOrders()
       const found = orders.find((o) => o.id === orderId || o.orderId === parseNumericId(orderId))
       return found || null
     }
 
     const targetId = parseNumericId(orderId)
-    const data = await apiRequest(`/api/orders/${targetId}`, { isWorkshopRoute: true })
+    const data = await apiRequest(`/api/orders/${targetId}`, { isWorkshopRoute: !getSession().customerToken })
     return adaptOrderResponse(data)
   },
 
+  async getCustomerOrder(quoteId) {
+    if (!isConnectedMode) return null
+    const session = getSession()
+    if (!session.customerToken || !session.activeOrderId || String(session.activeOrderQuoteId) !== String(parseNumericId(quoteId))) return null
+    return this.getOrder(session.activeOrderId)
+  },
+
+  getPendingPayment(orderId, type) {
+    const pending = readPendingPayment()
+    return pending && String(pending.orderId) === String(orderId) && pending.type === type ? pending : null
+  },
+
+  getAnyPendingPayment() {
+    return readPendingPayment()
+  },
+
+  getCompletedPayment(orderId, type) {
+    try {
+      const value = JSON.parse(sessionStorage.getItem(COMPLETED_PAYMENT_KEY) || 'null')
+      return value && String(value.orderId) === String(orderId) && value.type === type ? value : null
+    } catch {
+      return null
+    }
+  },
+
+  clearPendingPayment(paymentId) {
+    const pending = readPendingPayment()
+    if (!paymentId || !pending || String(pending.paymentId) !== String(parseNumericId(paymentId))) return
+    try { sessionStorage.removeItem(PENDING_PAYMENT_KEY) } catch { /* ignore storage errors */ }
+    try { sessionStorage.setItem(COMPLETED_PAYMENT_KEY, JSON.stringify({ orderId: pending.orderId, type: pending.type, paymentId: pending.paymentId })) } catch { /* ignore storage errors */ }
+  },
+
+  discardPendingPayment(paymentId) {
+    const pending = readPendingPayment()
+    if (!paymentId || !pending || String(pending.paymentId) !== String(parseNumericId(paymentId))) return
+    try { sessionStorage.removeItem(PENDING_PAYMENT_KEY) } catch { /* ignore storage errors */ }
+  },
+
+  clearUnresolvedPaymentAttempt(orderId, type) {
+    const pending = readPendingPayment()
+    if (pending?.unresolved && String(pending.orderId) === String(parseNumericId(orderId)) && pending.type === type) {
+      try { sessionStorage.removeItem(PENDING_PAYMENT_KEY) } catch { /* ignore storage errors */ }
+    }
+  },
+
+  async createOrderPayment(orderId, type) {
+    if (isDemoMode) throw new Error('PayPal checkout is unavailable in DEMO mode.')
+    if (isConfigurationMissing) throw new Error('Backend connection is not configured. No payment attempt was created.')
+    if (!getSession().customerToken) throw new Error('A customer access token is required to start checkout.')
+    if (!['deposit', 'balance'].includes(type)) throw new Error('Unsupported payment type.')
+    const targetOrderId = parseNumericId(orderId)
+    const existing = readPendingPayment()
+    if (existing) {
+      throw new Error('A payment attempt is already stored. Verify or reconcile it before starting another.')
+    }
+    if (!savePendingPayment({ orderId: targetOrderId, type, unresolved: true })) {
+      throw new Error('Secure payment recovery storage is unavailable. No payment attempt was started.')
+    }
+    let data
+    try {
+      data = await apiRequest(`/api/orders/${targetOrderId}/payments`, {
+        method: 'POST',
+        body: JSON.stringify({ type }),
+      })
+    } catch (error) {
+      if (error?.status >= 400 && error.status < 500) this.clearUnresolvedPaymentAttempt(targetOrderId, type)
+      throw error
+    }
+    const paymentId = parseNumericId(data?.payment_id)
+    const paypalOrderId = data?.paypal_order_id == null ? '' : String(data.paypal_order_id)
+    const approvalUrl = typeof data?.approval_url === 'string' ? data.approval_url : ''
+    let approvalHost = ''
+    try { approvalHost = new URL(approvalUrl).hostname.toLowerCase() } catch { /* invalid URL */ }
+    if (!paymentId || !paypalOrderId) throw new Error('The backend response did not include payment identifiers. This attempt cannot safely be repeated yet.')
+    const safeApprovalUrl = approvalUrl && approvalUrl.startsWith('https://') && (approvalHost === 'sandbox.paypal.com' || approvalHost.endsWith('.sandbox.paypal.com'))
+      ? approvalUrl
+      : null
+    const payment = {
+      paymentId,
+      paypalOrderId,
+      orderId: parseNumericId(orderId),
+      type,
+      amount: data.amount,
+      currency: data.currency,
+      approvalUrl: safeApprovalUrl,
+      unresolved: false,
+      checkoutIssue: approvalUrl && !safeApprovalUrl ? 'The backend returned an unsafe PayPal approval URL.' : null,
+    }
+    if (!savePendingPayment(payment)) {
+      throw new Error('The backend created a payment, but this browser could not save its recovery details. Do not start another attempt; contact the workshop to reconcile it.')
+    }
+    return payment
+  },
+
+  async getPayment(paymentId) {
+    if (!isConnectedMode) return null
+    return apiRequest(`/api/payments/${parseNumericId(paymentId)}`)
+  },
+
+  async capturePayment(paymentId) {
+    if (isDemoMode) throw new Error('Payment capture is unavailable in DEMO mode.')
+    if (isConfigurationMissing) throw new Error('Backend connection is not configured. Payment status cannot be verified.')
+    const captured = await apiRequest(`/api/payments/${parseNumericId(paymentId)}/capture`, { method: 'POST' })
+    if (String(captured?.status || '').toLowerCase() !== 'completed') {
+      throw new Error('The server has not confirmed this payment as completed.')
+    }
+    return captured
+  },
+
   async updateOrderStatus(orderId, status) {
-    if (!isConnectedMode) {
+    if (isDemoMode) {
       return mockApi.updateStatus(orderId, status)
     }
 
@@ -381,29 +493,28 @@ export const apiClient = {
   },
 
   async simulatePayment(orderIdOrKind, amount, type) {
-    if (!isConnectedMode) {
+    if (isDemoMode) {
       const kind = typeof orderIdOrKind === 'string' && (orderIdOrKind === 'deposit' || orderIdOrKind === 'balance')
         ? orderIdOrKind
         : (type || 'deposit')
       return mockApi.simulatePayment(kind)
     }
 
-    // In connected mode, simulate demo payment behavior client-side
-    const kind = typeof orderIdOrKind === 'string' && (orderIdOrKind === 'deposit' || orderIdOrKind === 'balance')
-      ? orderIdOrKind
-      : (type || 'deposit')
-    return mockApi.simulatePayment(kind)
+    throw new Error('Simulated payments are disabled while connected. Use PayPal checkout.')
   },
 
   async recordDemoCompletionNote(orderId) {
+    if (!isDemoMode) throw new Error('Demo data is available only when VITE_APP_MODE=demo is explicitly selected.')
     return mockApi.recordDemoCompletionNote(orderId)
   },
 
   async addReceipt(orderId, file) {
+    if (!isDemoMode) throw new Error('Demo data is available only when VITE_APP_MODE=demo is explicitly selected.')
     return mockApi.addReceipt(orderId, file)
   },
 
   resetDemoData() {
+    if (!isDemoMode) throw new Error('Demo data can be reset only when VITE_APP_MODE=demo is explicitly selected.')
     mockResetDemoData()
     clearSession()
   },

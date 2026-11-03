@@ -28,14 +28,14 @@ Backend settings use the `TALLERCLARO_` prefix. AI defaults to provider `none`; 
 
 ## Issue #22 frontend integration status
 
-No feature in the current frontend is connected to these backend routes. `frontend/src/services/mockApi.js`, `useDemoData.js`, and `useQuoteRequest.js` use fixed/sample values, in-memory state, browser `localStorage`, and simulated delays. A source-verified route below is not a verified frontend integration and is not evidence that the backend is running or configured. Current UI feature classifications and file-level evidence are in [DEMO_VS_REAL_FUNCTIONALITY.md](./DEMO_VS_REAL_FUNCTIONALITY.md).
+The frontend has a partial REAL-mode integration for quote/order retrieval and PayPal checkout routes, while DEMO uses `frontend/src/services/mockApi.js` and local browser state. A source-verified route and successful frontend build do not establish that the backend is running or configured. Current UI feature classifications and file-level evidence are in [DEMO_VS_REAL_FUNCTIONALITY.md](./DEMO_VS_REAL_FUNCTIONALITY.md); PayPal return configuration blockers are in [PAYPAL_RETURN_URLS.md](./PAYPAL_RETURN_URLS.md).
 
 | Backend source group | Route handlers present in checked-in source | Frontend connection | Runtime status |
 |---|---|---|---|
 | Health | `GET /api/health` | None | Not exercised from this frontend; response establishes liveness only. |
-| Quotes | `POST/GET /api/quotes`; `POST /api/quotes/{quote_id}/generate`, `/approve`, `/reject` | None; form uses `mockApi.createQuote`, and review actions use local `mockApi` operations. | Not established. AI and database configuration remain unverified. |
-| Orders | `GET /api/orders`, `GET/PATCH /api/orders/{order_id}` | None; list, detail, and updates use local demo state. | Not established. Workshop auth is not safely usable by this browser client. |
-| Payments | `POST /api/orders/{order_id}/payments`, `POST /api/payments/{payment_id}/capture`, `GET /api/payments/{payment_id}` | None; buttons call `mockApi.simulatePayment`. | Not established. PayPal configuration, browser return flow, and token resource scoping require backend resolution. |
+| Quotes | `POST/GET /api/quotes`; `POST /api/quotes/{quote_id}/generate`, `/approve`, `/reject` | REAL calls backend directly; DEMO uses local `mockApi`. | Not runtime-verified. AI and database configuration remain unverified. |
+| Orders | `GET /api/orders`, `GET/PATCH /api/orders/{order_id}` | REAL calls these routes; DEMO uses local state. | Not runtime-verified. The client currently has a demo Basic Auth fallback for workshop routes; do not treat it as production authentication. |
+| Payments | `POST /api/orders/{order_id}/payments`, `POST /api/payments/{payment_id}/capture`, `GET /api/payments/{payment_id}` | REAL uses backend create/status/capture and PayPal Sandbox approval redirect; DEMO simulation is local and labeled. | Not E2E-verified. PayPal return/cancel URLs remain hardcoded to `example.com`; browser storage loss cannot recover attempts. |
 
 The detailed request/response, status, authentication, and error notes below remain source-level observations, not frontend guarantees. Issue #22 added no backend endpoint and proposed no backend contract change.
 
@@ -192,7 +192,7 @@ Both fields are optional/nullable in the schema; an empty object is schema-valid
 
 The request schema types `type` as a string; domain logic currently accepts `deposit` or `balance`. The handler returns `{ payment_id, paypal_order_id, amount, currency, approval_url }`, where `approval_url` is nullable. With the configured PayPal adapter, the backend creates a server-side PayPal `CAPTURE` order and looks for an `approve` link. The adapter's return and cancel URLs are hardcoded to `https://example.com/payment/return` and `https://example.com/payment/cancel`.
 
-After browser approval, the current API offers `POST /api/payments/{payment_id}/capture` (same customer-token dependency, no body) and `GET /api/payments/{payment_id}`. Capture returns `{ payment_id, status, paypal_order_id, paypal_capture_id, amount, currency, paid_at }`; see the capture response caveat above. The PayPal adapter checks provider status `COMPLETED` before reporting capture success. No frontend return/cancel/reconciliation flow is implemented or specified.
+After browser approval, the API offers `POST /api/payments/{payment_id}/capture` (same customer-token dependency, no body) and `GET /api/payments/{payment_id}`. Capture returns `{ payment_id, status, paypal_order_id, paypal_capture_id, amount, currency, paid_at }`; see the capture response caveat above. The frontend return route checks backend identity and status before capture, then queries again before showing confirmation. The PayPal adapter checks provider status `COMPLETED` before reporting capture success. The return/cancel URLs still need backend configuration; see [PAYPAL_RETURN_URLS.md](./PAYPAL_RETURN_URLS.md).
 
 The create-payment response shape is:
 

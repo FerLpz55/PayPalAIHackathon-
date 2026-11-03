@@ -7,18 +7,46 @@ import PageHeading from '../../components/ui/PageHeading.jsx'
 import ProgressSteps from '../../components/ui/ProgressSteps.jsx'
 import ProgressTrack from '../../components/ui/ProgressTrack.jsx'
 import ReceiptList from '../../components/orders/ReceiptList.jsx'
-import { apiClient } from '../../services/apiClient.js'
+import PayPalCheckout from '../../components/customer/PayPalCheckout.jsx'
+import { apiClient, isConnectedMode, isDemoMode } from '../../services/apiClient.js'
 import { PROGRESS_STATUSES } from '../../utils/constants.js'
 import { formatMoney } from '../../utils/format.js'
 
-function OrderTrackingPage({ quote, orders, loading, go, mutate }) {
+function OrderTrackingPage({ quote, orders, loading, go, mutate, refresh }) {
   if (loading) return <div className="customer-page"><LoadingState /></div>
-  const order = quote && orders.find((item) => item.id === quote.id)
+  const order = quote && orders.find((item) => String(item.quoteId || item.id) === String(quote.numericId || quote.id))
   if (!quote || !order) {
-    return <div className="customer-page"><EmptyState title="No order to track yet" text="Prepare an estimate first to see the customer tracking flow." action={<Button onClick={() => go('customer/new')}>Start an estimate</Button>} /></div>
+    return <div className="customer-page"><EmptyState title="No order to track yet" text={isConnectedMode ? 'No customer-authorized order was returned. Reopen the secure customer link or contact the workshop.' : 'Prepare an estimate first to see the demo tracking flow.'} action={isDemoMode && <Button onClick={() => go('customer/new')}>Start an estimate</Button>} /></div>
   }
 
-  const payBalance = () => mutate(() => apiClient.simulatePayment('balance'), 'Demo only: no final payment was sent and no money was charged.')
+  const payBalanceDemo = () => mutate(() => apiClient.simulatePayment('balance'), 'Demo only: no final payment was sent and no money was charged.')
+
+  if (!isDemoMode) {
+    return (
+      <div className="customer-page">
+        <PageHeading title={`Order tracking · ${quote.project}`} description={`Order ${order.id} · Status and verified payments reported by the backend.`} />
+        <p className="demo-notice" role="status"><span className="demo-notice-label">REAL</span><span>Order and payment details are retrieved from the backend. A payment is successful only after server verification.</span></p>
+        <div className="detail-grid tracking-grid">
+          <section className="panel detail-panel">
+            <h2>Order status</h2>
+            <DataLine label="Order" value={order.id} />
+            <DataLine label="Status" value={order.status} />
+            <DataLine label="Order total" value={formatMoney(order.amount)} />
+            <DataLine label="Verified paid" value={formatMoney(order.paid)} />
+            <DataLine label="Remaining balance" value={order.remainingBalance == null ? 'Not provided by the server' : formatMoney(order.remainingBalance)} />
+            <h3>Payments</h3>
+            {order.payments.length ? order.payments.map((payment) => <DataLine key={payment.id} label={`${payment.type} · ${payment.status}`} value={formatMoney(payment.amount)} />) : <p className="status-help">No payment records were returned.</p>}
+          </section>
+          <aside className="panel detail-panel">
+            <h2>Pay remaining balance</h2>
+            {order.remainingBalance > 0 && order.orderId
+              ? <PayPalCheckout orderId={order.orderId} type="balance" refresh={refresh} />
+              : <p className="status-help">The backend reports no payable balance for this order.</p>}
+          </aside>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="customer-page">
@@ -41,8 +69,8 @@ function OrderTrackingPage({ quote, orders, loading, go, mutate }) {
           <DataLine label="Estimate total" value={formatMoney(order.amount)} />
           <DataLine label="Example balance" value={formatMoney(Math.max(0, order.amount - order.paid))} />
           <ProgressTrack value={order.paid} total={order.amount} label="Demo payment progress" />
-          {order.status === 'ready_to_finish' && <Button variant="paypal" className="full" onClick={payBalance}>Simulate balance payment</Button>}
-          <p className="fine-print">The backend must verify PayPal transactions before an order is marked paid.</p>
+          {order.status === 'ready_to_finish' && <Button variant="paypal" className="full" onClick={payBalanceDemo}>Simulate balance payment</Button>}
+          <p className="fine-print">This DEMO does not send a PayPal transaction. The backend must verify PayPal transactions before an order is marked paid.</p>
         </aside>
       </div>
     </div>

@@ -2,30 +2,32 @@ import { useState } from 'react'
 import Button from '../../components/ui/Button.jsx'
 import DataLine from '../../components/ui/DataLine.jsx'
 import DemoNotice from '../../components/ui/DemoNotice.jsx'
+import PayPalCheckout from '../../components/customer/PayPalCheckout.jsx'
 import EmptyState from '../../components/ui/EmptyState.jsx'
 import Icon from '../../components/ui/Icon.jsx'
 import LoadingState from '../../components/ui/LoadingState.jsx'
 import PageHeading from '../../components/ui/PageHeading.jsx'
-import { apiClient } from '../../services/apiClient.js'
+import { apiClient, isConnectedMode, isDemoMode, isConfigurationMissing } from '../../services/apiClient.js'
 import { formatMoney } from '../../utils/format.js'
 
-function QuoteReviewPage({ quote, orders, loading, go, mutate }) {
+function QuoteReviewPage({ quote, orders, loading, go, mutate, refresh }) {
   const [busy, setBusy] = useState(false)
   const [additionalInfo, setAdditionalInfo] = useState('')
 
   if (loading) return <div className="customer-page"><LoadingState /></div>
+  if (isConfigurationMissing) return <div className="customer-page"><EmptyState title="Backend connection not configured" text="Quotes and payment actions are unavailable until VITE_API_BASE_URL is configured. No sample quote is being shown as real." /></div>
   if (!quote) {
     return <div className="customer-page"><EmptyState title="No quote is ready yet" text="Describe the piece you want made to prepare an illustrative estimate." action={<Button onClick={() => go('customer/new')}>Describe your project</Button>} /></div>
   }
 
   const approved = quote.status === 'approved'
   const isNeedsInfo = quote.status === 'needs_information'
-  const order = orders.find((item) => item.id === quote.id)
+  const order = orders.find((item) => String(item.quoteId || item.id) === String(quote.numericId || quote.id))
   const items = quote.items || []
   const materials = items.filter((item) => item.kind === 'material')
   const labor = items.filter((item) => item.kind === 'labor')
 
-  const payDeposit = async () => {
+  const payDepositDemo = async () => {
     setBusy(true)
     await mutate(() => apiClient.simulatePayment('deposit'), 'Demo only: no PayPal payment was sent and no money was charged.')
     setBusy(false)
@@ -55,7 +57,9 @@ function QuoteReviewPage({ quote, orders, loading, go, mutate }) {
   return (
     <div className="customer-page">
       <PageHeading title="Your quote is ready" description={`Review the estimate for ${quote.customer}. Workshop review and approval required before order confirmation.`} />
-      <DemoNotice text="This quote, its approval, and payment actions can run connected to the backend API or simulated in local demo mode." />
+      {isConnectedMode
+        ? <p className="demo-notice" role="status"><span className="demo-notice-label">REAL</span><span>Quote and order information come from the backend. Payments require server verification.</span></p>
+        : <DemoNotice text="This quote, its approval, and payment actions are simulated in this browser. No order or payment is persisted by a server." />}
       <div className="quote-review-grid">
         <section className="panel quote-breakdown">
           <div className="quote-title-row">
@@ -143,14 +147,15 @@ function QuoteReviewPage({ quote, orders, loading, go, mutate }) {
             <strong>{formatMoney(quote.balance)}</strong>
             <small>Remaining balance due upon delivery readiness.</small>
           </div>
-          {quote.paymentDemo ? (
+          {isDemoMode && quote.paymentDemo ? (
             <Button variant="success" className="full" onClick={() => go('customer/tracking')}>View demo order <Icon name="arrow" size={15} /></Button>
           ) : (
-            <Button variant="paypal" className="full" disabled={busy || !approved || isNeedsInfo} onClick={payDeposit}>
-              {busy ? 'Updating…' : approved ? `Simulate ${formatMoney(quote.deposit)} deposit` : isNeedsInfo ? 'Waiting for information' : 'Waiting for workshop approval'}
+            <Button variant="paypal" className="full" disabled={isConnectedMode || busy || !approved || isNeedsInfo} onClick={payDepositDemo}>
+              {busy ? 'Updating…' : isConnectedMode ? 'PayPal checkout below' : approved ? `Simulate ${formatMoney(quote.deposit)} deposit` : isNeedsInfo ? 'Waiting for information' : 'Waiting for workshop approval'}
             </Button>
           )}
-          <p className="secure-note">Simulation only. Real payments require PayPal checkout setup with backend verification.</p>
+          {isConnectedMode && approved && order?.orderId && <PayPalCheckout orderId={order.orderId} type="deposit" refresh={refresh} />}
+          {isDemoMode && <p className="secure-note">Simulation only. No PayPal transaction is created and no money is charged.</p>}
           {!order && (
             <Button variant="secondary" className="full approve-button" disabled={busy || approved || isNeedsInfo} onClick={approve}>
               {approved ? 'Approved' : isNeedsInfo ? 'Information needed' : 'Approve quote'}
