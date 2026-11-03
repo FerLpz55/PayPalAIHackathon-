@@ -105,23 +105,32 @@ class GenerateQuoteProposal:
         self._ai_service = ai_service
 
     def execute(self, quote_id: QuoteId, additional_info: str | None = None) -> Quote:
+        valid_statuses = {
+            QUOTE_STATUS_DRAFT,
+            QUOTE_STATUS_NEEDS_INFORMATION,
+            QUOTE_STATUS_PENDING_REVIEW,
+        }
         with self._uow:
             quote = self._uow.quotes.get_by_id(quote_id)
             if quote is None:
                 raise NotFoundError("Quote", quote_id)
-            if quote.status not in {
-                QUOTE_STATUS_DRAFT,
-                QUOTE_STATUS_NEEDS_INFORMATION,
-                QUOTE_STATUS_PENDING_REVIEW,
-            }:
+            if quote.status not in valid_statuses:
                 raise ConflictError(f"Cannot generate proposal for quote in status {quote.status}")
 
             prompt = quote.request
             if additional_info and additional_info.strip():
                 prompt = f"{quote.request}\nInformación adicional: {additional_info.strip()}"
-                quote.request = prompt
 
-            proposal = self._ai_service.generate_quote_proposal(prompt)
+        proposal = self._ai_service.generate_quote_proposal(prompt)
+
+        with self._uow:
+            quote = self._uow.quotes.get_by_id(quote_id)
+            if quote is None:
+                raise NotFoundError("Quote", quote_id)
+            if quote.status not in valid_statuses:
+                raise ConflictError(f"Cannot generate proposal for quote in status {quote.status}")
+
+            quote.request = prompt
 
             if proposal.needs_information or proposal.missing_info:
                 quote.description = None

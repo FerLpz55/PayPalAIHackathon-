@@ -121,12 +121,15 @@ class PostgresQuoteRepository:
         self._conn = conn
 
     def save(self, quote: Quote) -> Quote:
+        assumptions = list(quote.assumptions or [])
+        missing_info = list(quote.missing_info or [])
         if quote.id is None:
             row = self._conn.execute(
                 """
                 INSERT INTO tallerclaro.cotizacion
-                    (id_cliente, id_carpintero, solicitud, descripcion, monto_total, estado, moneda)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    (id_cliente, id_carpintero, solicitud, descripcion, monto_total,
+                     estado, moneda, supuestos, informacion_faltante)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING id_cotizacion, fecha_creacion, ultima_actualizacion
                 """,
                 (
@@ -137,6 +140,8 @@ class PostgresQuoteRepository:
                     quote.total.amount if quote.total is not None else None,
                     quote.status,
                     quote.currency,
+                    assumptions,
+                    missing_info,
                 ),
             ).fetchone()
         else:
@@ -144,7 +149,8 @@ class PostgresQuoteRepository:
                 """
                 UPDATE tallerclaro.cotizacion
                 SET id_cliente = %s, id_carpintero = %s, solicitud = %s,
-                    descripcion = %s, monto_total = %s, estado = %s, moneda = %s
+                    descripcion = %s, monto_total = %s, estado = %s, moneda = %s,
+                    supuestos = %s, informacion_faltante = %s
                 WHERE id_cotizacion = %s
                 RETURNING id_cotizacion, fecha_creacion, ultima_actualizacion
                 """,
@@ -156,6 +162,8 @@ class PostgresQuoteRepository:
                     quote.total.amount if quote.total is not None else None,
                     quote.status,
                     quote.currency,
+                    assumptions,
+                    missing_info,
                     quote.id,
                 ),
             ).fetchone()
@@ -182,7 +190,8 @@ class PostgresQuoteRepository:
                 self._conn.execute(
                     """
                     UPDATE tallerclaro.detalle_cotizacion
-                    SET tipo = %s, descripcion = %s, unidad = %s, cantidad = %s, precio_unitario = %s
+                    SET tipo = %s, descripcion = %s, unidad = %s, cantidad = %s,
+                        precio_unitario = %s, activo = true
                     WHERE id_detalle = %s AND id_cotizacion = %s
                     """,
                     (
@@ -201,7 +210,8 @@ class PostgresQuoteRepository:
                 self._conn.execute(
                     """
                     UPDATE tallerclaro.detalle_cotizacion
-                    SET tipo = %s, descripcion = %s, unidad = %s, cantidad = %s, precio_unitario = %s
+                    SET tipo = %s, descripcion = %s, unidad = %s, cantidad = %s,
+                        precio_unitario = %s, activo = true
                     WHERE id_detalle = %s AND id_cotizacion = %s
                     """,
                     (
@@ -222,8 +232,8 @@ class PostgresQuoteRepository:
                 item_row = self._conn.execute(
                     """
                     INSERT INTO tallerclaro.detalle_cotizacion
-                        (id_cotizacion, tipo, descripcion, unidad, cantidad, precio_unitario)
-                    VALUES (%s, %s, %s, %s, %s, %s)
+                        (id_cotizacion, tipo, descripcion, unidad, cantidad, precio_unitario, activo)
+                    VALUES (%s, %s, %s, %s, %s, %s, true)
                     RETURNING id_detalle
                     """,
                     (
@@ -240,13 +250,24 @@ class PostgresQuoteRepository:
                         item.id = QuoteLineItemId(item_row[0])
                     except (dataclasses.FrozenInstanceError, AttributeError):
                         object.__setattr__(item, "id", QuoteLineItemId(item_row[0]))
+
+        for leftover_id in existing_ids:
+            self._conn.execute(
+                """
+                UPDATE tallerclaro.detalle_cotizacion
+                SET activo = false
+                WHERE id_detalle = %s AND id_cotizacion = %s
+                """,
+                (leftover_id, quote.id),
+            )
         return quote
 
     def get_by_id(self, quote_id: QuoteId) -> Quote | None:
         row = self._conn.execute(
             """
             SELECT id_cotizacion, id_cliente, id_carpintero, solicitud, descripcion,
-                   monto_total, estado, moneda, fecha_creacion, ultima_actualizacion
+                   monto_total, estado, moneda, fecha_creacion, ultima_actualizacion,
+                   supuestos, informacion_faltante
             FROM tallerclaro.cotizacion
             WHERE id_cotizacion = %s
             """,
@@ -268,6 +289,8 @@ class PostgresQuoteRepository:
         return quote, customer
 
     def _row_to_quote(self, row: tuple) -> Quote:
+        assumptions = list(row[10] or []) if len(row) > 10 and row[10] is not None else []
+        missing_info = list(row[11] or []) if len(row) > 11 and row[11] is not None else []
         return Quote(
             id=QuoteId(row[0]),
             customer_id=CustomerId(row[1]),
@@ -277,6 +300,8 @@ class PostgresQuoteRepository:
             total=Money(row[5]) if row[5] is not None else None,
             status=row[6],
             currency=row[7],
+            assumptions=assumptions,
+            missing_info=missing_info,
             created_at=row[8],
             updated_at=row[9],
         )
@@ -286,7 +311,7 @@ class PostgresQuoteRepository:
             """
             SELECT id_detalle, tipo, descripcion, unidad, cantidad, precio_unitario
             FROM tallerclaro.detalle_cotizacion
-            WHERE id_cotizacion = %s
+            WHERE id_cotizacion = %s AND activo = true
             ORDER BY id_detalle
             """,
             (quote_id,),

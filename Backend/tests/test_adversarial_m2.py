@@ -159,11 +159,13 @@ def test_quote_repo_save_never_executes_delete_when_items_shrink():
     assert saved_quote.line_items[0].id == 101
     assert saved_quote.line_items[1].id == 102
 
-    updates = [q for q, _ in mock_conn.executed_queries if q.startswith("UPDATE tallerclaro.detalle_cotizacion")]
+    active_updates = [q for q, _ in mock_conn.executed_queries if "activo = true" in q and q.startswith("UPDATE tallerclaro.detalle_cotizacion")]
+    deactivate_updates = [q for q, _ in mock_conn.executed_queries if "activo = false" in q and q.startswith("UPDATE tallerclaro.detalle_cotizacion")]
     inserts = [q for q, _ in mock_conn.executed_queries if q.startswith("INSERT INTO tallerclaro.detalle_cotizacion")]
     deletes = [q for q, _ in mock_conn.executed_queries if "DELETE" in q.upper()]
 
-    assert len(updates) == 2
+    assert len(active_updates) == 2
+    assert len(deactivate_updates) == 2
     assert len(inserts) == 0
     assert len(deletes) == 0
 

@@ -37,7 +37,8 @@ def get_settings(request: Request) -> Settings:
 
 
 def get_unit_of_work(request: Request) -> UnitOfWork:
-    return request.app.state.uow_factory
+    factory = request.app.state.uow_factory
+    return factory() if callable(factory) else factory
 
 
 SettingsDep = Annotated[Settings, Depends(get_settings)]

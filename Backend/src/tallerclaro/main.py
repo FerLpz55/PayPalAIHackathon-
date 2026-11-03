@@ -30,7 +30,7 @@ async def lifespan(app: FastAPI):
         app.state.database = database
 
     if getattr(app.state, "uow_factory", None) is None:
-        app.state.uow_factory = PostgresUnitOfWork(
+        app.state.uow_factory = lambda: PostgresUnitOfWork(
             database,
             token_secret=settings.customer_token_secret,
             token_ttl_hours=settings.customer_token_ttl_hours,
