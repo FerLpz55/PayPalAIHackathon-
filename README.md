@@ -4,7 +4,7 @@ TallerClaro is a PayPal AI Hackathon project for carpentry quotes, customer paym
 
 ## Current project status
 
-- **Frontend (`frontend/`)**: Implements workshop and customer screens following the Penpot design system, with explicit separation between local **Demo mode** (`localStorage`) and **Real API mode** connected to the FastAPI backend (`src/services/api.js`).
+- **Frontend (`frontend/`)**: Implements workshop and customer screens following the Penpot design system, with explicit separation between local **Demo mode** (`localStorage`) and **Real API mode** connected to the FastAPI backend (`src/services/apiClient.js`).
 - **Backend (`Backend/`)**: Implements domain entities, business rules (`Decimal` USD calculations, 50% deposit, status transitions, payment verification before delivery), use cases, PostgreSQL repositories, OpenAI-compatible AI quote & clarification adapter, PayPal Sandbox adapter, workshop Basic Auth, and signed `X-Customer-Token` link authorization.
 - **Database (`database/`)**: PostgreSQL schema (`database/schema.sql`) and migrations (`database/migrations/001_add_customer_link_tokens.sql`, `002_add_quote_clarification_fields.sql`) ready for deployment on a remote VPS managed with **Coolify**.
 - **Pending live credentials**: Connecting the deployed Coolify PostgreSQL instance, configuring a live `TALLERCLARO_AI_API_KEY`, and running end-to-end Sandbox captures with live PayPal Sandbox credentials.

@@ -259,6 +259,7 @@ id_ed25519*
 *.db
 *.db-journal
 uploads/
+frontend/package-lock.json
 
 # pnpm lockfile
 frontend/pnpm-lock.yaml
