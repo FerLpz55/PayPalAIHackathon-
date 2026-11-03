@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import Icon from '../ui/Icon.jsx'
 import { NAV_ITEMS } from '../../utils/constants.js'
+import { isConnectedMode, isDemoMode } from '../../services/apiClient.js'
 
 function Sidebar({ active, open, onClose, go, triggerRef }) {
   const sidebarRef = useRef(null)
@@ -65,16 +66,16 @@ function Sidebar({ active, open, onClose, go, triggerRef }) {
         <div className="workshop-block">
           <div className="nav-caption">Your workshop</div>
           <div className="workshop">
-            <span className="workshop-avatar">M</span>
-            <span><strong>Madera Norte</strong><small>Carpentry studio</small></span>
+            <span className="workshop-avatar">{isDemoMode ? 'M' : 'W'}</span>
+            <span><strong>{isDemoMode ? 'Madera Norte' : 'Workshop account'}</strong><small>{isDemoMode ? 'Carpentry studio' : isConnectedMode ? 'REAL mode' : 'Backend not configured'}</small></span>
           </div>
         </div>
-        <div className="sidebar-bottom">
+        {isDemoMode && <div className="sidebar-bottom">
           <h3>Need a hand?</h3>
           <p>Try the local quote request demonstration.</p>
           <button className="button button-subtle full" onClick={() => go('customer/new')}>Ask TallerClaro</button>
           <div className="demo-pill"><span /> Demo workspace</div>
-        </div>
+        </div>}
       </aside>
     </>
   )

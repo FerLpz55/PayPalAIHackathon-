@@ -24,6 +24,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .sidebar-bottom h3 { margin: 0 0 5px; font-size: 11px; } .sidebar-bottom p { margin: 0 0 13px; color: var(--muted); font-size: 9px; line-height: 1.55; }
 .demo-pill { margin-top: 14px; color: #697c91; font-size: 9px; display: flex; align-items: center; gap: 6px; } .demo-pill span, .demo-dot { width: 6px; height: 6px; border-radius: 50%; background: #ffbf36; display: inline-block; }
 .main-area { width: calc(100% - 230px); margin-left: 230px; min-height: 100vh; }
+.app-unconfigured .main-area { width: 100%; margin-left: 0; }
 .topbar { height: 70px; display: flex; align-items: center; justify-content: space-between; padding: 0 30px; border-bottom: 1px solid var(--line); background: white; }
 .breadcrumb { color: var(--muted); font-size: 9px; } .breadcrumb span { padding: 0 5px; color: #a2afbe; }
 .topbar-title { margin-top: 5px; font-size: 14px; font-weight: 600; }

@@ -1,31 +1,34 @@
 # TallerClaro Frontend
 
-Responsive React frontend for the PayPal AI Hackathon carpentry quote and order management project. The interface follows the connected Penpot design. All current business workflows are local demonstrations; the frontend has no backend-connected feature and must not be used with real customer or payment data.
+Responsive React frontend for TallerClaro. DEMO uses local sample data; REAL mode calls the configured FastAPI backend. A successful frontend build does not establish backend or PayPal Sandbox availability.
 
 ## Current integration status
 
 | Classification | Current frontend features |
 | --- | --- |
-| **REAL** | None of the customer, quote, order, payment, receipt, or accounting workflows is connected to a verified backend integration. |
-| **DEMO** | Customer request submission, sample quote generation/review/approval, simulated payment, tracking, dashboard, order updates, receipt-name entries, and accounting summaries. They use fixed/sample data and local browser state. |
+| **REAL (source integrated; runtime unverified)** | Quote request/review, order list/detail, PayPal payment create, status lookup, capture, and verified return handling when `VITE_API_BASE_URL` points to a working backend. |
+| **DEMO (explicit opt-in)** | Customer request, sample quote, simulated payment, tracking, dashboard, order updates, receipt-name entries, and accounting summaries. Select with `VITE_APP_MODE=demo`; no PayPal charge is made. |
+| **UNCONFIGURED** | If no API URL is set and DEMO was not explicitly selected, sample data is hidden and the app explains how to configure a mode. |
 | **PARTIAL** | Voice-to-text can use the browser Web Speech API where available. It only transcribes text into the request form; it does not call an AI quote service. |
-| **NOT IMPLEMENTED** | Frontend API client, backend authentication/session flow, customer tracking-token flow, and live AI, PayPal, order, receipt, or accounting integrations. |
+| **NOT IMPLEMENTED** | Receipt upload and accounting reports backed by server data. |
 
-The backend repository contains quote, order, and payment route handlers, but source presence does not establish that those routes are deployed, configured, or operational. The frontend does not call them. See [API contract and source status](docs/API_CONTRACT.md) and the [demo versus real feature matrix](docs/DEMO_VS_REAL_FUNCTIONALITY.md) for evidence and gaps.
+The backend repository contains quote, order, and payment route handlers, but source presence does not establish that those routes are deployed, configured, or operational. PayPal return/cancel URLs remain a backend blocker. See [API contract and source status](docs/API_CONTRACT.md), [PayPal return URL requirements](docs/PAYPAL_RETURN_URLS.md), and the [demo versus real feature matrix](docs/DEMO_VS_REAL_FUNCTIONALITY.md).
 
 ## Run locally
 
 ```bash
-npm ci
-npm run dev
+pnpm install
+pnpm run dev
 ```
 
-Open the local URL printed by Vite. The project requires Node.js with npm. To create and inspect a production build:
+Copy `.env.example` to `.env`. Set `VITE_API_BASE_URL` to the backend origin for REAL mode. Set `VITE_APP_MODE=demo` only when you intentionally want browser-only sample data.
+
+Open the local URL printed by Vite. The project requires Node.js and pnpm. To lint and create a production build:
 
 ```bash
-npm run lint
-npm run build
-npm run preview
+pnpm run lint
+pnpm run build
+pnpm run preview
 ```
 
 ## Screens and routes
@@ -85,4 +88,4 @@ The interface uses semantic landmarks, labeled fields, visible focus styles, key
 
 ## Backend handoff
 
-Keep demo operations isolated in `src/services/mockApi.js`. Do not silently fall back to demo data after a backend error. A future API client must wait for the unresolved authentication, customer-token, CORS, error, runtime, and endpoint behavior questions in `docs/API_CONTRACT.md`. Keep server-side pricing and payment verification authoritative. The endpoint behavior in that document is verified from checked-in backend source only; runtime availability has not been established. No backend, database, authentication system, AI provider, or PayPal SDK is included in this frontend.
+Keep demo operations isolated in `src/services/mockApi.js`. Do not silently fall back to demo data after a backend error. Keep server-side pricing and payment verification authoritative. The endpoint behavior in the contract is verified from checked-in source only; runtime availability has not been established. No backend, database, AI provider, or PayPal secret is included in this frontend.

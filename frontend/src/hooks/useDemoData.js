@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
-import { apiClient } from '../services/apiClient.js'
+import { apiClient, isDemoMode, isConfigurationMissing } from '../services/apiClient.js'
 
-export function useDemoData() {
+export function useDemoData({ customerMode = false } = {}) {
   const [orders, setOrders] = useState([])
   const [quote, setQuote] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -10,9 +10,21 @@ export function useDemoData() {
 
   const refresh = useCallback(async () => {
     setLoading(true)
+    if (isConfigurationMissing) {
+      setOrders([])
+      setQuote(null)
+      setError('Backend connection is not configured. Set VITE_API_BASE_URL, or explicitly select VITE_APP_MODE=demo to view sample data.')
+      setLoading(false)
+      return
+    }
     try {
-      const [orderData, quoteData] = await Promise.all([apiClient.listOrders(), apiClient.getQuote()])
-      setOrders(orderData)
+      const quoteData = await apiClient.getQuote()
+      const orderData = customerMode && quoteData && apiClient.getCustomerOrder
+        ? await apiClient.getCustomerOrder(quoteData.numericId || quoteData.id)
+        : customerMode
+          ? null
+          : await apiClient.listOrders()
+      setOrders(Array.isArray(orderData) ? orderData : orderData ? [orderData] : customerMode && isDemoMode ? await apiClient.listOrders() : [])
       setQuote(quoteData)
       setError('')
     } catch (caught) {
@@ -20,7 +32,7 @@ export function useDemoData() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [customerMode])
 
   useEffect(() => {
     const timer = window.setTimeout(() => { void refresh() }, 0)

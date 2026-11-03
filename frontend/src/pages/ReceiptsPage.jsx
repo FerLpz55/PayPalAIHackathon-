@@ -7,12 +7,14 @@ import LoadingState from '../components/ui/LoadingState.jsx'
 import PageHeading from '../components/ui/PageHeading.jsx'
 import ProgressTrack from '../components/ui/ProgressTrack.jsx'
 import Status from '../components/ui/Status.jsx'
-import { apiClient } from '../services/apiClient.js'
+import { apiClient, isDemoMode } from '../services/apiClient.js'
 import { formatMoney } from '../utils/format.js'
 
 function ReceiptsPage({ orders, loading, mutate }) {
   const [selected, setSelected] = useState('TC-1048')
   const order = orders.find((item) => item.id === selected) || orders[0]
+
+  if (!isDemoMode) return <div className="page-content"><EmptyState title="Receipt storage unavailable" text="This local file name preview is available only when VITE_APP_MODE=demo is explicitly selected. The backend does not provide a receipt upload contract." /></div>
 
   const addFiles = async (event) => {
     const files = [...(event.target.files || [])]

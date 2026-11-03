@@ -5,9 +5,10 @@ import Icon from '../components/ui/Icon.jsx'
 import LoadingState from '../components/ui/LoadingState.jsx'
 import PageHeading from '../components/ui/PageHeading.jsx'
 import OrdersTable from '../components/orders/OrdersTable.jsx'
+import { isConnectedMode, isDemoMode, isConfigurationMissing } from '../services/apiClient.js'
 import { STATUS_LABELS } from '../utils/constants.js'
 
-function OrdersPage({ orders, loading, go }) {
+function OrdersPage({ orders, loading, go, error }) {
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState('all')
   const [sort, setSort] = useState('newest')
@@ -25,7 +26,7 @@ function OrdersPage({ orders, loading, go }) {
   return (
     <div className="page-content">
       <PageHeading title="Your orders" description="Keep every project moving and see what needs attention." action={<Button icon="plus" onClick={() => go('customer/new')}>New order</Button>} />
-      <DemoNotice text="The order list and status values use local demo data; changes are not sent to or saved by a workshop backend." />
+      {isDemoMode && <DemoNotice text="The order list and status values use local demo data; changes are not sent to or saved by a workshop backend." />}
       <div className="toolbar">
         <label className="search-field">
           <Icon name="search" />
@@ -49,7 +50,7 @@ function OrdersPage({ orders, loading, go }) {
         </label>
         <span className="results-count" role="status" aria-live="polite" aria-atomic="true">{filtered.length} orders</span>
       </div>
-      <div className="panel table-panel">{loading ? <LoadingState /> : <OrdersTable orders={filtered} go={go} emptyTitle={query || filter !== 'all' ? 'No matching orders' : 'No orders yet'} emptyText={query || filter !== 'all' ? 'Try changing your search or status filter.' : 'Orders created in the local demo will appear here.'} emptyAction={!query && filter === 'all'} />}</div>
+      <div className="panel table-panel">{loading ? <LoadingState /> : isConfigurationMissing ? <p role="status" className="status-help">Backend connection not configured. No sample orders are being shown. Set VITE_API_BASE_URL, or explicitly select VITE_APP_MODE=demo.</p> : isConnectedMode && error ? <p role="alert" className="inline-error">The backend connection failed. No demo orders are being shown as real orders.</p> : <OrdersTable orders={filtered} go={go} emptyTitle={query || filter !== 'all' ? 'No matching orders' : 'No orders yet'} emptyText={query || filter !== 'all' ? 'Try changing your search or status filter.' : isConnectedMode ? 'The backend returned no orders.' : 'Orders created in the local demo will appear here.'} emptyAction={isDemoMode && !query && filter === 'all'} />}</div>
     </div>
   )
 }
