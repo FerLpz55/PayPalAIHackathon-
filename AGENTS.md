@@ -12,6 +12,8 @@
   - La conexión del backend se realiza vía variables de entorno (`.env`) apuntando a dicha instancia remota de Coolify.
 - **Pruebas de Backend**: Ejecutar siempre las pruebas en memoria existentes (`Backend/tests/`), las cuales usan dobles/fakes y no requieren conexión de red a la base de datos remota.
 - **PayPal**: La integración de PayPal Sandbox se gestionará con sus credenciales de prueba; no simular pagos confirmados por servidor sin la API real.
+- **Proveedor de IA**: La generación real de cotizaciones requiere credenciales configuradas por entorno (`TALLERCLARO_AI_API_KEY`). Las pruebas con `FakeAIService` o clientes HTTP simulados validan solo la lógica local, no la integración real.
+- **Criterio para Cerrar Issues en GitHub**: **Nunca cerrar una issue** que dependa de servicios o credenciales externas (PostgreSQL en Coolify, API de IA o PayPal Sandbox) cuando solo haya sido probada con mocks/dobles en memoria. En esos casos, dejar la issue abierta y documentar en un comentario qué quedó listo en `main` y qué credencial/prueba en vivo falta para cerrarla.
 
 ## 3. Arquitectura del Backend
 
