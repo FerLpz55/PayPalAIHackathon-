@@ -5,16 +5,25 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from tallerclaro.application.dtos import CapturedPayment, PaymentIntent
-from tallerclaro.application.exceptions import ConflictError, NotFoundError, ValidationDomainError
+from tallerclaro.application.exceptions import (
+    ConflictError,
+    ForbiddenError,
+    NotFoundError,
+    ValidationDomainError,
+)
 from tallerclaro.application.ports import PaymentProcessor, UnitOfWork
 from tallerclaro.domain.entities import (
+    ORDER_STATUS_PAID,
+    ORDER_STATUS_PENDING,
     PAYMENT_STATUS_COMPLETED,
     PAYMENT_STATUS_PENDING,
     Money,
     Order,
+    OrderId,
     Payment,
     PaymentId,
     PaymentType,
+    QuoteId,
 )
 
 
@@ -23,11 +32,16 @@ class CreateOrderPayment:
         self._uow = uow
         self._payment_processor = payment_processor
 
-    def execute(self, order_id: int, payment_type: PaymentType) -> PaymentIntent:
+    def execute(
+        self, order_id: OrderId, payment_type: PaymentType, authorized_quote_id: QuoteId | None = None
+    ) -> PaymentIntent:
         with self._uow:
             order = self._uow.orders.get_by_id(order_id)
             if order is None:
                 raise NotFoundError("Order", order_id)
+            if authorized_quote_id is not None and order.quote_id != authorized_quote_id:
+                raise ForbiddenError("Not authorized to make payment for this order")
+
 
             payments = self._uow.payments.list_by_order(order_id)
             completed_payments = [p for p in payments if p.status == PAYMENT_STATUS_COMPLETED]
@@ -88,11 +102,19 @@ class CapturePayment:
         self._uow = uow
         self._payment_processor = payment_processor
 
-    def execute(self, payment_id: PaymentId) -> CapturedPayment:
+    def execute(
+        self, payment_id: PaymentId, authorized_quote_id: QuoteId | None = None
+    ) -> CapturedPayment:
         with self._uow:
             payment = self._uow.payments.get_by_id(payment_id)
             if payment is None:
                 raise NotFoundError("Payment", payment_id)
+
+            order = self._uow.orders.get_by_id(payment.order_id)
+            if order is None:
+                raise NotFoundError("Order", payment.order_id)
+            if authorized_quote_id is not None and order.quote_id != authorized_quote_id:
+                raise ForbiddenError("Not authorized to capture payment for this order")
 
             if payment.status == PAYMENT_STATUS_COMPLETED:
                 return CapturedPayment(
@@ -119,12 +141,11 @@ class CapturePayment:
             )
             self._uow.payments.save(payment)
 
-            order = self._uow.orders.get_by_id(payment.order_id)
-            if order is not None:
-                self._maybe_mark_order_paid(order)
-                self._uow.orders.save(order)
+            self._maybe_mark_order_paid(order)
+            self._uow.orders.save(order)
 
             self._uow.commit()
+            captured.payment_id = payment.id
             return captured
 
     def _maybe_mark_order_paid(self, order: Order) -> None:
@@ -133,17 +154,28 @@ class CapturePayment:
             (p.amount.amount for p in payments if p.status == PAYMENT_STATUS_COMPLETED),
             Money.zero().amount,
         )
-        if paid >= order.total.amount and order.status != "paid":
-            order.update_status("paid")
+        if paid >= order.total.amount:
+            if order.status == ORDER_STATUS_PENDING:
+                order.update_status(ORDER_STATUS_PAID)
 
 
 class GetPayment:
     def __init__(self, uow: UnitOfWork) -> None:
         self._uow = uow
 
-    def execute(self, payment_id: PaymentId) -> Payment:
+    def execute(self, payment_id: PaymentId, authorized_quote_id: QuoteId | None = None) -> Payment:
         with self._uow:
             payment = self._uow.payments.get_by_id(payment_id)
             if payment is None:
                 raise NotFoundError("Payment", payment_id)
+
+            if authorized_quote_id is not None:
+                order = self._uow.orders.get_by_id(payment.order_id)
+                if order is None:
+                    raise NotFoundError("Order", payment.order_id)
+                if order.quote_id != authorized_quote_id:
+                    raise ForbiddenError("Not authorized to access this payment")
+
             return payment
+
+

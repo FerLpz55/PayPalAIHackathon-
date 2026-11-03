@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from decimal import Decimal
+import dataclasses
 
 import psycopg
 
@@ -164,30 +165,81 @@ class PostgresQuoteRepository:
         quote.created_at = row[1]
         quote.updated_at = row[2]
 
-        # Persistir partidas
-        self._conn.execute(
-            "DELETE FROM tallerclaro.detalle_cotizacion WHERE id_cotizacion = %s",
+        # Persistir partidas sin churn de DELETE
+        existing_rows = self._conn.execute(
+            """
+            SELECT id_detalle
+            FROM tallerclaro.detalle_cotizacion
+            WHERE id_cotizacion = %s
+            ORDER BY id_detalle
+            """,
             (quote.id,),
-        )
+        ).fetchall()
+        existing_ids = [row[0] for row in existing_rows]
+
         for item in quote.line_items:
-            item_row = self._conn.execute(
-                """
-                INSERT INTO tallerclaro.detalle_cotizacion
-                    (id_cotizacion, tipo, descripcion, unidad, cantidad, precio_unitario)
-                VALUES (%s, %s, %s, %s, %s, %s)
-                RETURNING id_detalle
-                """,
-                (
-                    quote.id,
-                    item.type,
-                    item.description,
-                    item.unit,
-                    item.quantity,
-                    item.unit_price.amount,
-                ),
-            ).fetchone()
-            if item_row is not None:
-                item.id = QuoteLineItemId(item_row[0])
+            if item.id is not None and item.id in existing_ids:
+                self._conn.execute(
+                    """
+                    UPDATE tallerclaro.detalle_cotizacion
+                    SET tipo = %s, descripcion = %s, unidad = %s, cantidad = %s, precio_unitario = %s
+                    WHERE id_detalle = %s AND id_cotizacion = %s
+                    """,
+                    (
+                        item.type,
+                        item.description,
+                        item.unit,
+                        item.quantity,
+                        item.unit_price.amount,
+                        item.id,
+                        quote.id,
+                    ),
+                )
+                existing_ids.remove(item.id)
+            elif existing_ids:
+                target_id = existing_ids.pop(0)
+                self._conn.execute(
+                    """
+                    UPDATE tallerclaro.detalle_cotizacion
+                    SET tipo = %s, descripcion = %s, unidad = %s, cantidad = %s, precio_unitario = %s
+                    WHERE id_detalle = %s AND id_cotizacion = %s
+                    """,
+                    (
+                        item.type,
+                        item.description,
+                        item.unit,
+                        item.quantity,
+                        item.unit_price.amount,
+                        target_id,
+                        quote.id,
+                    ),
+                )
+                try:
+                    item.id = QuoteLineItemId(target_id)
+                except (dataclasses.FrozenInstanceError, AttributeError):
+                    object.__setattr__(item, "id", QuoteLineItemId(target_id))
+            else:
+                item_row = self._conn.execute(
+                    """
+                    INSERT INTO tallerclaro.detalle_cotizacion
+                        (id_cotizacion, tipo, descripcion, unidad, cantidad, precio_unitario)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    RETURNING id_detalle
+                    """,
+                    (
+                        quote.id,
+                        item.type,
+                        item.description,
+                        item.unit,
+                        item.quantity,
+                        item.unit_price.amount,
+                    ),
+                ).fetchone()
+                if item_row is not None:
+                    try:
+                        item.id = QuoteLineItemId(item_row[0])
+                    except (dataclasses.FrozenInstanceError, AttributeError):
+                        object.__setattr__(item, "id", QuoteLineItemId(item_row[0]))
         return quote
 
     def get_by_id(self, quote_id: QuoteId) -> Quote | None:

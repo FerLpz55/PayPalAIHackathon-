@@ -1,6 +1,6 @@
 """Configuración del servidor."""
 
-from pydantic import Field, PostgresDsn
+from pydantic import Field, PostgresDsn, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -37,9 +37,29 @@ class Settings(BaseSettings):
 
     # Acceso de demo del taller
     workshop_username: str = "taller"
+    workshop_password: str = "demo-password"
+    workshop_carpenter_id: int = 1
     workshop_password_hash: str = (
         "$2b$12$invalidplaceholderhash"  # bcrypt ficticio; reemplazar en producción.
     )
+
+    # CORS
+    cors_origins: list[str] = Field(
+        default_factory=lambda: ["*"],
+        description="Allowed CORS origins",
+    )
+
+    @field_validator("cors_origins", mode="before")
+    @classmethod
+    def assemble_cors_origins(cls, v: object) -> list[str]:
+        if isinstance(v, str):
+            if v.startswith("[") and v.endswith("]"):
+                import json
+                return json.loads(v)
+            return [i.strip() for i in v.split(",") if i.strip()]
+        if isinstance(v, list):
+            return [str(i) for i in v]
+        return ["*"]
 
     # Tokens de enlace de cliente
     customer_token_secret: str = "change-me-secret-min-32-chars-long"

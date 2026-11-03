@@ -7,7 +7,7 @@ import PageHeading from '../../components/ui/PageHeading.jsx'
 import ProgressSteps from '../../components/ui/ProgressSteps.jsx'
 import ProgressTrack from '../../components/ui/ProgressTrack.jsx'
 import ReceiptList from '../../components/orders/ReceiptList.jsx'
-import { mockApi } from '../../services/mockApi.js'
+import { apiClient } from '../../services/apiClient.js'
 import { PROGRESS_STATUSES } from '../../utils/constants.js'
 import { formatMoney } from '../../utils/format.js'
 
@@ -18,7 +18,7 @@ function OrderTrackingPage({ quote, orders, loading, go, mutate }) {
     return <div className="customer-page"><EmptyState title="No order to track yet" text="Prepare an estimate first to see the customer tracking flow." action={<Button onClick={() => go('customer/new')}>Start an estimate</Button>} /></div>
   }
 
-  const payBalance = () => mutate(() => mockApi.simulatePayment('balance'), 'Demo only: no final payment was sent and no money was charged.')
+  const payBalance = () => mutate(() => apiClient.simulatePayment('balance'), 'Demo only: no final payment was sent and no money was charged.')
 
   return (
     <div className="customer-page">

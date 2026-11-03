@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { mockApi } from '../services/mockApi.js'
+import { apiClient } from '../services/apiClient.js'
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
@@ -33,7 +33,7 @@ export function useQuoteRequest() {
     setStatus('loading')
     setSubmitError('')
     try {
-      const quote = await mockApi.createQuote({
+      const quote = await apiClient.createQuote({
         description: form.description,
         customer: form.customerName,
         email: form.customerEmail,
@@ -41,9 +41,9 @@ export function useQuoteRequest() {
       })
       setStatus('success')
       return quote
-    } catch {
+    } catch (err) {
       setStatus('error')
-      setSubmitError('The demo quote could not be prepared. Please try again.')
+      setSubmitError(err?.message || 'The quote could not be prepared. Please try again.')
       return null
     }
   }

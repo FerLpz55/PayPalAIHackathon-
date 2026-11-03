@@ -3,6 +3,7 @@
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from tallerclaro.bootstrap.settings import Settings
 from tallerclaro.infrastructure.ai.adapter import build_ai_service
@@ -29,7 +30,11 @@ async def lifespan(app: FastAPI):
         app.state.database = database
 
     if getattr(app.state, "uow_factory", None) is None:
-        app.state.uow_factory = PostgresUnitOfWork(database)
+        app.state.uow_factory = PostgresUnitOfWork(
+            database,
+            token_secret=settings.customer_token_secret,
+            token_ttl_hours=settings.customer_token_ttl_hours,
+        )
     if getattr(app.state, "ai_service", None) is None:
         app.state.ai_service = build_ai_service(settings)
     if getattr(app.state, "payment_processor", None) is None:
@@ -53,6 +58,14 @@ def create_app(
         app.state.ai_service = ai_service
     if payment_processor is not None:
         app.state.payment_processor = payment_processor
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.cors_origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
     register_exception_handlers(app)
 

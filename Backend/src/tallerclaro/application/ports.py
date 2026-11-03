@@ -80,6 +80,14 @@ class PaymentRepository(Protocol):
         ...
 
 
+class CustomerTokenRepository(Protocol):
+    def create(self, customer_id: CustomerId, quote_id: QuoteId) -> str:
+        ...
+
+    def verify(self, token: str) -> tuple[CustomerId, QuoteId] | None:
+        ...
+
+
 class UnitOfWork(Protocol):
     def __enter__(self) -> UnitOfWork:
         ...
@@ -107,11 +115,16 @@ class UnitOfWork(Protocol):
     def payments(self) -> PaymentRepository:
         ...
 
+    @property
+    def tokens(self) -> CustomerTokenRepository:
+        ...
+
     def commit(self) -> None:
         ...
 
     def rollback(self) -> None:
         ...
+
 
 
 class AIService(Protocol):

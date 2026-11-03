@@ -8,7 +8,7 @@ import LoadingState from '../components/ui/LoadingState.jsx'
 import Metric from '../components/ui/Metric.jsx'
 import PageHeading from '../components/ui/PageHeading.jsx'
 import ProgressTrack from '../components/ui/ProgressTrack.jsx'
-import { mockApi } from '../services/mockApi.js'
+import { apiClient } from '../services/apiClient.js'
 import { formatMoney } from '../utils/format.js'
 
 function AccountingPage({ orders, loading, mutate }) {
@@ -28,7 +28,7 @@ function AccountingPage({ orders, loading, mutate }) {
 
   const finish = async () => {
     if (!ready) return
-    await mutate(() => mockApi.recordDemoCompletionNote(ready.id), 'Demo note saved locally. Production status and payment remain unchanged.')
+    await mutate(() => apiClient.recordDemoCompletionNote(ready.id), 'Demo note saved locally. Production status and payment remain unchanged.')
     setShowFinish(false)
   }
 

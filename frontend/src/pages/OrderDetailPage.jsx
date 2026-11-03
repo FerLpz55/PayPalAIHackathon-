@@ -8,7 +8,7 @@ import LoadingState from '../components/ui/LoadingState.jsx'
 import PageHeading from '../components/ui/PageHeading.jsx'
 import Status from '../components/ui/Status.jsx'
 import ReceiptList from '../components/orders/ReceiptList.jsx'
-import { mockApi } from '../services/mockApi.js'
+import { apiClient } from '../services/apiClient.js'
 import { ORDER_STATUS_TRANSITIONS, STATUS_LABELS } from '../utils/constants.js'
 import { formatMoney } from '../utils/format.js'
 
@@ -25,7 +25,7 @@ function OrderDetailPage({ id, orders, loading, go, mutate }) {
   const saveStatus = () => {
     const nextStatus = pendingStatus
     setPendingStatus('')
-    void mutate(() => mockApi.updateStatus(order.id, nextStatus), `Order ${order.id} status changed in local demo data.`)
+    void mutate(() => apiClient.updateStatus(order.id, nextStatus), `Order ${order.id} status changed.`)
   }
 
   return (

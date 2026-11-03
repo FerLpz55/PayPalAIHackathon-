@@ -6,12 +6,16 @@ from decimal import Decimal
 
 from fastapi import APIRouter, Depends, Query
 
-from tallerclaro.application.dtos import UpdateOrderInput
+from tallerclaro.application.dtos import AccessPrincipal, UpdateOrderInput
 from tallerclaro.application.use_cases import GetOrder, ListOrders, UpdateOrder
 from tallerclaro.domain.entities import CarpenterId, OrderId
 from tallerclaro.presentation.http.dependencies import (
-    require_workshop_credentials,
+    PrincipalDep,
+    UnitOfWorkDep,
+    WorkshopCarpenterDep,
     get_unit_of_work,
+    require_quote_or_workshop_principal,
+    require_workshop_credentials,
 )
 from tallerclaro.presentation.http.schemas.orders import (
     OrderDetailResponse,
@@ -42,11 +46,16 @@ def _to_order_response(order) -> OrderResponse:
 
 @router.get("/orders")
 def list_orders(
+    principal: WorkshopCarpenterDep,
+    uow: UnitOfWorkDep,
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
-    carpenter_id: CarpenterId = Depends(require_workshop_credentials),
-    uow=Depends(get_unit_of_work),
 ) -> OrderListResponse:
+    carpenter_id = (
+        principal.carpenter_id
+        if isinstance(principal, AccessPrincipal) and principal.carpenter_id is not None
+        else CarpenterId(principal)
+    )
     use_case = ListOrders(uow)
     orders, total = use_case.execute(carpenter_id, limit, offset)
     return OrderListResponse(
@@ -60,12 +69,13 @@ def list_orders(
 @router.get("/orders/{order_id}")
 def get_order(
     order_id: int,
-    carpenter_id: CarpenterId = Depends(require_workshop_credentials),
-    uow=Depends(get_unit_of_work),
+    principal: PrincipalDep,
+    uow: UnitOfWorkDep,
 ) -> OrderDetailResponse:
     use_case = GetOrder(uow)
-    order = use_case.execute(OrderId(order_id))
-    payments = uow.payments.list_by_order(order.id)
+    detail = use_case.execute(OrderId(order_id), principal)
+    order = detail.order
+    payments = detail.payments
     paid = sum((p.amount.amount for p in payments if p.status == "completed"), Decimal("0"))
     return OrderDetailResponse(
         id=str(order.id),
@@ -91,6 +101,9 @@ def get_order(
         ],
         paid_amount=float(paid),
         remaining_balance=float(order.total.amount - paid),
+        customer_name=detail.customer_name,
+        customer_email=detail.customer_email,
+        project_request=detail.project_request,
     )
 
 
@@ -98,12 +111,18 @@ def get_order(
 def update_order(
     order_id: int,
     body: UpdateOrderRequest,
-    carpenter_id: CarpenterId = Depends(require_workshop_credentials),
-    uow=Depends(get_unit_of_work),
+    principal: WorkshopCarpenterDep,
+    uow: UnitOfWorkDep,
 ) -> OrderResponse:
+    carpenter_id = (
+        principal.carpenter_id
+        if isinstance(principal, AccessPrincipal) and principal.carpenter_id is not None
+        else CarpenterId(principal)
+    )
     use_case = UpdateOrder(uow)
     order = use_case.execute(
         OrderId(order_id),
+        carpenter_id,
         UpdateOrderInput(
             status=body.status,
             estimated_delivery_date=body.estimated_delivery_date,

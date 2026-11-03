@@ -7,7 +7,7 @@ import LoadingState from '../components/ui/LoadingState.jsx'
 import PageHeading from '../components/ui/PageHeading.jsx'
 import ProgressTrack from '../components/ui/ProgressTrack.jsx'
 import Status from '../components/ui/Status.jsx'
-import { mockApi } from '../services/mockApi.js'
+import { apiClient } from '../services/apiClient.js'
 import { formatMoney } from '../utils/format.js'
 
 function ReceiptsPage({ orders, loading, mutate }) {
@@ -17,7 +17,7 @@ function ReceiptsPage({ orders, loading, mutate }) {
   const addFiles = async (event) => {
     const files = [...(event.target.files || [])]
     if (!files.length || !order) return
-    for (const file of files) await mutate(() => mockApi.addReceipt(order.id, file), `${file.name} added to the demo receipt list.`)
+    for (const file of files) await mutate(() => apiClient.addReceipt(order.id, file), `${file.name} added to the demo receipt list.`)
     event.target.value = ''
   }
 

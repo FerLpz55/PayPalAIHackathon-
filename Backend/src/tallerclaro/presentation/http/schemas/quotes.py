@@ -1,15 +1,19 @@
 """Esquemas Pydantic para cotizaciones."""
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 
 class CustomerInput(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
     name: str
     email: EmailStr
     phone: str | None = None
 
 
 class CreateQuoteRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
     customer: CustomerInput
     carpenter_id: int
     request: str
@@ -37,6 +41,7 @@ class QuoteResponse(BaseModel):
     deposit_amount: float | None
     balance_amount: float | None
     status: str
+    customer_token: str | None = None
     assumptions: list[str] | None = None
     missing_info: list[str] | None = None
     created_at: str | None = None
@@ -44,7 +49,9 @@ class QuoteResponse(BaseModel):
 
 
 class GenerateQuoteRequest(BaseModel):
-    pass
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    additional_info: str | None = None
 
 
 class QuoteGenerateResponse(BaseModel):

@@ -2,7 +2,7 @@
 
 from datetime import date
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class OrderResponse(BaseModel):
@@ -27,6 +27,8 @@ class OrderListResponse(BaseModel):
 
 
 class UpdateOrderRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
     status: str | None = None
     estimated_delivery_date: date | None = None
 
@@ -43,3 +45,6 @@ class OrderDetailResponse(OrderResponse):
     payments: list[PaymentSummary]
     paid_amount: float
     remaining_balance: float
+    customer_name: str | None = None
+    customer_email: str | None = None
+    project_request: str | None = None

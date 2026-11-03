@@ -5,15 +5,62 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
+from typing import Literal
 
 from tallerclaro.domain.entities import (
     CarpenterId,
     CustomerId,
     LineItemType,
+    Order,
     OrderId,
+    Payment,
     PaymentId,
+    Quote,
     QuoteId,
 )
+
+
+@dataclass
+class AccessPrincipal:
+    kind: Literal["customer", "workshop"]
+    customer_id: CustomerId | None = None
+    quote_id: QuoteId | None = None
+    carpenter_id: CarpenterId | None = None
+
+    @property
+    def is_workshop(self) -> bool:
+        return self.kind == "workshop"
+
+    @property
+    def is_customer(self) -> bool:
+        return self.kind == "customer"
+
+    @property
+    def role(self) -> str:
+        return self.kind
+
+
+@dataclass
+class CreatedQuoteResult:
+    quote: Quote
+    customer_token: str
+
+    def __getattr__(self, name: str):
+        return getattr(self.quote, name)
+
+
+@dataclass
+class OrderDetailResult:
+    order: Order
+    payments: list[Payment]
+    customer_name: str | None
+    customer_email: str | None
+    project_request: str | None
+
+    def __getattr__(self, name: str):
+        return getattr(self.order, name)
+
+
 
 
 @dataclass

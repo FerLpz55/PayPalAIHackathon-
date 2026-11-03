@@ -4,8 +4,17 @@ from __future__ import annotations
 
 from datetime import date
 
-from tallerclaro.application.dtos import UpdateOrderInput
-from tallerclaro.application.exceptions import ConflictError, NotFoundError, ValidationDomainError
+from tallerclaro.application.dtos import (
+    AccessPrincipal,
+    OrderDetailResult,
+    UpdateOrderInput,
+)
+from tallerclaro.application.exceptions import (
+    ConflictError,
+    ForbiddenError,
+    NotFoundError,
+    ValidationDomainError,
+)
 from tallerclaro.application.ports import UnitOfWork
 from tallerclaro.domain.entities import (
     ORDER_STATUS_DELIVERED,
@@ -34,23 +43,59 @@ class GetOrder:
     def __init__(self, uow: UnitOfWork) -> None:
         self._uow = uow
 
-    def execute(self, order_id: OrderId) -> Order:
+    def execute(
+        self, order_id: OrderId, principal: AccessPrincipal | None = None
+    ) -> OrderDetailResult:
         with self._uow:
             order = self._uow.orders.get_by_id(order_id)
             if order is None:
                 raise NotFoundError("Order", order_id)
-            return order
+
+            if principal is not None:
+                if principal.is_workshop:
+                    if principal.carpenter_id is not None and order.carpenter_id != principal.carpenter_id:
+                        raise ForbiddenError("Not authorized to access this order")
+                elif principal.is_customer:
+                    if principal.quote_id != order.quote_id:
+                        raise ForbiddenError("Not authorized to access this order")
+                else:
+                    raise ForbiddenError("Invalid principal")
+
+            payments = self._uow.payments.list_by_order(order.id)
+            quote = self._uow.quotes.get_by_id(order.quote_id)
+            customer = self._uow.customers.get_by_id(quote.customer_id) if quote else None
+
+            return OrderDetailResult(
+                order=order,
+                payments=payments,
+                customer_name=customer.name if customer else None,
+                customer_email=customer.email if customer else None,
+                project_request=quote.request if quote else None,
+            )
 
 
 class UpdateOrder:
     def __init__(self, uow: UnitOfWork) -> None:
         self._uow = uow
 
-    def execute(self, order_id: OrderId, input: UpdateOrderInput) -> Order:
+    def execute(
+        self,
+        order_id: OrderId,
+        carpenter_id: CarpenterId | UpdateOrderInput | None = None,
+        input: UpdateOrderInput | None = None,
+    ) -> Order:
+        if isinstance(carpenter_id, UpdateOrderInput) and input is None:
+            input = carpenter_id
+            carpenter_id = None
+        if input is None:
+            input = UpdateOrderInput()
+
         with self._uow:
             order = self._uow.orders.get_by_id(order_id)
             if order is None:
                 raise NotFoundError("Order", order_id)
+            if carpenter_id is not None and order.carpenter_id != carpenter_id:
+                raise ForbiddenError("Not authorized to update this order")
             if input.status is not None:
                 if input.status == ORDER_STATUS_DELIVERED:
                     payments = self._uow.payments.list_by_order(order_id)
@@ -66,3 +111,5 @@ class UpdateOrder:
             order = self._uow.orders.save(order)
             self._uow.commit()
             return order
+
+

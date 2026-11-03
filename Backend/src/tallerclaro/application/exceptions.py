@@ -4,6 +4,7 @@ from tallerclaro.domain.exceptions import (
     AuthorizationError,
     ConflictError,
     DomainError,
+    ForbiddenError,
     NotFoundError,
     ValidationDomainError,
 )
@@ -14,4 +15,6 @@ __all__ = [
     "ConflictError",
     "ValidationDomainError",
     "AuthorizationError",
+    "ForbiddenError",
 ]
+

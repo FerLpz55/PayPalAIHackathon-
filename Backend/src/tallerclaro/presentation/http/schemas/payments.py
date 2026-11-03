@@ -1,9 +1,11 @@
 """Esquemas Pydantic para pagos."""
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class CreatePaymentRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
     type: str  # deposit | balance
 
 

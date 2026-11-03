@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { mockApi } from '../services/mockApi.js'
+import { apiClient } from '../services/apiClient.js'
 
 export function useDemoData() {
   const [orders, setOrders] = useState([])
@@ -11,12 +11,12 @@ export function useDemoData() {
   const refresh = useCallback(async () => {
     setLoading(true)
     try {
-      const [orderData, quoteData] = await Promise.all([mockApi.listOrders(), mockApi.getQuote()])
+      const [orderData, quoteData] = await Promise.all([apiClient.listOrders(), apiClient.getQuote()])
       setOrders(orderData)
       setQuote(quoteData)
       setError('')
-    } catch {
-      setError('Your demo data could not be loaded. Refresh the page to try again.')
+    } catch (caught) {
+      setError(caught?.message || 'Your data could not be loaded. Refresh the page to try again.')
     } finally {
       setLoading(false)
     }

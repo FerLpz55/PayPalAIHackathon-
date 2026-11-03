@@ -5,12 +5,14 @@ import pytest
 from fastapi import Request
 from fastapi.testclient import TestClient
 
+from tallerclaro.application.dtos import AccessPrincipal
 from tallerclaro.bootstrap.settings import Settings
-from tallerclaro.domain.entities import CustomerId, QuoteId
+from tallerclaro.domain.entities import CarpenterId, CustomerId, QuoteId
 from tallerclaro.main import create_app
 from tallerclaro.presentation.http.dependencies import (
     get_unit_of_work,
     require_customer_token,
+    require_quote_or_workshop_principal,
     require_workshop_credentials,
 )
 from tests.fakes import FakeAIService, FakePaymentProcessor, FakeUnitOfWork, FakeDependenciesContainer
@@ -34,12 +36,16 @@ def client(deps: FakeDependenciesContainer) -> TestClient:
         return deps.uow
 
     def override_workshop_credentials():
-        return 1
+        return AccessPrincipal(kind="workshop", carpenter_id=CarpenterId(1))
 
     def override_customer_token():
-        return CustomerId(1), QuoteId(1)
+        return AccessPrincipal(kind="customer", customer_id=CustomerId(1), quote_id=QuoteId(1))
+
+    def override_principal():
+        return AccessPrincipal(kind="workshop", carpenter_id=CarpenterId(1))
 
     app.dependency_overrides[get_unit_of_work] = override_uow
     app.dependency_overrides[require_workshop_credentials] = override_workshop_credentials
     app.dependency_overrides[require_customer_token] = override_customer_token
+    app.dependency_overrides[require_quote_or_workshop_principal] = override_principal
     return TestClient(app)

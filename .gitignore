@@ -250,6 +250,7 @@ id_ed25519*
 .idea/
 *.iml
 .vscode/
+.agents
 .agents/
 .codex/
 *.sqlite

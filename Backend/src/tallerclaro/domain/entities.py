@@ -99,6 +99,8 @@ class Quote:
     total: Money | None = None
     status: QuoteStatus = QUOTE_STATUS_DRAFT
     currency: str = "USD"
+    assumptions: list[str] = field(default_factory=list)
+    missing_info: list[str] = field(default_factory=list)
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
@@ -109,17 +111,23 @@ class Quote:
     def recalculate_total(self) -> None:
         self.total = Money(sum((item.amount.amount for item in self.line_items), Decimal("0")))
 
-    def mark_needs_information(self, reason: str) -> None:
+    def mark_needs_information(self, missing_info: list[str]) -> None:
         self.status = QUOTE_STATUS_NEEDS_INFORMATION
+        self.missing_info = list(missing_info)
+        self.assumptions = []
+
 
     def submit_for_review(self) -> None:
         if self.total is None or not self.total.is_positive():
             raise ValidationDomainError("Quote must have a positive total before review")
         if not self.line_items:
             raise ValidationDomainError("Quote must have line items before review")
-        if self.status not in {QUOTE_STATUS_DRAFT, QUOTE_STATUS_NEEDS_INFORMATION}:
+        if self.status not in {QUOTE_STATUS_DRAFT, QUOTE_STATUS_NEEDS_INFORMATION, QUOTE_STATUS_PENDING_REVIEW}:
             raise ConflictError(f"Cannot submit quote from status {self.status}")
         self.status = QUOTE_STATUS_PENDING_REVIEW
+        self.missing_info = []
+
+
 
     def approve(self) -> None:
         if self.status != QUOTE_STATUS_PENDING_REVIEW:

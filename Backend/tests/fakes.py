@@ -153,6 +153,21 @@ class FakePaymentRepository:
         return [p for p in self._store.values() if p.order_id == order_id]
 
 
+class FakeCustomerTokenRepository:
+    def __init__(self) -> None:
+        self._tokens: dict[str, tuple[CustomerId, QuoteId]] = {}
+        self._counter = 0
+
+    def create(self, customer_id: CustomerId, quote_id: QuoteId) -> str:
+        self._counter += 1
+        token = f"fake-token-{self._counter}"
+        self._tokens[token] = (customer_id, quote_id)
+        return token
+
+    def verify(self, token: str) -> tuple[CustomerId, QuoteId] | None:
+        return self._tokens.get(token)
+
+
 class FakeUnitOfWork:
     """Unidad de trabajo en memoria para pruebas unitarias."""
 
@@ -162,7 +177,9 @@ class FakeUnitOfWork:
         self.quotes = FakeQuoteRepository(self.customers)
         self.orders = FakeOrderRepository()
         self.payments = FakePaymentRepository()
+        self.tokens = FakeCustomerTokenRepository()
         self._committed = False
+
 
     def __enter__(self) -> UnitOfWork:
         return self

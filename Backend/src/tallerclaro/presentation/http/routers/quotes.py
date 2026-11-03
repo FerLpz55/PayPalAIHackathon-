@@ -15,9 +15,17 @@ from tallerclaro.application.use_cases import (
     RejectQuote,
 )
 from tallerclaro.domain.entities import QuoteId
-from tallerclaro.presentation.http.dependencies import get_unit_of_work
+from tallerclaro.presentation.http.dependencies import (
+    PrincipalDep,
+    UnitOfWorkDep,
+    WorkshopCarpenterDep,
+    get_unit_of_work,
+    require_quote_or_workshop_principal,
+    require_workshop_credentials,
+)
 from tallerclaro.presentation.http.schemas.quotes import (
     CreateQuoteRequest,
+    GenerateQuoteRequest,
     QuoteGenerateResponse,
     QuoteLineItemResponse,
     QuoteResponse,
@@ -38,7 +46,7 @@ def _to_line_item_response(item):
     )
 
 
-def _to_quote_response(quote, include_missing: bool = False) -> QuoteResponse:
+def _to_quote_response(quote, include_missing: bool = False, customer_token: str | None = None) -> QuoteResponse:
     deposit = None
     balance = None
     if quote.total is not None:
@@ -56,7 +64,9 @@ def _to_quote_response(quote, include_missing: bool = False) -> QuoteResponse:
         deposit_amount=deposit,
         balance_amount=balance,
         status=quote.status,
-        missing_info=[] if include_missing else None,
+        customer_token=customer_token,
+        assumptions=list(quote.assumptions) if quote.assumptions else None,
+        missing_info=list(quote.missing_info) if quote.missing_info is not None else ([] if include_missing else None),
         created_at=quote.created_at.isoformat() if quote.created_at else None,
         updated_at=quote.updated_at.isoformat() if quote.updated_at else None,
     )
@@ -65,10 +75,10 @@ def _to_quote_response(quote, include_missing: bool = False) -> QuoteResponse:
 @router.post("/quotes", status_code=status.HTTP_201_CREATED)
 def create_quote(
     payload: CreateQuoteRequest,
-    uow=Depends(get_unit_of_work),
+    uow: UnitOfWorkDep,
 ) -> QuoteResponse:
     use_case = CreateQuote(uow)
-    quote = use_case.execute(
+    result = use_case.execute(
         CreateQuoteInput(
             customer=CustomerInput(
                 name=payload.customer.name,
@@ -79,37 +89,53 @@ def create_quote(
             request=payload.request,
         )
     )
-    return _to_quote_response(quote)
+    return _to_quote_response(result.quote, customer_token=result.customer_token)
 
 
 @router.get("/quotes/{quote_id}")
-def get_quote(quote_id: int, uow=Depends(get_unit_of_work)) -> QuoteResponse:
+def get_quote(
+    quote_id: int,
+    principal: PrincipalDep,
+    uow: UnitOfWorkDep,
+) -> QuoteResponse:
     use_case = GetQuote(uow)
-    quote = use_case.execute(QuoteId(quote_id))
+    quote = use_case.execute(QuoteId(quote_id), principal)
     return _to_quote_response(quote)
 
 
 @router.post("/quotes/{quote_id}/generate")
-def generate_quote(quote_id: int, request: Request, uow=Depends(get_unit_of_work)) -> QuoteGenerateResponse:
+def generate_quote(
+    quote_id: int,
+    request: Request,
+    principal: WorkshopCarpenterDep,
+    uow: UnitOfWorkDep,
+    body: GenerateQuoteRequest | None = None,
+) -> QuoteGenerateResponse:
     ai_service = request.app.state.ai_service
     use_case = GenerateQuoteProposal(uow, ai_service)
-    quote = use_case.execute(QuoteId(quote_id))
+    additional_info = body.additional_info if body is not None else None
+    quote = use_case.execute(QuoteId(quote_id), additional_info=additional_info)
     return QuoteGenerateResponse(
         id=str(quote.id) if quote.id is not None else "",
         status=quote.status,
         description=quote.description,
         items=[_to_line_item_response(item) for item in quote.line_items],
         total=float(quote.total.amount) if quote.total is not None else None,
-        missing_info=[] if quote.status == "needs_information" else None,
+        assumptions=list(quote.assumptions) if quote.assumptions else None,
+        missing_info=list(quote.missing_info) if quote.status == "needs_information" else None,
     )
 
 
 @router.post("/quotes/{quote_id}/approve")
-def approve_quote(quote_id: int, uow=Depends(get_unit_of_work)):
+def approve_quote(
+    quote_id: int,
+    principal: PrincipalDep,
+    uow: UnitOfWorkDep,
+):
     from tallerclaro.presentation.http.schemas.orders import OrderResponse
 
     use_case = ApproveQuote(uow)
-    order = use_case.execute(QuoteId(quote_id))
+    order = use_case.execute(QuoteId(quote_id), principal)
     return OrderResponse(
         id=str(order.id),
         quote_id=str(order.quote_id),
@@ -125,7 +151,11 @@ def approve_quote(quote_id: int, uow=Depends(get_unit_of_work)):
 
 
 @router.post("/quotes/{quote_id}/reject")
-def reject_quote(quote_id: int, uow=Depends(get_unit_of_work)) -> QuoteResponse:
+def reject_quote(
+    quote_id: int,
+    principal: PrincipalDep,
+    uow: UnitOfWorkDep,
+) -> QuoteResponse:
     use_case = RejectQuote(uow)
-    quote = use_case.execute(QuoteId(quote_id))
+    quote = use_case.execute(QuoteId(quote_id), principal)
     return _to_quote_response(quote)

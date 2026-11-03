@@ -40,3 +40,11 @@ class AuthorizationError(DomainError):
 
     def __init__(self, message: str = "Unauthorized") -> None:
         super().__init__(code="UNAUTHORIZED", message=message)
+
+
+class ForbiddenError(DomainError):
+    """Acceso prohibido al recurso."""
+
+    def __init__(self, message: str = "Forbidden") -> None:
+        super().__init__(code="FORBIDDEN", message=message)
+
