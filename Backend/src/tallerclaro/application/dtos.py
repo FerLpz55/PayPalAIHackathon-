@@ -39,6 +39,17 @@ class AccessPrincipal:
     def role(self) -> str:
         return self.kind
 
+    def __getitem__(self, index: int):
+        if index == 0:
+            return self.customer_id
+        if index == 1:
+            return self.quote_id
+        raise IndexError(f"Index {index} out of range")
+
+    def __iter__(self):
+        yield self.customer_id
+        yield self.quote_id
+
 
 @dataclass
 class CreatedQuoteResult:

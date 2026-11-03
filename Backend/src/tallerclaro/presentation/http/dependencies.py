@@ -14,21 +14,6 @@ from tallerclaro.application.ports import UnitOfWork
 from tallerclaro.bootstrap.settings import Settings
 from tallerclaro.domain.entities import CarpenterId, CustomerId, QuoteId
 
-if not hasattr(AccessPrincipal, "__getitem__"):
-    def _ap_getitem(self, index: int):
-        if index == 0:
-            return self.customer_id
-        elif index == 1:
-            return self.quote_id
-        raise IndexError(f"Index {index} out of range")
-    AccessPrincipal.__getitem__ = _ap_getitem
-
-if not hasattr(AccessPrincipal, "__iter__"):
-    def _ap_iter(self):
-        yield self.customer_id
-        yield self.quote_id
-    AccessPrincipal.__iter__ = _ap_iter
-
 security = HTTPBasic(auto_error=False)
 
 
