@@ -11,6 +11,7 @@ from tallerclaro.domain.entities import (
     CarpenterId,
     CustomerId,
     LineItemType,
+    Money,
     Order,
     OrderId,
     Payment,
@@ -67,6 +68,14 @@ class OrderDetailResult:
     customer_name: str | None
     customer_email: str | None
     project_request: str | None
+    paid_amount: Money | None = None
+    remaining_balance: Money | None = None
+
+    def __post_init__(self) -> None:
+        if self.paid_amount is None:
+            self.paid_amount = self.order.calculate_paid_amount(self.payments)
+        if self.remaining_balance is None:
+            self.remaining_balance = self.order.calculate_remaining_balance(self.payments)
 
     def __getattr__(self, name: str):
         return getattr(self.order, name)

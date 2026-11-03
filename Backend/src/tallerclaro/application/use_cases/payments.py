@@ -108,6 +108,21 @@ class CapturePayment:
         self._uow = uow
         self._payment_processor = payment_processor
 
+    def _validate_order_balance_for_capture(self, order: Order, payment: Payment) -> None:
+        payments = self._uow.payments.list_by_order(order.id)
+        completed_others = [
+            p for p in payments
+            if p.status == PAYMENT_STATUS_COMPLETED and p.id != payment.id
+        ]
+        if payment.type == "deposit" and any(p.type == "deposit" for p in completed_others):
+            raise ConflictError("Deposit already paid")
+        already_paid = sum((p.amount.amount for p in completed_others), Money.zero().amount)
+        remaining = order.total.amount - already_paid
+        if payment.amount.amount > remaining:
+            raise ConflictError(
+                f"Payment amount {payment.amount.amount} exceeds remaining balance: {remaining}"
+            )
+
     def execute(
         self, payment_id: PaymentId, authorized_quote_id: QuoteId | None = None
     ) -> CapturedPayment:
@@ -138,6 +153,8 @@ class CapturePayment:
 
             if payment.paypal_order_id is None:
                 raise ConflictError("Payment has no PayPal order")
+
+            self._validate_order_balance_for_capture(order, payment)
 
             expected_paypal_order_id = payment.paypal_order_id
             expected_amount = payment.amount.amount
@@ -189,6 +206,8 @@ class CapturePayment:
 
             if payment.status != PAYMENT_STATUS_PENDING:
                 raise ConflictError(f"Cannot capture payment in status {payment.status}")
+
+            self._validate_order_balance_for_capture(order, payment)
 
             payment.mark_completed(
                 paypal_order_id=captured.paypal_order_id,

@@ -18,17 +18,11 @@ Monolito FastAPI organizado por capas para cotizaciones, pedidos y pagos de Tall
 
 ## Desarrollo
 
-Desde `Backend/`, con Python 3.11 o superior:
+Desde `Backend/`, con Python 3.11 o superior y `uv`:
 
 ```bash
-python -m venv .venv
+uv venv .venv
 source .venv/bin/activate
-python -m pip install -e '.[dev]'
-```
-
-Con `uv`:
-
-```bash
 uv pip install -e '.[dev]'
 ```
 
@@ -39,10 +33,10 @@ cp .env.example .env
 # Edita .env con los valores reales.
 ```
 
-Arranca el servidor local:
+Arranca el servidor local con FastAPI CLI (`fastapi[standard]`):
 
 ```bash
-uvicorn tallerclaro.main:app --app-dir src --reload
+fastapi dev src/tallerclaro/main.py
 ```
 
 Documentación interactiva: http://127.0.0.1:8000/docs

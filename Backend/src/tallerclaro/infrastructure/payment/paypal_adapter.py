@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 import httpx
 
@@ -129,22 +129,105 @@ class PayPalPaymentProcessor:
                 code="PAYMENT_PROVIDER_ERROR",
                 message=f"PayPal capture failed: {response.status_code}",
             )
-        data = response.json()
+        try:
+            data = response.json()
+        except Exception as exc:
+            raise DomainError(
+                code="PAYMENT_PROVIDER_ERROR",
+                message="Invalid JSON in PayPal capture response",
+            ) from exc
+
+        if not isinstance(data, dict):
+            raise DomainError(
+                code="PAYMENT_PROVIDER_ERROR",
+                message="Malformed PayPal capture payload",
+            )
+
         if data.get("status") != "COMPLETED":
             raise DomainError(
                 code="PAYMENT_FAILED",
                 message=f"PayPal order not completed: {data.get('status')}",
             )
-        purchase_unit = data["purchase_units"][0]
-        capture = purchase_unit["payments"]["captures"][0]
+
+        returned_order_id = str(data.get("id") or "").strip()
+        if not returned_order_id:
+            raise DomainError(
+                code="PAYMENT_PROVIDER_ERROR",
+                message="PayPal capture response is missing order id",
+            )
+        if returned_order_id != paypal_order_id:
+            raise DomainError(
+                code="PAYMENT_PROVIDER_ERROR",
+                message="PayPal capture order id mismatch",
+            )
+
+        purchase_units = data.get("purchase_units")
+        if not isinstance(purchase_units, list) or not purchase_units:
+            raise DomainError(
+                code="PAYMENT_PROVIDER_ERROR",
+                message="PayPal capture response is missing purchase_units",
+            )
+        first_unit = purchase_units[0] if isinstance(purchase_units[0], dict) else {}
+        payments_obj = first_unit.get("payments") if isinstance(first_unit.get("payments"), dict) else {}
+        captures = payments_obj.get("captures")
+        if not isinstance(captures, list) or not captures or not isinstance(captures[0], dict):
+            raise DomainError(
+                code="PAYMENT_PROVIDER_ERROR",
+                message="PayPal capture response is missing captures",
+            )
+
+        capture = captures[0]
+        capture_status = str(capture.get("status") or "").upper()
+        if capture_status != "COMPLETED":
+            raise DomainError(
+                code="PAYMENT_FAILED",
+                message=f"PayPal capture status is not COMPLETED: {capture.get('status')}",
+            )
+
+        capture_id = str(capture.get("id") or "").strip()
+        if not capture_id:
+            raise DomainError(
+                code="PAYMENT_PROVIDER_ERROR",
+                message="PayPal capture response is missing capture id",
+            )
+
+        amount_obj = capture.get("amount")
+        if not isinstance(amount_obj, dict):
+            raise DomainError(
+                code="PAYMENT_PROVIDER_ERROR",
+                message="PayPal capture response is missing amount",
+            )
+        raw_value = amount_obj.get("value")
+        currency_code = str(amount_obj.get("currency_code") or "").strip()
+        if raw_value is None or not currency_code:
+            raise DomainError(
+                code="PAYMENT_PROVIDER_ERROR",
+                message="PayPal capture amount value or currency_code missing",
+            )
+        try:
+            parsed_amount = Decimal(str(raw_value))
+        except (InvalidOperation, ValueError, TypeError) as exc:
+            raise DomainError(
+                code="PAYMENT_PROVIDER_ERROR",
+                message="PayPal capture amount is not a valid decimal",
+            ) from exc
+
+        raw_paid_at = str(capture.get("update_time") or capture.get("create_time") or "").strip()
+        if raw_paid_at:
+            if raw_paid_at.endswith("Z"):
+                raw_paid_at = raw_paid_at[:-1] + "+00:00"
+            paid_at = raw_paid_at
+        else:
+            paid_at = datetime.now(timezone.utc).isoformat()
+
         return CapturedPayment(
             payment_id=0,
             status="completed",
-            paypal_order_id=paypal_order_id,
-            paypal_capture_id=capture["id"],
-            amount=Decimal(capture["amount"]["value"]),  # type: ignore[name-defined]
-            currency=capture["amount"]["currency_code"],
-            paid_at=datetime.now(timezone.utc).isoformat(),
+            paypal_order_id=returned_order_id,
+            paypal_capture_id=capture_id,
+            amount=parsed_amount,
+            currency=currency_code,
+            paid_at=paid_at,
         )
 
     def _get_access_token(self) -> str:

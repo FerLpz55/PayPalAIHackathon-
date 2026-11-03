@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from decimal import Decimal
-
 from fastapi import APIRouter, Depends, Query
 
 from tallerclaro.application.dtos import AccessPrincipal, UpdateOrderInput
@@ -35,7 +33,7 @@ def _to_order_response(order) -> OrderResponse:
         code=order.code,
         total=float(order.total.amount),
         deposit_amount=float(order.deposit_amount.amount),
-        balance_amount=float(order.total.amount - order.deposit_amount.amount),
+        balance_amount=float(order.balance_amount.amount),
         currency=order.currency,
         status=order.status,
         estimated_delivery_date=order.estimated_delivery_date,
@@ -76,14 +74,13 @@ def get_order(
     detail = use_case.execute(OrderId(order_id), principal)
     order = detail.order
     payments = detail.payments
-    paid = sum((p.amount.amount for p in payments if p.status == "completed"), Decimal("0"))
     return OrderDetailResponse(
         id=str(order.id),
         quote_id=str(order.quote_id),
         code=order.code,
         total=float(order.total.amount),
         deposit_amount=float(order.deposit_amount.amount),
-        balance_amount=float(order.total.amount - order.deposit_amount.amount),
+        balance_amount=float(order.balance_amount.amount),
         currency=order.currency,
         status=order.status,
         estimated_delivery_date=order.estimated_delivery_date,
@@ -99,8 +96,8 @@ def get_order(
             )
             for p in payments
         ],
-        paid_amount=float(paid),
-        remaining_balance=float(order.total.amount - paid),
+        paid_amount=float(detail.paid_amount.amount),
+        remaining_balance=float(detail.remaining_balance.amount),
         customer_name=detail.customer_name,
         customer_email=detail.customer_email,
         project_request=detail.project_request,

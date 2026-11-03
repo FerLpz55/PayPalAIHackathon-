@@ -48,6 +48,23 @@ def _authorize_quote_access(quote: Quote, principal: AccessPrincipal | None) -> 
         raise ForbiddenError("Invalid principal")
 
 
+class VerifyCustomerToken:
+    def __init__(self, uow: UnitOfWork) -> None:
+        self._uow = uow
+
+    def execute(self, token: str) -> AccessPrincipal | None:
+        with self._uow:
+            result = self._uow.tokens.verify(token)
+        if result is None:
+            return None
+        customer_id, quote_id = result
+        return AccessPrincipal(
+            kind="customer",
+            customer_id=customer_id,
+            quote_id=quote_id,
+        )
+
+
 
 class CreateQuote:
     def __init__(self, uow: UnitOfWork) -> None:
@@ -104,7 +121,12 @@ class GenerateQuoteProposal:
         self._uow = uow
         self._ai_service = ai_service
 
-    def execute(self, quote_id: QuoteId, additional_info: str | None = None) -> Quote:
+    def execute(
+        self,
+        quote_id: QuoteId,
+        additional_info: str | None = None,
+        principal: AccessPrincipal | None = None,
+    ) -> Quote:
         valid_statuses = {
             QUOTE_STATUS_DRAFT,
             QUOTE_STATUS_NEEDS_INFORMATION,
@@ -114,6 +136,7 @@ class GenerateQuoteProposal:
             quote = self._uow.quotes.get_by_id(quote_id)
             if quote is None:
                 raise NotFoundError("Quote", quote_id)
+            _authorize_quote_access(quote, principal)
             if quote.status not in valid_statuses:
                 raise ConflictError(f"Cannot generate proposal for quote in status {quote.status}")
 
@@ -127,6 +150,7 @@ class GenerateQuoteProposal:
             quote = self._uow.quotes.get_by_id(quote_id)
             if quote is None:
                 raise NotFoundError("Quote", quote_id)
+            _authorize_quote_access(quote, principal)
             if quote.status not in valid_statuses:
                 raise ConflictError(f"Cannot generate proposal for quote in status {quote.status}")
 
@@ -186,9 +210,9 @@ class ApproveQuote:
                 return existing
 
             total = quote.total
-            if total is None:
+            deposit = quote.deposit_amount
+            if total is None or deposit is None:
                 raise ValidationDomainError("Quote total is missing")
-            deposit = Money((total.amount * DEPOSIT_PERCENTAGE).quantize(total.amount))
             order = Order(
                 id=None,
                 quote_id=quote_id,

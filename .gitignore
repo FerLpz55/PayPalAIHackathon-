@@ -252,6 +252,7 @@ id_ed25519*
 .vscode/
 .agents
 .agents/
+/skills/
 .codex/
 *.sqlite
 *.sqlite3

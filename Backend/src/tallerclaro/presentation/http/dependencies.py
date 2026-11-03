@@ -11,8 +11,9 @@ from fastapi.security import HTTPBasic, HTTPBasicCredentials
 
 from tallerclaro.application.dtos import AccessPrincipal
 from tallerclaro.application.ports import UnitOfWork
+from tallerclaro.application.use_cases import VerifyCustomerToken
 from tallerclaro.bootstrap.settings import Settings
-from tallerclaro.domain.entities import CarpenterId, CustomerId, QuoteId
+from tallerclaro.domain.entities import CarpenterId
 
 security = HTTPBasic(auto_error=False)
 
@@ -71,20 +72,13 @@ def require_customer_token(
             detail="Customer token required",
         )
 
-    with uow:
-        result = uow.tokens.verify(token)
-
-    if result is None:
+    principal = VerifyCustomerToken(uow).execute(token)
+    if principal is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired customer token",
         )
-    customer_id, quote_id = result
-    return AccessPrincipal(
-        kind="customer",
-        customer_id=customer_id,
-        quote_id=quote_id,
-    )
+    return principal
 
 
 def require_quote_or_workshop_principal(
@@ -101,19 +95,13 @@ def require_quote_or_workshop_principal(
             token = auth_header[7:].strip()
 
     if token:
-        with uow:
-            result = uow.tokens.verify(token)
-        if result is None:
+        principal = VerifyCustomerToken(uow).execute(token)
+        if principal is None:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid or expired customer token",
             )
-        customer_id, quote_id = result
-        return AccessPrincipal(
-            kind="customer",
-            customer_id=customer_id,
-            quote_id=quote_id,
-        )
+        return principal
 
     # 2. Probar credenciales del taller (HTTPBasicCredentials)
     if credentials is not None:

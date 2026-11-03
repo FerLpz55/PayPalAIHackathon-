@@ -61,10 +61,10 @@ With Python 3.11+ (or Python 3.14 in `Backend/.venv`), from the repository root:
 
 ```bash
 cd Backend
-python -m venv .venv
+uv venv .venv
 source .venv/bin/activate
-python -m pip install -e '.[dev]'
-uvicorn tallerclaro.main:app --app-dir src --reload
+uv pip install -e '.[dev]'
+fastapi dev src/tallerclaro/main.py
 ```
 
 On Windows PowerShell, activate with `.venv\Scripts\Activate.ps1`.

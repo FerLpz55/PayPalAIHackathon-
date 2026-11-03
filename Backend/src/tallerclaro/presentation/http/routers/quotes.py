@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from decimal import Decimal
-
 from fastapi import APIRouter, Depends, Request, status
 
 from tallerclaro.application.dtos import CreateQuoteInput, CustomerInput
@@ -47,11 +45,8 @@ def _to_line_item_response(item):
 
 
 def _to_quote_response(quote, include_missing: bool = False, customer_token: str | None = None) -> QuoteResponse:
-    deposit = None
-    balance = None
-    if quote.total is not None:
-        deposit = float((quote.total.amount * Decimal("0.50")).quantize(Decimal("0.01")))
-        balance = float(quote.total.amount - Decimal(str(deposit)))
+    deposit = float(quote.deposit_amount.amount) if quote.deposit_amount is not None else None
+    balance = float(quote.balance_amount.amount) if quote.balance_amount is not None else None
     return QuoteResponse(
         id=str(quote.id) if quote.id is not None else "",
         customer_id=str(quote.customer_id),
@@ -114,7 +109,11 @@ def generate_quote(
     ai_service = request.app.state.ai_service
     use_case = GenerateQuoteProposal(uow, ai_service)
     additional_info = body.additional_info if body is not None else None
-    quote = use_case.execute(QuoteId(quote_id), additional_info=additional_info)
+    quote = use_case.execute(
+        QuoteId(quote_id),
+        additional_info=additional_info,
+        principal=principal,
+    )
     return QuoteGenerateResponse(
         id=str(quote.id) if quote.id is not None else "",
         status=quote.status,
@@ -142,7 +141,7 @@ def approve_quote(
         code=order.code,
         total=float(order.total.amount),
         deposit_amount=float(order.deposit_amount.amount),
-        balance_amount=float(order.total.amount - order.deposit_amount.amount),
+        balance_amount=float(order.balance_amount.amount),
         currency=order.currency,
         status=order.status,
         created_at=order.created_at.isoformat() if order.created_at else None,

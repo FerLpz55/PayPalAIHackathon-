@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 from datetime import datetime, timezone
 from decimal import Decimal
 
@@ -169,7 +170,7 @@ class FakeCustomerTokenRepository:
 
 
 class FakeUnitOfWork:
-    """Unidad de trabajo en memoria para pruebas unitarias."""
+    """Unidad de trabajo en memoria para pruebas unitarias con soporte real de commit y rollback."""
 
     def __init__(self) -> None:
         self.customers = FakeCustomerRepository()
@@ -179,19 +180,64 @@ class FakeUnitOfWork:
         self.payments = FakePaymentRepository()
         self.tokens = FakeCustomerTokenRepository()
         self._committed = False
+        self._frames: list[dict] = []
 
+    def _take_snapshot(self) -> dict:
+        return {
+            "customers_store": copy.deepcopy(self.customers._store),
+            "customers_next_id": self.customers._next_id,
+            "carpenters_store": copy.deepcopy(self.carpenters._store),
+            "carpenters_next_id": self.carpenters._next_id,
+            "quotes_store": copy.deepcopy(self.quotes._store),
+            "quotes_next_id": self.quotes._next_id,
+            "orders_store": copy.deepcopy(self.orders._store),
+            "orders_next_id": self.orders._next_id,
+            "payments_store": copy.deepcopy(self.payments._store),
+            "payments_next_id": self.payments._next_id,
+            "tokens_dict": copy.deepcopy(self.tokens.__dict__),
+        }
+
+    def _restore_snapshot(self, snap: dict) -> None:
+        self.customers._store = copy.deepcopy(snap["customers_store"])
+        self.customers._next_id = snap["customers_next_id"]
+        self.carpenters._store = copy.deepcopy(snap["carpenters_store"])
+        self.carpenters._next_id = snap["carpenters_next_id"]
+        self.quotes._store = copy.deepcopy(snap["quotes_store"])
+        self.quotes._next_id = snap["quotes_next_id"]
+        self.orders._store = copy.deepcopy(snap["orders_store"])
+        self.orders._next_id = snap["orders_next_id"]
+        self.payments._store = copy.deepcopy(snap["payments_store"])
+        self.payments._next_id = snap["payments_next_id"]
+        self.tokens.__dict__.clear()
+        self.tokens.__dict__.update(copy.deepcopy(snap["tokens_dict"]))
 
     def __enter__(self) -> UnitOfWork:
+        self._frames.append(
+            {
+                "snapshot": self._take_snapshot(),
+                "committed": False,
+            }
+        )
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
-        pass
+        if not self._frames:
+            return
+        frame = self._frames.pop()
+        if exc_type is not None or not frame["committed"]:
+            self._restore_snapshot(frame["snapshot"])
 
     def commit(self) -> None:
         self._committed = True
+        if self._frames:
+            self._frames[-1]["committed"] = True
+            self._frames[-1]["snapshot"] = self._take_snapshot()
 
     def rollback(self) -> None:
-        pass
+        self._committed = False
+        if self._frames:
+            self._restore_snapshot(self._frames[-1]["snapshot"])
+            self._frames[-1]["committed"] = False
 
     def get_connection(self):
         raise RuntimeError("FakeUnitOfWork has no database connection")

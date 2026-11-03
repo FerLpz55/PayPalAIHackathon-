@@ -352,3 +352,150 @@ def test_capture_payment_rejects_mismatched_amount_and_currency():
     with pytest.raises(ConflictError, match="Captured PayPal order ID"):
         CapturePayment(uow, proc_wrong_order).execute(intent1.payment_id)
 
+
+def test_generate_quote_proposal_enforces_workshop_authorization():
+    """Verify Carpenter 1 cannot generate a proposal for Carpenter 2's quote."""
+    from tallerclaro.application.dtos import AccessPrincipal
+    from tallerclaro.application.exceptions import ForbiddenError
+
+    uow = FakeUnitOfWork()
+    uow.carpenters.seed(Carpenter(id=CarpenterId(1), name="Carp 1", workshop_name="W1", email="c1@ex.com", phone=None))
+    uow.carpenters.seed(Carpenter(id=CarpenterId(2), name="Carp 2", workshop_name="W2", email="c2@ex.com", phone=None))
+
+    created = CreateQuote(uow).execute(
+        CreateQuoteInput(
+            customer=CustomerInput(name="Carlos", email="carlos@example.com", phone=None),
+            carpenter_id=CarpenterId(2),
+            request="Mesa",
+        )
+    )
+    principal_carp1 = AccessPrincipal(kind="workshop", carpenter_id=CarpenterId(1))
+    with pytest.raises(ForbiddenError):
+        GenerateQuoteProposal(uow, FakeAIService()).execute(
+            created.quote.id,
+            principal=principal_carp1,
+        )
+
+
+def test_capture_payment_rejects_overpayment_and_duplicate_deposit_intents():
+    """Verify capturing stale/duplicate pending intents cannot exceed remaining order balance."""
+    uow = FakeUnitOfWork()
+    uow.carpenters.seed(Carpenter(id=CarpenterId(1), name="José", workshop_name="Taller", email="j@example.com", phone=None))
+    created = CreateQuote(uow).execute(
+        CreateQuoteInput(
+            customer=CustomerInput(name="Carlos", email="carlos@example.com", phone=None),
+            carpenter_id=CarpenterId(1),
+            request="Mesa",
+        )
+    )
+    GenerateQuoteProposal(uow, FakeAIService()).execute(created.quote.id)
+    order = ApproveQuote(uow).execute(created.quote.id)
+
+    processor = FakePaymentProcessor(success=True)
+    # Create two pending intents before capturing either:
+    # 1) A deposit intent ($100) and 2) a full balance intent ($200 created while $0 was paid)
+    deposit_intent = CreateOrderPayment(uow, processor).execute(order.id, "deposit")
+    second_deposit_intent = CreateOrderPayment(uow, processor).execute(order.id, "deposit")
+    stale_balance_intent = CreateOrderPayment(uow, processor).execute(order.id, "balance")
+
+    # Capture first deposit ($100 paid, $100 remaining)
+    CapturePayment(uow, processor).execute(deposit_intent.payment_id)
+
+    # Capturing the second deposit intent must fail
+    with pytest.raises(ConflictError, match="Deposit already paid"):
+        CapturePayment(uow, processor).execute(second_deposit_intent.payment_id)
+
+    # Capturing the stale $200 balance intent must fail because remaining balance is now $100
+    with pytest.raises(ConflictError, match="exceeds remaining balance"):
+        CapturePayment(uow, processor).execute(stale_balance_intent.payment_id)
+
+
+def test_paypal_adapter_verifies_real_response_structure_and_capture_status():
+    """Verify PayPalPaymentProcessor validates returned order id, capture status, and payload structure."""
+    from unittest.mock import MagicMock
+    from tallerclaro.bootstrap.settings import Settings
+    from tallerclaro.domain.exceptions import DomainError
+    from tallerclaro.infrastructure.payment.paypal_adapter import PayPalPaymentProcessor
+
+    settings = Settings(
+        paypal_mode="sandbox",
+        paypal_client_id="client-id",
+        paypal_client_secret="client-secret",
+    )
+
+    def _make_client(capture_json: dict) -> MagicMock:
+        client = MagicMock()
+        token_resp = MagicMock(status_code=200)
+        token_resp.json.return_value = {"access_token": "tok-123"}
+        cap_resp = MagicMock(status_code=201)
+        cap_resp.json.return_value = capture_json
+        client.post.side_effect = [token_resp, cap_resp]
+        return client
+
+    # 1. Mismatched order ID in PayPal response
+    bad_order_id_client = _make_client({
+        "id": "PP-DIFFERENT",
+        "status": "COMPLETED",
+        "purchase_units": [{"payments": {"captures": [{"id": "CAP-1", "status": "COMPLETED", "amount": {"value": "100.00", "currency_code": "USD"}}]}}],
+    })
+    with pytest.raises(DomainError, match="order id mismatch"):
+        PayPalPaymentProcessor(settings, client=bad_order_id_client).capture_order("PP-EXPECTED")
+
+    # 2. Capture status is PENDING/DECLINED even if top-level order says COMPLETED
+    declined_capture_client = _make_client({
+        "id": "PP-EXPECTED",
+        "status": "COMPLETED",
+        "purchase_units": [{"payments": {"captures": [{"id": "CAP-1", "status": "DECLINED", "amount": {"value": "100.00", "currency_code": "USD"}}]}}],
+    })
+    with pytest.raises(DomainError, match="not COMPLETED"):
+        PayPalPaymentProcessor(settings, client=declined_capture_client).capture_order("PP-EXPECTED")
+
+    # 3. Valid response succeeds
+    valid_client = _make_client({
+        "id": "PP-EXPECTED",
+        "status": "COMPLETED",
+        "purchase_units": [{
+            "payments": {
+                "captures": [{
+                    "id": "CAP-OK",
+                    "status": "COMPLETED",
+                    "amount": {"value": "100.00", "currency_code": "USD"},
+                    "update_time": "2026-11-02T21:00:00Z",
+                }]
+            }
+        }],
+    })
+    res = PayPalPaymentProcessor(settings, client=valid_client).capture_order("PP-EXPECTED")
+    assert res.paypal_order_id == "PP-EXPECTED"
+    assert res.paypal_capture_id == "CAP-OK"
+    assert res.amount == Decimal("100.00")
+    assert res.currency == "USD"
+    assert res.paid_at == "2026-11-02T21:00:00+00:00"
+
+
+def test_fake_unit_of_work_rolls_back_uncommitted_changes_and_exceptions():
+    """Verify FakeUnitOfWork reverts in-memory state when commit() is not called or an exception occurs."""
+    from tallerclaro.domain.entities import Customer
+
+    uow = FakeUnitOfWork()
+
+    # 1. Exiting without commit() reverts changes
+    with uow:
+        uow.customers.save(Customer(id=None, name="Ghost", email="ghost@example.com", phone=None))
+    assert uow.customers.get_by_id(CustomerId(1)) is None
+
+    # 2. Exception after save() reverts changes
+    with pytest.raises(RuntimeError):
+        with uow:
+            uow.customers.save(Customer(id=None, name="Crash", email="crash@example.com", phone=None))
+            raise RuntimeError("boom")
+    assert uow.customers.get_by_id(CustomerId(1)) is None
+
+    # 3. Explicit commit() persists changes
+    with uow:
+        saved = uow.customers.save(Customer(id=None, name="Real", email="real@example.com", phone=None))
+        uow.commit()
+    assert uow.customers.get_by_id(saved.id) is not None
+    assert uow.customers.get_by_id(saved.id).name == "Real"
+
+

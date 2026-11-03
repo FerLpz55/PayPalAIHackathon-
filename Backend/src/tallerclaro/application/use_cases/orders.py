@@ -71,6 +71,8 @@ class GetOrder:
                 customer_name=customer.name if customer else None,
                 customer_email=customer.email if customer else None,
                 project_request=quote.request if quote else None,
+                paid_amount=order.calculate_paid_amount(payments),
+                remaining_balance=order.calculate_remaining_balance(payments),
             )
 
 
@@ -99,11 +101,8 @@ class UpdateOrder:
             if input.status is not None:
                 if input.status == ORDER_STATUS_DELIVERED:
                     payments = self._uow.payments.list_by_order(order_id)
-                    paid = sum(
-                        (p.amount.amount for p in payments if p.status == "completed"),
-                        Money.zero().amount,
-                    )
-                    if paid < order.total.amount:
+                    paid = order.calculate_paid_amount(payments)
+                    if paid < order.total:
                         raise ConflictError("Cannot deliver order without full payment verified")
                 order.update_status(input.status, input.estimated_delivery_date)
             elif input.estimated_delivery_date is not None:

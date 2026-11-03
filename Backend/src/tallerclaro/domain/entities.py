@@ -111,6 +111,18 @@ class Quote:
     def recalculate_total(self) -> None:
         self.total = Money(sum((item.amount.amount for item in self.line_items), Decimal("0")))
 
+    @property
+    def deposit_amount(self) -> Money | None:
+        if self.total is None:
+            return None
+        return Money(self.total.amount * DEPOSIT_PERCENTAGE)
+
+    @property
+    def balance_amount(self) -> Money | None:
+        if self.total is None or self.deposit_amount is None:
+            return None
+        return self.total - self.deposit_amount
+
     def mark_needs_information(self, missing_info: list[str]) -> None:
         self.status = QUOTE_STATUS_NEEDS_INFORMATION
         self.missing_info = list(missing_info)
@@ -176,6 +188,23 @@ class Order:
 
     def can_deliver(self) -> bool:
         return self.status == ORDER_STATUS_IN_PROGRESS
+
+    @property
+    def balance_amount(self) -> Money:
+        return self.total - self.deposit_amount
+
+    def calculate_paid_amount(self, payments: list[Payment]) -> Money:
+        paid = sum(
+            (p.amount.amount for p in payments if p.status == PAYMENT_STATUS_COMPLETED),
+            Decimal("0"),
+        )
+        return Money(paid)
+
+    def calculate_remaining_balance(self, payments: list[Payment]) -> Money:
+        paid = self.calculate_paid_amount(payments)
+        if paid.amount >= self.total.amount:
+            return Money.zero()
+        return self.total - paid
 
 
 @dataclass

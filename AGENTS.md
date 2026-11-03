@@ -3,7 +3,7 @@
 ## 1. Gestores de Paquetes y Entornos
 
 - **Frontend (`frontend/`)**: Usar exclusivamente **`pnpm`** (`pnpm run dev`, `pnpm run lint`, `pnpm run build`, `pnpm install`). Nunca usar `npm` o `yarn`.
-- **Backend (`Backend/`)**: Python 3.14 con entorno virtual en `Backend/.venv`. Pruebas con `.venv/bin/pytest`.
+- **Backend (`Backend/`)**: Python 3.14 con **`uv`** y `"fastapi[standard]"` en `Backend/.venv` (`uv pip install -e '.[dev]'`, `fastapi dev src/tallerclaro/main.py`, pruebas con `.venv/bin/pytest`).
 
 ## 2. Infraestructura y Servicios (VPS con Coolify)
 
