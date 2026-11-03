@@ -31,30 +31,34 @@ Antes de dar por terminada cualquier tarea o validar código (propio o de subage
 
 1. **Alcance por Petición (*Request-Scoped*) y Seguridad del `UnitOfWork`**:
    - `app.state` solo debe almacenar el pool (`Database`) y una fábrica (`uow_factory` callable) que cree un `UnitOfWork` nuevo por petición; **nunca compartir una instancia mutable de `UnitOfWork`** entre peticiones concurrentes.
+   - **Prohibido abrir `with uow:` en `presentation/`** (incluyendo dependencias de autenticación como `get_customer_scope`, que deben delegar en casos de uso como `VerifyCustomerToken`).
    - `PostgresUnitOfWork` debe apilar sus frames de conexión para que, si se anidan o intercalan bloques `with uow:`, jamás se sobrescriba una conexión activa ni quede una conexión sin devolver a `put_connection()`.
-   - Al salir de `__exit__`, toda transacción donde hubo excepción o no se llamó explícitamente a `commit()` debe ejecutar `rollback()` antes de regresar la conexión al pool (evitando conexiones `IDLE IN TRANSACTION` en `psycopg`).
+   - Al salir de `__exit__`, toda transacción donde hubo excepción o no se llamó explícitamente a `commit()` debe ejecutar `rollback()` tanto en `PostgresUnitOfWork` como en `FakeUnitOfWork` (restaurando snapshots en memoria).
 
 2. **Aislamiento Secuencial de Llamadas Externas (Prohibido Red dentro de Transacciones SQL)**:
    - **Nunca** ejecutar llamadas HTTP externas (IA o PayPal) dentro de un bloque `with self._uow:` abierto, ya que retiene conexiones del pool y bloqueos en PostgreSQL durante segundos de latencia de red (*connection starvation*).
    - Aplicar siempre el patrón en **3 fases**:
-     1. *Fase 1 (Lectura/Validación)*: Abrir `with self._uow:`, validar existencia/estado de la entidad y salir del bloque para liberar la conexión.
+     1. *Fase 1 (Lectura/Validación y Autorización)*: Abrir `with self._uow:`, validar existencia/estado de la entidad, verificar pertenencia al `WorkshopPrincipal` (`workshop_id`) o `CustomerPrincipal` y salir del bloque para liberar la conexión.
      2. *Fase 2 (I/O Externo)*: Llamar a `AIService` o `PaymentProcessor` **fuera** de cualquier transacción de BD.
-     3. *Fase 3 (Reconciliación/Commit)*: Abrir un nuevo `with self._uow:`, recargar la entidad para verificar que su estado siga siendo válido, aplicar los cambios de dominio, guardar en el repositorio y ejecutar `self._uow.commit()`.
+     3. *Fase 3 (Reconciliación/Commit)*: Abrir un nuevo `with self._uow:`, recargar la entidad para verificar que su estado y pertenencia sigan siendo válidos, aplicar los cambios de dominio, guardar en el repositorio y ejecutar `self._uow.commit()`.
 
-3. **Verificación Financiera Estricta en Pagos (`CapturePayment`)**:
+3. **Verificación Financiera Estricta en Pagos (`CapturePayment` y `PayPalPaymentProcessor`)**:
+   - `PayPalPaymentProcessor.capture_order` debe leer `data.get("id")` de la respuesta real de PayPal, exigir `purchase_units` y `captures` válidos, y verificar `capture["status"] == "COMPLETED"`.
    - Al capturar un pago en PayPal, el caso de uso debe contrastar explícitamente la respuesta del proveedor contra el `Payment` esperado antes de acreditarlo:
      - `captured.status == "completed"`
      - `captured.paypal_order_id == payment.paypal_order_id`
      - `captured.currency == payment.currency` (`"USD"`)
      - `Money(Decimal(str(captured.amount))).amount == payment.amount.amount`
      - `captured.paypal_capture_id` presente y no vacío.
+   - Antes y después de capturar en PayPal, validar contra la orden y sus pagos previos que el monto del intento no exceda el saldo pendiente (`remaining_balance`) ni duplique un anticipo (`deposit`) ya completado.
    - Cualquier discrepancia debe lanzar `ConflictError` y abortar la acreditación.
 
 4. **Paridad Total entre Entidades de Dominio, Dobles en Memoria y Repositorios SQL**:
    - Todo campo de dominio (`Quote.assumptions`, `Quote.missing_info`, `Quote.line_items`, etc.) debe guardarse y leerse tanto en `Fake*Repository` como en `Postgres*Repository`.
    - Cuando una cotización reduzca sus partidas o pase a `needs_information` (`line_items = []`), el repositorio SQL debe desactivar las partidas sobrantes (`UPDATE ... SET activo = false`), respetando que el rol `tallerclaro_app` solo tiene permisos `SELECT/INSERT/UPDATE` (nunca `DELETE`).
 
-5. **Prohibido el Monkey-Patching entre Capas**:
+5. **Pureza de Capas (Cero Lógica Financiera ni Monkey-Patching en `presentation/`)**:
+   - Ningún router o dependencia en `presentation/` debe importar `Decimal` ni calcular anticipos, saldos o redondeos; todo cálculo monetario pertenece a `domain/entities.py` (`Money`).
    - La capa `presentation/` nunca debe inyectar métodos mágicos ni mutar clases de `application/` o `domain/` en tiempo de ejecución.
 
 6. **Higiene del Repositorio y Documentación**:
