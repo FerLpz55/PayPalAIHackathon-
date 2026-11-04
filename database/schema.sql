@@ -1,23 +1,24 @@
--- TallerClaro - Esquema inicial de PostgreSQL
--- Proposito: definicion unica del esquema tallerclaro para una base nueva.
--- Version objetivo: PostgreSQL 18 (compatible con versiones recientes).
--- Instrucciones: ejecutar como usuario con permisos sobre la base tallerclaro.
---   psql -X -h localhost -U tallerclaro_owner -d tallerclaro -v ON_ERROR_STOP=1 -f database/schema.sql
--- Advertencia: este script NO contiene DROP ni TRUNCATE. Si se vuelve a ejecutar
--- sobre la misma base, fallara al crear el esquema y revertira la transaccion.
+-- TallerClaro - Esquema de PostgreSQL, inicializacion y actualizacion.
+-- Puede ejecutarse en una base nueva (Supabase o PostgreSQL dedicado) o sobre
+-- el esquema inicial de TallerClaro.
+-- Version objetivo: PostgreSQL 15+ (compatible con Supabase y PostgreSQL 18).
+-- Ejecutar desde el SQL Editor de Supabase (rol postgres) o con psql:
+--   psql -X "$DATABASE_URL" -v ON_ERROR_STOP=1 -f database/schema.sql
+-- Este script no guarda contrasenas y no borra tablas ni datos.
+-- Si el rol tallerclaro_app existe, le concede permisos minimos; en Supabase
+-- tambien revoca el acceso de roles publicos (PUBLIC, anon, authenticated).
+-- Incluye los cambios de las migraciones 001 y 002; no volver a ejecutar 001.
 
 BEGIN;
 
 SET LOCAL TIME ZONE 'UTC';
 
-CREATE SCHEMA tallerclaro;
-
-REVOKE ALL ON SCHEMA tallerclaro FROM PUBLIC;
+CREATE SCHEMA IF NOT EXISTS tallerclaro;
 
 -- ---------------------------------------------------------------------------
 -- 1. cliente
 -- ---------------------------------------------------------------------------
-CREATE TABLE tallerclaro.cliente (
+CREATE TABLE IF NOT EXISTS tallerclaro.cliente (
     id_cliente              bigint GENERATED ALWAYS AS IDENTITY,
     nombre                  text NOT NULL,
     correo                  text NOT NULL,
@@ -37,7 +38,7 @@ COMMENT ON TABLE tallerclaro.cliente IS 'Persona que solicita una cotizacion o e
 -- ---------------------------------------------------------------------------
 -- 2. carpintero
 -- ---------------------------------------------------------------------------
-CREATE TABLE tallerclaro.carpintero (
+CREATE TABLE IF NOT EXISTS tallerclaro.carpintero (
     id_carpintero   bigint GENERATED ALWAYS AS IDENTITY,
     nombre          text NOT NULL,
     nombre_taller   text NOT NULL,
@@ -58,7 +59,7 @@ COMMENT ON TABLE tallerclaro.carpintero IS 'Artesano o taller que elabora los tr
 -- ---------------------------------------------------------------------------
 -- 3. cotizacion
 -- ---------------------------------------------------------------------------
-CREATE TABLE tallerclaro.cotizacion (
+CREATE TABLE IF NOT EXISTS tallerclaro.cotizacion (
     id_cotizacion           bigint GENERATED ALWAYS AS IDENTITY,
     id_cliente              bigint NOT NULL,
     id_carpintero           bigint NOT NULL,
@@ -103,7 +104,7 @@ COMMENT ON COLUMN tallerclaro.cotizacion.estado IS 'draft | needs_information | 
 -- ---------------------------------------------------------------------------
 -- 4. detalle_cotizacion
 -- ---------------------------------------------------------------------------
-CREATE TABLE tallerclaro.detalle_cotizacion (
+CREATE TABLE IF NOT EXISTS tallerclaro.detalle_cotizacion (
     id_detalle          bigint GENERATED ALWAYS AS IDENTITY,
     id_cotizacion       bigint NOT NULL,
     tipo                text NOT NULL,
@@ -132,7 +133,7 @@ COMMENT ON COLUMN tallerclaro.detalle_cotizacion.importe IS 'Calculado automatic
 -- ---------------------------------------------------------------------------
 -- 5. pedido
 -- ---------------------------------------------------------------------------
-CREATE TABLE tallerclaro.pedido (
+CREATE TABLE IF NOT EXISTS tallerclaro.pedido (
     id_pedido               bigint GENERATED ALWAYS AS IDENTITY,
     id_cotizacion           bigint NOT NULL,
     id_carpintero           bigint NOT NULL,
@@ -167,7 +168,7 @@ COMMENT ON COLUMN tallerclaro.pedido.estado IS 'pending | paid | in_progress | d
 -- ---------------------------------------------------------------------------
 -- 6. pago
 -- ---------------------------------------------------------------------------
-CREATE TABLE tallerclaro.pago (
+CREATE TABLE IF NOT EXISTS tallerclaro.pago (
     id_pago                 bigint GENERATED ALWAYS AS IDENTITY,
     id_pedido               bigint NOT NULL,
     tipo                    text NOT NULL,
@@ -210,11 +211,11 @@ COMMENT ON COLUMN tallerclaro.pago.paypal_capture_id IS 'ID de captura de PayPal
 -- ---------------------------------------------------------------------------
 -- Indices adicionales
 -- ---------------------------------------------------------------------------
-CREATE INDEX ix_cotizacion_id_cliente ON tallerclaro.cotizacion (id_cliente);
-CREATE INDEX ix_cotizacion_carpintero_fecha ON tallerclaro.cotizacion (id_carpintero, fecha_creacion DESC);
-CREATE INDEX ix_detalle_cotizacion_id_cotizacion ON tallerclaro.detalle_cotizacion (id_cotizacion);
-CREATE INDEX ix_pedido_carpintero_fecha ON tallerclaro.pedido (id_carpintero, fecha_creacion DESC);
-CREATE INDEX ix_pago_id_pedido ON tallerclaro.pago (id_pedido);
+CREATE INDEX IF NOT EXISTS ix_cotizacion_id_cliente ON tallerclaro.cotizacion (id_cliente);
+CREATE INDEX IF NOT EXISTS ix_cotizacion_carpintero_fecha ON tallerclaro.cotizacion (id_carpintero, fecha_creacion DESC);
+CREATE INDEX IF NOT EXISTS ix_detalle_cotizacion_id_cotizacion ON tallerclaro.detalle_cotizacion (id_cotizacion);
+CREATE INDEX IF NOT EXISTS ix_pedido_carpintero_fecha ON tallerclaro.pedido (id_carpintero, fecha_creacion DESC);
+CREATE INDEX IF NOT EXISTS ix_pago_id_pedido ON tallerclaro.pago (id_pedido);
 
 -- ---------------------------------------------------------------------------
 -- Funcion y triggers de ultima_actualizacion
@@ -230,24 +231,129 @@ BEGIN
 END;
 $$;
 
-CREATE TRIGGER tr_cliente_actualizar_timestamp
+CREATE OR REPLACE TRIGGER tr_cliente_actualizar_timestamp
     BEFORE UPDATE ON tallerclaro.cliente
     FOR EACH ROW
     EXECUTE FUNCTION tallerclaro.actualizar_timestamp();
 
-CREATE TRIGGER tr_cotizacion_actualizar_timestamp
+CREATE OR REPLACE TRIGGER tr_cotizacion_actualizar_timestamp
     BEFORE UPDATE ON tallerclaro.cotizacion
     FOR EACH ROW
     EXECUTE FUNCTION tallerclaro.actualizar_timestamp();
 
-CREATE TRIGGER tr_pedido_actualizar_timestamp
+CREATE OR REPLACE TRIGGER tr_pedido_actualizar_timestamp
     BEFORE UPDATE ON tallerclaro.pedido
     FOR EACH ROW
     EXECUTE FUNCTION tallerclaro.actualizar_timestamp();
 
-CREATE TRIGGER tr_pago_actualizar_timestamp
+CREATE OR REPLACE TRIGGER tr_pago_actualizar_timestamp
     BEFORE UPDATE ON tallerclaro.pago
     FOR EACH ROW
     EXECUTE FUNCTION tallerclaro.actualizar_timestamp();
+
+-- ---------------------------------------------------------------------------
+-- Migracion 001: tokens de enlace al cliente
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS tallerclaro.cliente_token (
+    id_token          bigint GENERATED ALWAYS AS IDENTITY,
+    id_cliente        bigint NOT NULL,
+    id_cotizacion     bigint NOT NULL,
+    token_hash        text NOT NULL,
+    fecha_expiracion  timestamptz NOT NULL,
+    usado             boolean NOT NULL DEFAULT false,
+    fecha_creacion    timestamptz NOT NULL DEFAULT now(),
+
+    CONSTRAINT pk_cliente_token PRIMARY KEY (id_token),
+    CONSTRAINT fk_cliente_token_cliente FOREIGN KEY (id_cliente)
+        REFERENCES tallerclaro.cliente (id_cliente)
+        ON DELETE RESTRICT ON UPDATE RESTRICT,
+    CONSTRAINT fk_cliente_token_cotizacion FOREIGN KEY (id_cotizacion)
+        REFERENCES tallerclaro.cotizacion (id_cotizacion)
+        ON DELETE RESTRICT ON UPDATE RESTRICT,
+    CONSTRAINT uq_cliente_token_hash UNIQUE (token_hash),
+    CONSTRAINT ck_cliente_token_hash_no_vacio CHECK (btrim(token_hash) <> ''),
+    CONSTRAINT ck_cliente_token_no_expirado_usado CHECK (
+        usado = false OR fecha_expiracion >= now()
+    )
+);
+
+COMMENT ON TABLE tallerclaro.cliente_token IS
+    'Tokens de enlace de un solo uso para acceso temporal del cliente.';
+CREATE INDEX IF NOT EXISTS ix_cliente_token_hash ON tallerclaro.cliente_token (token_hash);
+
+-- ---------------------------------------------------------------------------
+-- Migracion 002: informacion adicional y partidas activas
+-- ---------------------------------------------------------------------------
+ALTER TABLE tallerclaro.cotizacion
+    ADD COLUMN IF NOT EXISTS supuestos text[] NOT NULL DEFAULT '{}',
+    ADD COLUMN IF NOT EXISTS informacion_faltante text[] NOT NULL DEFAULT '{}';
+
+COMMENT ON COLUMN tallerclaro.cotizacion.supuestos IS
+    'Lista de supuestos generados por IA para la cotizacion.';
+COMMENT ON COLUMN tallerclaro.cotizacion.informacion_faltante IS
+    'Preguntas aclaratorias pendientes cuando estado = needs_information.';
+
+ALTER TABLE tallerclaro.detalle_cotizacion
+    ADD COLUMN IF NOT EXISTS activo boolean NOT NULL DEFAULT true;
+
+COMMENT ON COLUMN tallerclaro.detalle_cotizacion.activo IS
+    'Indica si el renglon pertenece a la revision vigente de la cotizacion.';
+
+-- ---------------------------------------------------------------------------
+-- Seguridad de esquema y permisos minimos (compatible con Supabase y rol dedicado)
+-- ---------------------------------------------------------------------------
+REVOKE ALL ON SCHEMA tallerclaro FROM PUBLIC;
+
+DO $permisos$
+DECLARE
+    tabla text;
+    columna text;
+    secuencia text;
+    rol_publico text;
+BEGIN
+    -- En Supabase, revocar cualquier acceso de los roles de Data API (anon, authenticated)
+    FOREACH rol_publico IN ARRAY ARRAY['anon', 'authenticated']
+    LOOP
+        IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = rol_publico) THEN
+            EXECUTE format('REVOKE ALL ON SCHEMA tallerclaro FROM %I', rol_publico);
+            EXECUTE format('REVOKE ALL ON ALL TABLES IN SCHEMA tallerclaro FROM %I', rol_publico);
+            EXECUTE format('REVOKE ALL ON ALL SEQUENCES IN SCHEMA tallerclaro FROM %I', rol_publico);
+        END IF;
+    END LOOP;
+
+    -- Si existe el rol dedicado tallerclaro_app, conceder privilegios minimos sin DELETE
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'tallerclaro_app') THEN
+        GRANT USAGE ON SCHEMA tallerclaro TO tallerclaro_app;
+        GRANT SELECT, INSERT, UPDATE ON TABLE
+            tallerclaro.cliente,
+            tallerclaro.carpintero,
+            tallerclaro.cotizacion,
+            tallerclaro.detalle_cotizacion,
+            tallerclaro.pedido,
+            tallerclaro.pago,
+            tallerclaro.cliente_token
+        TO tallerclaro_app;
+
+        -- Obtener el nombre real de cada secuencia identity, incluso si fue renombrada.
+        FOR tabla, columna IN
+            SELECT * FROM (VALUES
+                ('cliente', 'id_cliente'),
+                ('carpintero', 'id_carpintero'),
+                ('cotizacion', 'id_cotizacion'),
+                ('detalle_cotizacion', 'id_detalle'),
+                ('pedido', 'id_pedido'),
+                ('pago', 'id_pago'),
+                ('cliente_token', 'id_token')
+            ) AS ids(nombre_tabla, nombre_columna)
+        LOOP
+            secuencia := pg_get_serial_sequence(format('%I.%I', 'tallerclaro', tabla), columna);
+            IF secuencia IS NULL THEN
+                RAISE EXCEPTION 'No se encontro la secuencia de tallerclaro.%.%', tabla, columna;
+            END IF;
+            EXECUTE format('GRANT USAGE ON SEQUENCE %s TO tallerclaro_app', secuencia);
+        END LOOP;
+    END IF;
+END;
+$permisos$;
 
 COMMIT;

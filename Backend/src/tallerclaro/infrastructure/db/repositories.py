@@ -8,7 +8,7 @@ import dataclasses
 
 import psycopg
 
-from tallerclaro.application.ports import (
+from tallerclaro.application.interfaces import (
     CarpenterRepository,
     CustomerRepository,
     OrderRepository,

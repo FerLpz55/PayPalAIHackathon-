@@ -18,7 +18,7 @@ from tallerclaro.application.exceptions import (
     NotFoundError,
     ValidationDomainError,
 )
-from tallerclaro.application.ports import AIService, UnitOfWork
+from tallerclaro.application.interfaces import AIService, UnitOfWork
 from tallerclaro.domain.entities import (
     DEPOSIT_PERCENTAGE,
     ORDER_STATUS_PENDING,

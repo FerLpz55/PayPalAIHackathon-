@@ -1,65 +1,66 @@
-# Directrices de Desarrollo de TallerClaro
+# Directrices para agentes — TallerClaro
 
-## 1. Gestores de Paquetes y Entornos
+Monorepo de hackathon: frontend React 19 + Vite (`frontend/`), backend FastAPI por capas (`Backend/`) y PostgreSQL (`database/`). No hay CI ni gestor de tareas raíz; la verificación es local.
 
-- **Frontend (`frontend/`)**: Usar exclusivamente **`pnpm`** (`pnpm run dev`, `pnpm run lint`, `pnpm run build`, `pnpm install`). Nunca usar `npm` o `yarn`.
-- **Backend (`Backend/`)**: Python 3.14 con **`uv`** y `"fastapi[standard]"` en `Backend/.venv` (`uv pip install -e '.[dev]'`, `fastapi dev src/tallerclaro/main.py`, pruebas con `.venv/bin/pytest`).
+## Comandos verificados
 
-## 2. Infraestructura y Servicios (VPS con Coolify)
+Backend (desde `Backend/`; el `.venv` del repo usa Python 3.14 y `pyproject.toml` exige >=3.11):
 
-- **Base de Datos (PostgreSQL)**: La base de datos reside / se desplegará en un **servidor VPS administrado con Coolify**.
-  - El agente **nunca** debe intentar levantar contenedores Docker o servicios locales de PostgreSQL.
-  - La conexión del backend se realiza vía variables de entorno (`.env`) apuntando a dicha instancia remota de Coolify.
-- **Pruebas de Backend**: Ejecutar siempre las pruebas en memoria existentes (`Backend/tests/`), las cuales usan dobles/fakes y no requieren conexión de red a la base de datos remota.
-- **PayPal**: La integración de PayPal Sandbox se gestionará con sus credenciales de prueba; no simular pagos confirmados por servidor sin la API real.
-- **Proveedor de IA**: La generación real de cotizaciones requiere credenciales configuradas por entorno (`TALLERCLARO_AI_API_KEY`). Las pruebas con `FakeAIService` o clientes HTTP simulados validan solo la lógica local, no la integración real.
-- **Criterio para Cerrar Issues en GitHub**: **Nunca cerrar una issue** que dependa de servicios o credenciales externas (PostgreSQL en Coolify, API de IA o PayPal Sandbox) cuando solo haya sido probada con mocks/dobles en memoria. En esos casos, dejar la issue abierta y documentar en un comentario qué quedó listo en `main` y qué credencial/prueba en vivo falta para cerrarla.
+```bash
+uv venv .venv && source .venv/bin/activate
+uv pip install -e '.[dev]'
+cp .env.example .env                  # ajustar valores; .env está ignorado por git
+fastapi dev src/tallerclaro/main.py   # API en http://127.0.0.1:8000, docs en /docs
+.venv/bin/pytest                      # suite en memoria; no necesita PostgreSQL ni red
+.venv/bin/pytest tests/application/test_use_cases.py::test_capture_payment_rejects_mismatched_amount_and_currency
+```
 
-## 3. Arquitectura del Backend (FastAPI Layered Monolith)
+Frontend (desde `frontend/`, usar **solo `pnpm`**, nunca `npm`/`yarn`):
 
-- El backend sigue una **arquitectura sencilla por capas (layered monolith)** con el patrón **Unit of Work (UoW) + Repository**:
-  - `presentation/`: Routers HTTP con FastAPI, esquemas Pydantic (`extra="forbid"`), dependencias de autenticación y manejadores globales de excepciones. **Cero consultas SQL, cero conexiones de BD y cero lógica de negocio en routers.**
-  - `application/`: Casos de uso (`use_cases/`), DTOs (`dataclasses`) y puertos `typing.Protocol` (`UnitOfWork`, `AIService`, `PaymentProcessor`). Es la única capa que define límites transaccionales (`with self._uow:`).
-  - `domain/`: Entidades puras, objetos de valor (`Money` con `Decimal` y `ROUND_HALF_UP`), transiciones de estado e invariantes de negocio. **Cero dependencias de FastAPI, Pydantic, `psycopg` o `httpx`.**
-  - `infrastructure/`: Implementaciones concretas (`PostgresUnitOfWork`, `Postgres*Repository`, adaptadores HTTP de IA y PayPal, `CustomerTokenService`).
-  - `bootstrap/` y `main.py`: Configuración (`pydantic-settings`) y composición de dependencias.
-- No etiquetar esta arquitectura como "hexagonal" ni sobre-complejizar la nomenclatura técnica.
+```bash
+pnpm install
+pnpm run dev
+pnpm run lint && pnpm run build      # no existe script de tests
+```
 
-## 4. Criterios de Aceptación y Auditoría Técnica Estricta
+`frontend/README.md` está desactualizado (recomienda `npm` y dice que no hay integración con API). El código real ya tiene modo demo/API; la fuente de verdad es `frontend/src/services/apiClient.js`, no ese README.
 
-Antes de dar por terminada cualquier tarea o validar código (propio o de subagentes), no basta con que `pytest` o `pnpm run build` pasen. El agente debe auditar y garantizar estas **6 invariantes**:
+## Modo demo vs API real (frontend)
 
-1. **Alcance por Petición (*Request-Scoped*) y Seguridad del `UnitOfWork`**:
-   - `app.state` solo debe almacenar el pool (`Database`) y una fábrica (`uow_factory` callable) que cree un `UnitOfWork` nuevo por petición; **nunca compartir una instancia mutable de `UnitOfWork`** entre peticiones concurrentes.
-   - **Prohibido abrir `with uow:` en `presentation/`** (incluyendo dependencias de autenticación como `get_customer_scope`, que deben delegar en casos de uso como `VerifyCustomerToken`).
-   - `PostgresUnitOfWork` debe apilar sus frames de conexión para que, si se anidan o intercalan bloques `with uow:`, jamás se sobrescriba una conexión activa ni quede una conexión sin devolver a `put_connection()`.
-   - Al salir de `__exit__`, toda transacción donde hubo excepción o no se llamó explícitamente a `commit()` debe ejecutar `rollback()` tanto en `PostgresUnitOfWork` como en `FakeUnitOfWork` (restaurando snapshots en memoria).
+- El modo se decide únicamente por `VITE_API_BASE_URL`: vacío ⇒ `mockApi`/`localStorage`; no vacío ⇒ `fetch` a `/api`. `VITE_APP_MODE` aparece en el README raíz pero **no lo lee el código**.
+- Demo persiste en la clave `localStorage` `tallerclaro.demo.v1`; la sesión (token de cliente, credenciales) en `sessionStorage` `tallerclaro.session.v1`.
+- No hacer fallback silencioso a demo tras un error del backend: el error debe propagarse.
+- Nunca poner secretos de IA/PayPal en variables `VITE_*`; viven solo en `Backend/.env`.
 
-2. **Aislamiento Secuencial de Llamadas Externas (Prohibido Red dentro de Transacciones SQL)**:
-   - **Nunca** ejecutar llamadas HTTP externas (IA o PayPal) dentro de un bloque `with self._uow:` abierto, ya que retiene conexiones del pool y bloqueos en PostgreSQL durante segundos de latencia de red (*connection starvation*).
-   - Aplicar siempre el patrón en **3 fases**:
-     1. *Fase 1 (Lectura/Validación y Autorización)*: Abrir `with self._uow:`, validar existencia/estado de la entidad, verificar pertenencia al `WorkshopPrincipal` (`workshop_id`) o `CustomerPrincipal` y salir del bloque para liberar la conexión.
-     2. *Fase 2 (I/O Externo)*: Llamar a `AIService` o `PaymentProcessor` **fuera** de cualquier transacción de BD.
-     3. *Fase 3 (Reconciliación/Commit)*: Abrir un nuevo `with self._uow:`, recargar la entidad para verificar que su estado y pertenencia sigan siendo válidos, aplicar los cambios de dominio, guardar en el repositorio y ejecutar `self._uow.commit()`.
+## Mapa del backend
 
-3. **Verificación Financiera Estricta en Pagos (`CapturePayment` y `PayPalPaymentProcessor`)**:
-   - `PayPalPaymentProcessor.capture_order` debe leer `data.get("id")` de la respuesta real de PayPal, exigir `purchase_units` y `captures` válidos, y verificar `capture["status"] == "COMPLETED"`.
-   - Al capturar un pago en PayPal, el caso de uso debe contrastar explícitamente la respuesta del proveedor contra el `Payment` esperado antes de acreditarlo:
-     - `captured.status == "completed"`
-     - `captured.paypal_order_id == payment.paypal_order_id`
-     - `captured.currency == payment.currency` (`"USD"`)
-     - `Money(Decimal(str(captured.amount))).amount == payment.amount.amount`
-     - `captured.paypal_capture_id` presente y no vacío.
-   - Antes y después de capturar en PayPal, validar contra la orden y sus pagos previos que el monto del intento no exceda el saldo pendiente (`remaining_balance`) ni duplique un anticipo (`deposit`) ya completado.
-   - Cualquier discrepancia debe lanzar `ConflictError` y abortar la acreditación.
+- **Monolito por capas** (*layered monolith*, **no** arquitectura hexagonal): `src/tallerclaro/{domain,application,infrastructure,presentation,bootstrap}` + `main.py` (composición y `lifespan`).
+- **Lectura obligatoria antes de evaluar o cambiar**: al trabajar sobre `Backend/` o `database/`, leer siempre `Backend/README.md` y `database/README.md` en el primer turno antes de emitir un diagnóstico o plan; nunca inferir patrones arquitectónicos solo por nombres de archivos (`ports.py`, `adapter.py`, ahora migrados a `interfaces.py`, `service.py`, `paypal_processor.py`).
+- Tests: `Backend/tests/` usa dobles de `tests/fakes.py` y `TestClient` con `app.dependency_overrides` (`tests/api/conftest.py`). Comportamiento nuevo debe reflejarse en fakes y en repositorios Postgres.
+- IA y PayPal por defecto en `none`; sin credenciales los servicios responden `SERVICE_UNAVAILABLE`. Los tests con fakes no validan integraciones reales.
+- Los routers importan casos de uso; no hay ORM, los repositorios usan SQL directo con `psycopg`.
 
-4. **Paridad Total entre Entidades de Dominio, Dobles en Memoria y Repositorios SQL**:
-   - Todo campo de dominio (`Quote.assumptions`, `Quote.missing_info`, `Quote.line_items`, etc.) debe guardarse y leerse tanto en `Fake*Repository` como en `Postgres*Repository`.
-   - Cuando una cotización reduzca sus partidas o pase a `needs_information` (`line_items = []`), el repositorio SQL debe desactivar las partidas sobrantes (`UPDATE ... SET activo = false`), respetando que el rol `tallerclaro_app` solo tiene permisos `SELECT/INSERT/UPDATE` (nunca `DELETE`).
+## Invariantes de arquitectura (auditar antes de cerrar una tarea)
 
-5. **Pureza de Capas (Cero Lógica Financiera ni Monkey-Patching en `presentation/`)**:
-   - Ningún router o dependencia en `presentation/` debe importar `Decimal` ni calcular anticipos, saldos o redondeos; todo cálculo monetario pertenece a `domain/entities.py` (`Money`).
-   - La capa `presentation/` nunca debe inyectar métodos mágicos ni mutar clases de `application/` o `domain/` en tiempo de ejecución.
+1. **UoW por petición**: `app.state` guarda el pool (`Database`) y `uow_factory` (callable); nunca compartir una instancia mutable entre peticiones. No abrir `with uow:` en `presentation/` — la autorización delegada (p. ej. `VerifyCustomerToken`) sí puede abrirlo desde `application/`. `PostgresUnitOfWork` apila frames y devuelve siempre la conexión; `__exit__` hace `rollback()` si hubo excepción o no se llamó `commit()` (igual en `FakeUnitOfWork`).
+2. **Cero red dentro de transacciones SQL**: las llamadas a IA/PayPal van *fuera* de `with self._uow:`. Patrón obligatorio en 3 fases: (1) abrir UoW, validar entidad/estado/`workshop_id` o token de cliente y salir; (2) llamar al proveedor externo; (3) abrir un UoW nuevo, recargar y revalidar, guardar y `commit()`.
+3. **Captura de pagos estricta**: `PayPalPaymentProcessor.capture_order` debe leer `data["id"]`, exigir `purchase_units`/`captures` y `status == "COMPLETED"`. `CapturePayment` contrasta la respuesta con el `Payment` esperado (status, `paypal_order_id`, moneda USD, importe exacto con `Decimal`, `paypal_capture_id` no vacío), valida saldo pendiente y que no se duplique un anticipo; cualquier discrepancia lanza `ConflictError` sin acreditar.
+4. **Paridad fake/Postgres**: todo campo de dominio (`assumptions`, `missing_info`, `line_items`, etc.) debe persistirse y leerse en ambos. Si una cotización queda sin partidas (`needs_information`), el repositorio SQL desactiva las sobrantes con `UPDATE ... SET activo = false`; el rol `tallerclaro_app` **no tiene `DELETE`**.
+5. **Pureza de capas**: routers/dependencias no calculan dinero ni importan `Decimal`; todo cálculo monetario (USD, `ROUND_HALF_UP`) vive en `domain/`. Prohibido monkey-patching o mutar clases de `application/`/`domain/` desde `presentation/`.
+6. **Higiene**: no reintroducir `PROJECT.md`, `.agents/` ni planes internos en la raíz; no documentar comandos (`npm`) o migraciones que no existan en el árbol real.
 
-6. **Higiene del Repositorio y Documentación**:
-   - No dejar archivos internos de orquestación (`PROJECT.md`, `.agents/`) en la raíz ni documentar nombres de migraciones o comandos (`npm` en vez de `pnpm`) que no coincidan exactamente con el árbol de archivos real.
+## Base de datos e infraestructura
+
+- **Supabase se usa SOLAMENTE como servidor PostgreSQL gestionado**: el backend FastAPI se conecta por SQL directo (`psycopg` + `DATABASE_URL`) al esquema dedicado `tallerclaro` (aislado de `public` y de PostgREST). No usar SDKs de Supabase (`supabase-py`, `@supabase/supabase-js`), Supabase Auth, PostgREST ni Edge Functions. No levantar contenedores Docker ni PostgreSQL local; no ejecutar escrituras, migraciones ni tests SQL contra la instancia desplegada sin confirmación explícita. Las verificaciones permitidas son de solo lectura (`SELECT version()`, `\dt`, `\d`).
+- El pool de `psycopg` usa `prepare_threshold=None` para compatibilidad con Supavisor (Session/Transaction Pooler de Supabase) y `PostgresUnitOfWork` aplica `SET LOCAL TRANSACTION ISOLATION LEVEL SERIALIZABLE` al abrir cada transacción.
+- `database/schema.sql` es la base inicial (revoca permisos de `PUBLIC`, `anon` y `authenticated`, y aplica grants a `tallerclaro_app` de forma condicional si el rol existe); los cambios posteriores son migraciones SQL numeradas en `database/migrations/`. No hay runner de migraciones: se aplican desde el SQL Editor de Supabase o manualmente con `psql`.
+
+## Autorización y contrato HTTP
+
+- Taller: Basic Auth (`require_workshop_credentials`) en listado/actualización de pedidos y generación de cotizaciones.
+- Cliente: header `X-Customer-Token` (o `Authorization: Bearer`) en pagos. Lecturas/acciones de cotización y detalle de pedido usan `PrincipalDep` (token de cliente **o** Basic del taller).
+- `frontend/docs/API_CONTRACT.md` es una foto del 2026-11-02 y contiene afirmaciones desactualizadas (p. ej. auth de cotizaciones); verificar contra los routers y esquemas actuales.
+
+## Issues de GitHub
+
+Nunca cerrar una issue que dependa de servicios/credenciales externas (PostgreSQL en Supabase, IA real o PayPal Sandbox) si solo se probó con mocks. Dejarla abierta y comentar qué quedó listo en `main` y qué prueba en vivo falta.

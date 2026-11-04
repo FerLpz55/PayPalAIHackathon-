@@ -15,7 +15,7 @@ from tallerclaro.application.exceptions import (
     NotFoundError,
     ValidationDomainError,
 )
-from tallerclaro.application.ports import UnitOfWork
+from tallerclaro.application.interfaces import UnitOfWork
 from tallerclaro.domain.entities import (
     ORDER_STATUS_DELIVERED,
     ORDER_STATUS_PAID,

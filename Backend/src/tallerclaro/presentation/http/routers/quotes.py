@@ -14,6 +14,7 @@ from tallerclaro.application.use_cases import (
 )
 from tallerclaro.domain.entities import QuoteId
 from tallerclaro.presentation.http.dependencies import (
+    AIServiceDep,
     PrincipalDep,
     UnitOfWorkDep,
     WorkshopCarpenterDep,
@@ -101,12 +102,11 @@ def get_quote(
 @router.post("/quotes/{quote_id}/generate")
 def generate_quote(
     quote_id: int,
-    request: Request,
     principal: WorkshopCarpenterDep,
     uow: UnitOfWorkDep,
+    ai_service: AIServiceDep,
     body: GenerateQuoteRequest | None = None,
 ) -> QuoteGenerateResponse:
-    ai_service = request.app.state.ai_service
     use_case = GenerateQuoteProposal(uow, ai_service)
     additional_info = body.additional_info if body is not None else None
     quote = use_case.execute(

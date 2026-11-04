@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from types import TracebackType
 from typing import Any
 
-from tallerclaro.application.ports import CustomerTokenRepository, UnitOfWork
+from tallerclaro.application.interfaces import CustomerTokenRepository, UnitOfWork
 from tallerclaro.infrastructure.db.connection import Database
 from tallerclaro.infrastructure.db.repositories import (
     PostgresCarpenterRepository,
@@ -52,6 +52,13 @@ class PostgresUnitOfWork:
 
     def __enter__(self) -> UnitOfWork:
         conn = self._database.get_connection()
+        if hasattr(conn, "execute"):
+            try:
+                conn.execute("SET LOCAL TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+            except Exception:
+                conn.rollback()
+                self._database.put_connection(conn)
+                raise
         frame = _TransactionFrame(
             conn=conn,
             customers=PostgresCustomerRepository(conn),

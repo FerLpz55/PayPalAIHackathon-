@@ -1,18 +1,27 @@
 """Configuración del servidor."""
 
-from pydantic import Field, PostgresDsn, field_validator
+from urllib.parse import urlsplit, urlunsplit
+
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="TALLERCLARO_", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_prefix="TALLERCLARO_",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        populate_by_name=True,
+        extra="ignore",
+    )
 
     app_name: str = "TallerClaro API"
 
     # Base de datos: URL o campos individuales (ficticios por defecto).
     database_url: str | None = Field(
         default=None,
-        description="PostgreSQL URL; si se provee, se usan los campos individuales.",
+        validation_alias=AliasChoices("DATABASE_URL", "TALLERCLARO_DATABASE_URL"),
+        description="PostgreSQL URL; si se provee, tiene prioridad sobre los campos individuales.",
     )
     database_host: str = "localhost"
     database_port: int = 5432
@@ -68,6 +77,14 @@ class Settings(BaseSettings):
     @property
     def database_dsn(self) -> str:
         if self.database_url:
+            # Algunos enlaces copiados contienen @ sin escapar en la contraseña.
+            # Separar por el último @ conserva el host y no recodifica %40.
+            parts = urlsplit(self.database_url)
+            credentials, separator, host = parts.netloc.rpartition("@")
+            if separator and ":" in credentials:
+                user, password = credentials.split(":", 1)
+                authority = f"{user}:{password.replace('@', '%40')}@{host}"
+                return urlunsplit(parts._replace(netloc=authority))
             return self.database_url
         return (
             f"postgresql://{self.database_user}:{self.database_password}"

@@ -1,45 +1,46 @@
-# Base de datos — PostgreSQL
+# Base de datos — PostgreSQL (Supabase)
 
 Directorio central para el esquema SQL y los archivos relacionados con PostgreSQL
-de TallerClaro.
+(Supabase) de TallerClaro.
 
 ## Estado actual
 
-- [x] Esquema inicial implementado en `schema.sql`.
+- [x] Esquema inicial y actualización del esquema existente en `schema.sql`.
 - [x] Datos de demostración en `seeds/demo.sql`.
 - [x] Pruebas de aceptación del esquema en `tests/schema_test.sql`.
-- [x] Conexión con FastAPI y repositorios PostgreSQL.
+- [x] Conexión con FastAPI y repositorios PostgreSQL compatibles con Supabase Pooler (Supavisor).
 - [x] Migraciones numeradas en `migrations/`.
-- [ ] Conectar PostgreSQL desplegado y verificar IA/PayPal.
+- [ ] Verificar permisos y esquema del PostgreSQL en Supabase; verificar IA/PayPal.
 
 ## Organización
 
 ```text
 database/
   README.md                 este archivo
-  schema.sql                definicion inicial del esquema tallerclaro
+  schema.sql                inicializacion y actualizacion del esquema tallerclaro
   seeds/demo.sql            datos ficticios de ejemplo
   tests/schema_test.sql     pruebas SQL que revierten sus datos al finalizar
   migrations/               cambios posteriores numerados
     001_add_customer_link_tokens.sql
+    002_add_quote_clarification_fields.sql
 ```
 
-Mantener una unica secuencia de cambios del esquema; no duplicarla en el backend.
-La primera version del esquema ya esta versionada en `schema.sql`. Los cambios
-futuros iran en migraciones numeradas; la primera migracion partira de esta base
-sin duplicarla. No editar `schema.sql` para actualizar bases ya utilizadas.
+`schema.sql` incorpora las migraciones 001 y 002 y puede ejecutarse en un
+proyecto nuevo de Supabase o sobre el esquema inicial existente. No sustituye
+futuras migraciones numeradas ni comprueba automáticamente todas las diferencias
+de un esquema modificado manualmente.
 
 ## Requisitos
 
-- PostgreSQL 18 o compatible.
-- Cliente `psql` disponible.
+- Proyecto en **Supabase** (PostgreSQL 15+) o PostgreSQL 15–18 compatible.
+- SQL Editor de Supabase o cliente `psql` disponible.
 
 ## Esquema
 
-- Base: `tallerclaro`.
-- Esquema dedicado: `tallerclaro`.
-- Seis tablas de negocio: `cliente`, `carpintero`, `cotizacion`,
-  `detalle_cotizacion`, `pedido`, `pago`.
+- Base: en Supabase la base por defecto es `postgres`.
+- Esquema dedicado: `tallerclaro` (aislado de `public` y de PostgREST / Data API).
+- Seis tablas de negocio (`cliente`, `carpintero`, `cotizacion`,
+  `detalle_cotizacion`, `pedido`, `pago`) y `cliente_token`.
 - Convenciones: columnas en español, `snake_case`, PK `bigint GENERATED ALWAYS AS
   IDENTITY`, importes `numeric(14,2)`, cantidades `numeric(12,3)`, moneda `USD`,
   fechas `timestamptz`, estados como `text` con `CHECK`, nombres calificados.
@@ -56,89 +57,88 @@ sin duplicarla. No editar `schema.sql` para actualizar bases ya utilizadas.
 - `pedido` usa una FK compuesta `(id_cotizacion, id_carpintero)` para garantizar
   que el pedido pertenezca al mismo carpintero de la cotizacion.
 
-## Crear y ejecutar la base local (ejemplo)
+## Inicializar en Supabase (Recomendado)
+
+1. Crea un proyecto en Supabase y abre el **SQL Editor** (o conéctate mediante `psql` usando el URI del **Session Pooler** en el puerto `5432`).
+2. Ejecuta el contenido de `database/schema.sql`.
+3. (Opcional) Ejecuta `database/seeds/demo.sql` para cargar los talleres y datos de demostración.
+4. En el **Table Editor** de Supabase, selecciona el esquema `tallerclaro` en el desplegable superior izquierdo para visualizar las tablas.
+
+Con `psql` y tu `DATABASE_URL` de Supabase:
 
 ```bash
-# 1. Entrar como administrador
-psql -h localhost -U postgres -d postgres
+# Aplicar esquema
+psql -X "$DATABASE_URL" -v ON_ERROR_STOP=1 -f database/schema.sql
 
-# 2. Crear rol propietario de desarrollo
-CREATE ROLE tallerclaro_owner LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE;
-\password tallerclaro_owner
+# (Opcional) Cargar datos de demo
+psql -X "$DATABASE_URL" -v ON_ERROR_STOP=1 -f database/seeds/demo.sql
 
-# 3. Crear base
-CREATE DATABASE tallerclaro OWNER tallerclaro_owner;
-\q
-
-# 4. Aplicar esquema
-psql -X -h localhost -U tallerclaro_owner -d tallerclaro -v ON_ERROR_STOP=1 -f database/schema.sql
-
-# 5. (Opcional) Cargar datos de demo
-psql -X -h localhost -U tallerclaro_owner -d tallerclaro -v ON_ERROR_STOP=1 -f database/seeds/demo.sql
-
-# 6. Crear base de pruebas y ejecutar pruebas de aceptacion
-psql -h localhost -U postgres -d postgres -c "CREATE DATABASE tallerclaro_test OWNER tallerclaro_owner;"
-psql -X -h localhost -U tallerclaro_owner -d tallerclaro_test -v ON_ERROR_STOP=1 -f database/schema.sql
-psql -X -h localhost -U tallerclaro_owner -d tallerclaro_test -v ON_ERROR_STOP=1 -f database/tests/schema_test.sql
+# (Opcional) Ejecutar pruebas de aceptación del esquema (hacen ROLLBACK al final)
+psql -X "$DATABASE_URL" -v ON_ERROR_STOP=1 -f database/tests/schema_test.sql
 ```
 
-No escribir contrasenas en el SQL ni en URLs de conexion. `schema.sql` ya
+No escribir contrasenas en el SQL ni en archivos versionados. `schema.sql` ya
 contiene la transaccion; no combinarlo con `--single-transaction`.
 
 ## Roles y permisos
 
-- `tallerclaro_owner`: propietario del esquema en desarrollo. Ejecuta
-  `schema.sql` y concede permisos.
-- `tallerclaro_app` (crear antes de conectar FastAPI): rol de aplicacion con
-  `LOGIN`, sin privilegios administrativos. Conceder `USAGE` del esquema,
-  `SELECT/INSERT/UPDATE` sobre las seis tablas y `USAGE` en las secuencias
-  identity. No conceder `CREATE`, `DELETE`, `TRUNCATE` ni propiedad de tablas.
-  Este rol SQL no sustituye la autorizacion de acceso por carpintero en FastAPI.
+- **Supabase (`postgres`)**: al ejecutar `schema.sql` en Supabase, el script
+  revoca automáticamente cualquier privilegio de `PUBLIC` y de los roles de la
+  Data API de Supabase (`anon`, `authenticated`) sobre el esquema `tallerclaro`,
+  sus tablas y secuencias. Además, al no estar en `public`, PostgREST no expone
+  las tablas públicamente.
+- **`tallerclaro_app` (opcional)**: si decides crear un rol dedicado con `LOGIN`
+  (`CREATE ROLE tallerclaro_app LOGIN PASSWORD '...'`), `schema.sql` detecta su
+  existencia y le concede únicamente `USAGE` del esquema, `SELECT/INSERT/UPDATE`
+  sobre las siete tablas y `USAGE` en sus secuencias identity (sin `DELETE`,
+  `CREATE` ni `TRUNCATE`). Este rol SQL no sustituye la autorización de acceso
+  por carpintero o token de cliente en FastAPI.
 
 ## Integracion con el backend
 
-Los repositorios y modelos de persistencia Python viviran en
+Los repositorios y modelos de persistencia Python viven en
 `Backend/src/tallerclaro/infrastructure/`. El dominio y los casos de uso
 permanecen independientes de PostgreSQL y del ORM.
 
-Proporcionar las credenciales mediante configuracion local o variables de entorno.
-No guardar contrasenas, cadenas de conexion reales, dumps, copias de seguridad
-ni directorios de datos de PostgreSQL en Git. Las plantillas de configuracion
-deben contener unicamente valores ficticios.
-
-Consultar el [plan del backend](../docs/superpowers/plans/2026-10-31-fastapi-layers.md)
-para la arquitectura y el alcance actual.
+Proporcionar las credenciales mediante configuracion local (`Backend/.env`) o
+variables de entorno (`DATABASE_URL`). No guardar contrasenas, cadenas de
+conexion reales, dumps ni copias de seguridad en Git. Las plantillas de
+configuracion deben contener unicamente valores ficticios.
 
 ## Migraciones
 
-`schema.sql` es la base inicial. Cualquier cambio posterior se agrega como una
-migración numerada en `database/migrations/`. No modificar `schema.sql` para
-actualizar bases ya desplegadas.
+`schema.sql` incluye las migraciones 001 y 002. Para inicializar o actualizar
+el esquema en Supabase, puedes pegarlo en el SQL Editor o ejecutarlo con `psql`.
+La ejecución es transaccional.
 
-Ejemplo de aplicación:
+No ejecutes la migración 001 después de aplicar `schema.sql`: su `CREATE TABLE`
+no es repetible. La migración 002 ya está incorporada. Conserva las migraciones
+para bases inicializadas antes de esta actualización; los cambios posteriores
+seguirán en archivos numerados.
+
+Ejemplo de aplicación por CLI:
 
 ```bash
-psql -X -h <host> -U <app_user> -d <database> -v ON_ERROR_STOP=1 \
-  -f database/migrations/001_add_customer_link_tokens.sql
+psql -X "$DATABASE_URL" -v ON_ERROR_STOP=1 -f database/schema.sql
 ```
 
 ## Verificación antes de aplicar migraciones
 
-Antes de tocar el PostgreSQL desplegado, comprueba de forma de solo lectura la
-versión, las tablas y el esquema:
+Antes de tocar el PostgreSQL desplegado en Supabase, comprueba de forma de solo
+lectura la versión, las tablas y el esquema:
 
 ```bash
 # Versión del servidor
-psql -h <host> -U <user> -d <database> -c "SELECT version();"
+psql "$DATABASE_URL" -c "SELECT version();"
 
 # Tablas del esquema tallerclaro
-psql -h <host> -U <user> -d <database> -c "\dt tallerclaro.*"
+psql "$DATABASE_URL" -c "\dt tallerclaro.*"
 
 # Estructura de una tabla
-psql -h <host> -U <user> -d <database> -c "\d tallerclaro.cotizacion"
+psql "$DATABASE_URL" -c "\d tallerclaro.cotizacion"
 
 # Verificar si una migración ya fue aplicada
-psql -h <host> -U <user> -d <database> -c \
+psql "$DATABASE_URL" -c \
   "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'tallerclaro' AND table_name = 'cliente_token');"
 ```
 

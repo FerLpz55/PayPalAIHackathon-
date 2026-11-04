@@ -1,4 +1,8 @@
-"""Puertos (interfaces) de la capa de aplicación."""
+"""Contratos e interfaces de la capa de aplicación.
+
+Define las abstracciones (Protocols) que la capa de aplicación requiere
+para interactuar con la persistencia, servicios de IA y procesadores de pago.
+"""
 
 from __future__ import annotations
 
@@ -41,9 +45,6 @@ class QuoteRepository(Protocol):
         ...
 
     def get_by_id(self, quote_id: QuoteId) -> Quote | None:
-        ...
-
-    def get_by_id_with_customer(self, quote_id: QuoteId) -> tuple[Quote, Customer] | None:
         ...
 
 
@@ -126,7 +127,6 @@ class UnitOfWork(Protocol):
         ...
 
 
-
 class AIService(Protocol):
     def generate_quote_proposal(self, request: str) -> QuoteProposalResult:
         ...
@@ -138,3 +138,4 @@ class PaymentProcessor(Protocol):
 
     def capture_order(self, paypal_order_id: str) -> CapturedPayment:
         ...
+

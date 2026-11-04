@@ -43,7 +43,7 @@ from tallerclaro.application.exceptions import (
     NotFoundError,
     ValidationDomainError,
 )
-from tallerclaro.application.ports import UnitOfWork
+from tallerclaro.application.interfaces import UnitOfWork
 from tallerclaro.bootstrap.settings import Settings
 from tallerclaro.domain.entities import (
     Carpenter,
@@ -60,9 +60,8 @@ from tallerclaro.domain.entities import (
     QuoteLineItem,
     QuoteLineItemId,
 )
-from tallerclaro.infrastructure.ai.adapter import OpenAIAIService
+from tallerclaro.infrastructure.ai.service import OpenAIAIService
 from tallerclaro.infrastructure.db.repositories import PostgresQuoteRepository
-from tallerclaro.main import create_app
 from tallerclaro.presentation.http import exception_handlers
 from tallerclaro.presentation.http.dependencies import get_unit_of_work
 from tests.fakes import (
@@ -301,6 +300,8 @@ class ExpiringFakeCustomerTokenRepository:
 
 @pytest.fixture
 def adversarial_app():
+    from tallerclaro.main import create_app
+
     settings = Settings(
         workshop_username="taller",
         workshop_password="demo-password",
@@ -611,6 +612,8 @@ def test_repeated_queries_do_not_exhaust_connections(adversarial_app):
 
 def test_multi_origin_cors_preflight_and_headers():
     """Verify CORS preflight (OPTIONS) and response headers across multiple allowed origins and rejected origin."""
+    from tallerclaro.main import create_app
+
     settings = Settings(
         cors_origins=[
             "http://localhost:5173",

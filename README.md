@@ -6,8 +6,8 @@ TallerClaro is a PayPal AI Hackathon project for carpentry quotes, customer paym
 
 - **Frontend (`frontend/`)**: Implements workshop and customer screens following the Penpot design system, with explicit separation between local **Demo mode** (`localStorage`) and **Real API mode** connected to the FastAPI backend (`src/services/apiClient.js`).
 - **Backend (`Backend/`)**: Implements domain entities, business rules (`Decimal` USD calculations, 50% deposit, status transitions, payment verification before delivery), use cases, PostgreSQL repositories, OpenAI-compatible AI quote & clarification adapter, PayPal Sandbox adapter, workshop Basic Auth, and signed `X-Customer-Token` link authorization.
-- **Database (`database/`)**: PostgreSQL schema (`database/schema.sql`) and migrations (`database/migrations/001_add_customer_link_tokens.sql`, `002_add_quote_clarification_fields.sql`) ready for deployment on a remote VPS managed with **Coolify**.
-- **Pending live credentials**: Connecting the deployed Coolify PostgreSQL instance, configuring a live `TALLERCLARO_AI_API_KEY`, and running end-to-end Sandbox captures with live PayPal Sandbox credentials.
+- **Database (`database/`)**: PostgreSQL schema (`database/schema.sql`) and migrations (`database/migrations/001_add_customer_link_tokens.sql`, `002_add_quote_clarification_fields.sql`) ready for deployment on **Supabase** (in the isolated `tallerclaro` schema).
+- **Pending live credentials**: Connecting the Supabase PostgreSQL instance (`DATABASE_URL`), configuring a live `TALLERCLARO_AI_API_KEY`, and running end-to-end Sandbox captures with live PayPal Sandbox credentials.
 
 ## Run the frontend locally
 
@@ -99,7 +99,7 @@ See [backend setup and architecture](Backend/README.md) for environment variable
 ## Demo mode vs Real mode
 
 - **Demo mode (`localStorage`)**: Stores sample workshop data under `tallerclaro.demo.v1`. Clearly labeled in the UI as simulated demonstration data; does not contact PayPal or charge real money.
-- **Real mode (FastAPI + Coolify PostgreSQL + AI + PayPal Sandbox)**: Connects to `/api` endpoints, enforces workshop Basic Auth and customer link tokens (`X-Customer-Token`), and requires server-side credentials in `Backend/.env`.
+- **Real mode (FastAPI + Supabase PostgreSQL + AI + PayPal Sandbox)**: Connects to `/api` endpoints, enforces workshop Basic Auth and customer link tokens (`X-Customer-Token`), and requires server-side credentials in `Backend/.env`.
 
 ## Repository layout
 

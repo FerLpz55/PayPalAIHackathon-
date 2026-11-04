@@ -9,6 +9,7 @@ from tallerclaro.application.use_cases import CapturePayment, CreateOrderPayment
 from tallerclaro.domain.entities import OrderId, PaymentId
 from tallerclaro.presentation.http.dependencies import (
     CustomerTokenDep,
+    PaymentProcessorDep,
     UnitOfWorkDep,
     get_unit_of_work,
     require_customer_token,
@@ -50,11 +51,10 @@ def _to_payment_response(payment) -> PaymentResponse:
 def create_payment(
     order_id: int,
     body: CreatePaymentRequest,
-    request: Request,
     token_data: CustomerTokenDep,
     uow: UnitOfWorkDep,
+    payment_processor: PaymentProcessorDep,
 ) -> PaymentIntentResponse:
-    payment_processor = request.app.state.payment_processor
     use_case = CreateOrderPayment(uow, payment_processor)
     authorized_quote_id = _extract_quote_id(token_data)
     intent = use_case.execute(
@@ -74,11 +74,10 @@ def create_payment(
 @router.post("/payments/{payment_id}/capture")
 def capture_payment(
     payment_id: int,
-    request: Request,
     token_data: CustomerTokenDep,
     uow: UnitOfWorkDep,
+    payment_processor: PaymentProcessorDep,
 ) -> CapturePaymentResponse:
-    payment_processor = request.app.state.payment_processor
     use_case = CapturePayment(uow, payment_processor)
     authorized_quote_id = _extract_quote_id(token_data)
     captured = use_case.execute(

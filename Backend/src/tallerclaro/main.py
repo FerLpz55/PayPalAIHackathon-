@@ -6,10 +6,10 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from tallerclaro.bootstrap.settings import Settings
-from tallerclaro.infrastructure.ai.adapter import build_ai_service
+from tallerclaro.infrastructure.ai.service import build_ai_service
 from tallerclaro.infrastructure.db.connection import Database
 from tallerclaro.infrastructure.db.unit_of_work import PostgresUnitOfWork
-from tallerclaro.infrastructure.payment.paypal_adapter import build_payment_processor
+from tallerclaro.infrastructure.payment.paypal_processor import build_payment_processor
 from tallerclaro.presentation.http.exception_handlers import register as register_exception_handlers
 from tallerclaro.presentation.http.routers.health import router as health_router
 from tallerclaro.presentation.http.routers.orders import router as orders_router

@@ -689,17 +689,57 @@ END;
 $$;
 
 -- ===========================================================================
--- Caso: reaplicar schema.sql debe fallar (simulado con CREATE SCHEMA)
+-- Caso: las migraciones incluidas y los permisos del backend estan presentes
 -- ===========================================================================
 DO $$
+DECLARE
+    tabla text;
+    columna text;
+    secuencia text;
 BEGIN
-    BEGIN
-        CREATE SCHEMA tallerclaro;
-        RAISE EXCEPTION 'Caso reaplicar esquema: no fue rechazado';
-    EXCEPTION
-        WHEN duplicate_schema THEN
-            RAISE NOTICE 'Caso reaplicar esquema: OK';
-    END;
+    IF to_regclass('tallerclaro.cliente_token') IS NULL OR EXISTS (
+        SELECT 1
+        FROM (VALUES
+            ('cotizacion', 'supuestos', 'text[]'::regtype),
+            ('cotizacion', 'informacion_faltante', 'text[]'::regtype),
+            ('detalle_cotizacion', 'activo', 'boolean'::regtype)
+        ) AS esperado(tabla, columna, tipo)
+        WHERE NOT EXISTS (
+            SELECT 1 FROM pg_attribute a
+            JOIN pg_class c ON c.oid = a.attrelid
+            JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE n.nspname = 'tallerclaro' AND c.relname = esperado.tabla
+              AND a.attname = esperado.columna AND a.atttypid = esperado.tipo
+              AND a.attnotnull AND NOT a.attisdropped
+        )
+    ) THEN
+        RAISE EXCEPTION 'Faltan tabla o columnas de las migraciones 001 y 002';
+    END IF;
+
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'tallerclaro_app') THEN
+        IF NOT has_schema_privilege('tallerclaro_app', 'tallerclaro', 'USAGE') THEN
+            RAISE EXCEPTION 'Falta USAGE del esquema para tallerclaro_app';
+        END IF;
+
+        FOR tabla, columna IN
+            SELECT * FROM (VALUES
+                ('cliente', 'id_cliente'), ('carpintero', 'id_carpintero'),
+                ('cotizacion', 'id_cotizacion'), ('detalle_cotizacion', 'id_detalle'),
+                ('pedido', 'id_pedido'), ('pago', 'id_pago'), ('cliente_token', 'id_token')
+            ) AS ids(nombre_tabla, nombre_columna)
+        LOOP
+            IF NOT has_table_privilege('tallerclaro_app', format('tallerclaro.%I', tabla), 'SELECT')
+               OR NOT has_table_privilege('tallerclaro_app', format('tallerclaro.%I', tabla), 'INSERT')
+               OR NOT has_table_privilege('tallerclaro_app', format('tallerclaro.%I', tabla), 'UPDATE') THEN
+                RAISE EXCEPTION 'Faltan permisos de tabla tallerclaro.%', tabla;
+            END IF;
+            secuencia := pg_get_serial_sequence(format('tallerclaro.%I', tabla), columna);
+            IF secuencia IS NULL OR NOT has_sequence_privilege('tallerclaro_app', secuencia, 'USAGE') THEN
+                RAISE EXCEPTION 'Falta USAGE de la secuencia tallerclaro.%.%', tabla, columna;
+            END IF;
+        END LOOP;
+    END IF;
+    RAISE NOTICE 'Migraciones y permisos: OK';
 END;
 $$;
 

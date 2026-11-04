@@ -415,7 +415,7 @@ def test_paypal_adapter_verifies_real_response_structure_and_capture_status():
     from unittest.mock import MagicMock
     from tallerclaro.bootstrap.settings import Settings
     from tallerclaro.domain.exceptions import DomainError
-    from tallerclaro.infrastructure.payment.paypal_adapter import PayPalPaymentProcessor
+    from tallerclaro.infrastructure.payment.paypal_processor import PayPalPaymentProcessor
 
     settings = Settings(
         paypal_mode="sandbox",

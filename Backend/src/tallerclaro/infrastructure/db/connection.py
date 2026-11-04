@@ -21,7 +21,7 @@ class Database:
             min_size=self._settings.database_pool_min_size,
             max_size=self._settings.database_pool_max_size,
             open=False,
-            kwargs={"options": "-c default_transaction_isolation=serializable"},
+            kwargs={"prepare_threshold": None},
         )
         try:
             self._pool.open()

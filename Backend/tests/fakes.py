@@ -12,7 +12,7 @@ from tallerclaro.application.dtos import (
     QuoteLineItemInput,
     QuoteProposalResult,
 )
-from tallerclaro.application.ports import AIService, PaymentProcessor, UnitOfWork
+from tallerclaro.application.interfaces import AIService, PaymentProcessor, UnitOfWork
 from tallerclaro.domain.entities import (
     Carpenter,
     CarpenterId,

@@ -8,7 +8,6 @@ from fastapi.testclient import TestClient
 from tallerclaro.application.dtos import AccessPrincipal
 from tallerclaro.bootstrap.settings import Settings
 from tallerclaro.domain.entities import CarpenterId, CustomerId, QuoteId
-from tallerclaro.main import create_app
 from tallerclaro.presentation.http.dependencies import (
     get_unit_of_work,
     require_customer_token,
@@ -25,6 +24,8 @@ def deps():
 
 @pytest.fixture
 def client(deps: FakeDependenciesContainer) -> TestClient:
+    from tallerclaro.main import create_app
+
     settings = Settings()
     app = create_app(
         settings=settings,

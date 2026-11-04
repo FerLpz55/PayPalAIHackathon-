@@ -12,7 +12,7 @@ from tallerclaro.application.exceptions import (
     NotFoundError,
     ValidationDomainError,
 )
-from tallerclaro.application.ports import PaymentProcessor, UnitOfWork
+from tallerclaro.application.interfaces import PaymentProcessor, UnitOfWork
 from tallerclaro.domain.entities import (
     ORDER_STATUS_PAID,
     ORDER_STATUS_PENDING,

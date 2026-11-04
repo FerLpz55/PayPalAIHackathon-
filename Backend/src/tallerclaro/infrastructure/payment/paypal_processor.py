@@ -1,20 +1,25 @@
-"""Adaptador de PayPal Sandbox."""
+"""Procesador de pagos PayPal.
+
+Provee la integración con PayPal REST API v2 (Sandbox y Live) para la
+creación y captura de órdenes de pago.
+"""
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 
 import httpx
 
 from tallerclaro.application.dtos import CapturedPayment, PaymentIntent
-from tallerclaro.application.ports import PaymentProcessor
+from tallerclaro.application.interfaces import PaymentProcessor
 from tallerclaro.bootstrap.settings import Settings
 from tallerclaro.domain.exceptions import DomainError
 
 
 class UnconfiguredPaymentProcessor:
-    """Doble por defecto cuando PayPal no está configurado."""
+    """Implementación por defecto cuando el procesador de pagos no está configurado."""
 
     def __init__(self, message: str = "Payment processor is not configured") -> None:
         self._message = message
@@ -26,44 +31,8 @@ class UnconfiguredPaymentProcessor:
         raise DomainError(code="SERVICE_UNAVAILABLE", message=self._message)
 
 
-class FakePaymentProcessor:
-    """Doble de prueba para simular pagos sin llamadas externas."""
-
-    def __init__(self, success: bool = True) -> None:
-        self._success = success
-        self._created: dict[str, PaymentIntent] = {}
-
-    def create_order(self, amount: str, currency: str) -> PaymentIntent:
-        paypal_order_id = f"PAYPAL-TEST-{len(self._created) + 1}"
-        intent = PaymentIntent(
-            payment_id=0,
-            paypal_order_id=paypal_order_id,
-            amount=Decimal(amount),  # type: ignore[name-defined]
-            currency=currency,
-            approval_url=None,
-        )
-        self._created[paypal_order_id] = intent
-        return intent
-
-    def capture_order(self, paypal_order_id: str) -> CapturedPayment:
-        if paypal_order_id not in self._created:
-            raise DomainError(code="PAYMENT_NOT_FOUND", message="PayPal order not found")
-        if not self._success:
-            raise DomainError(code="PAYMENT_FAILED", message="Simulated PayPal capture failure")
-        intent = self._created[paypal_order_id]
-        return CapturedPayment(
-            payment_id=0,
-            status="completed",
-            paypal_order_id=paypal_order_id,
-            paypal_capture_id=f"CAPTURE-{paypal_order_id}",
-            amount=intent.amount,
-            currency=intent.currency,
-            paid_at=datetime.now(timezone.utc).isoformat(),
-        )
-
-
 class PayPalPaymentProcessor:
-    """Adaptador de PayPal REST API v2."""
+    """Procesador de pagos usando PayPal REST API v2."""
 
     def __init__(self, settings: Settings, client: httpx.Client | None = None) -> None:
         self._settings = settings
@@ -109,7 +78,7 @@ class PayPalPaymentProcessor:
         return PaymentIntent(
             payment_id=0,
             paypal_order_id=paypal_order_id,
-            amount=Decimal(amount),  # type: ignore[name-defined]
+            amount=Decimal(amount),
             currency=currency,
             approval_url=approval_url,
         )
@@ -137,6 +106,9 @@ class PayPalPaymentProcessor:
                 message="Invalid JSON in PayPal capture response",
             ) from exc
 
+        return self._validate_and_parse_capture(data, paypal_order_id)
+
+    def _validate_and_parse_capture(self, data: object, expected_order_id: str) -> CapturedPayment:
         if not isinstance(data, dict):
             raise DomainError(
                 code="PAYMENT_PROVIDER_ERROR",
@@ -155,7 +127,7 @@ class PayPalPaymentProcessor:
                 code="PAYMENT_PROVIDER_ERROR",
                 message="PayPal capture response is missing order id",
             )
-        if returned_order_id != paypal_order_id:
+        if returned_order_id != expected_order_id:
             raise DomainError(
                 code="PAYMENT_PROVIDER_ERROR",
                 message="PayPal capture order id mismatch",
@@ -247,9 +219,21 @@ class PayPalPaymentProcessor:
         return response.json()["access_token"]
 
 
+# Registro extensible de modos de procesador de pago (Open/Closed Principle)
+_PAYPAL_FACTORIES: dict[str, Callable[[Settings], PaymentProcessor]] = {
+    "sandbox": lambda s: PayPalPaymentProcessor(s),
+    "live": lambda s: PayPalPaymentProcessor(s),
+}
+
+
 def build_payment_processor(settings: Settings) -> PaymentProcessor:
-    if settings.paypal_mode == "none" or not settings.paypal_mode:
+    mode = (settings.paypal_mode or "").lower().strip()
+    if not mode or mode == "none":
         return UnconfiguredPaymentProcessor()
-    if settings.paypal_mode in {"sandbox", "live"}:
-        return PayPalPaymentProcessor(settings)
+
+    factory = _PAYPAL_FACTORIES.get(mode)
+    if factory is not None:
+        return factory(settings)
+
     return UnconfiguredPaymentProcessor(f"Unknown PayPal mode: {settings.paypal_mode}")
+

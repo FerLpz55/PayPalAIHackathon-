@@ -24,15 +24,16 @@ from tallerclaro.domain.entities import (
     QuoteLineItemId,
 )
 from tallerclaro.domain.exceptions import DomainError
-from tallerclaro.infrastructure.ai.adapter import OpenAIAIService
+from tallerclaro.infrastructure.ai.service import OpenAIAIService
 from tallerclaro.infrastructure.db.repositories import PostgresQuoteRepository
-from tallerclaro.main import create_app
 from tallerclaro.presentation.http.dependencies import get_unit_of_work
 from tests.fakes import FakeAIService, FakePaymentProcessor, FakeUnitOfWork
 
 
 @pytest.fixture
 def unmocked_auth_app():
+    from tallerclaro.main import create_app
+
     settings = Settings(
         workshop_username="taller",
         workshop_password="demo-password",
