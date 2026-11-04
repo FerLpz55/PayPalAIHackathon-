@@ -48,6 +48,7 @@ pnpm run lint && pnpm run build      # no existe script de tests
 4. **Paridad fake/Postgres**: todo campo de dominio (`assumptions`, `missing_info`, `line_items`, etc.) debe persistirse y leerse en ambos. Si una cotización queda sin partidas (`needs_information`), el repositorio SQL desactiva las sobrantes con `UPDATE ... SET activo = false`; el rol `tallerclaro_app` **no tiene `DELETE`**.
 5. **Pureza de capas**: routers/dependencias no calculan dinero ni importan `Decimal`; todo cálculo monetario (USD, `ROUND_HALF_UP`) vive en `domain/`. Prohibido monkey-patching o mutar clases de `application/`/`domain/` desde `presentation/`.
 6. **Higiene**: no reintroducir `PROJECT.md`, `.agents/` ni planes internos en la raíz; no documentar comandos (`npm`) o migraciones que no existan en el árbol real.
+7. **Convención de nombres por capas y S.O.L.I.D.**: no reintroducir `ports.py`, `adapter.py` ni terminología hexagonal. Las abstracciones de aplicación viven en `application/interfaces.py` y las implementaciones en `infrastructure/<area>/service.py` o `*_processor.py`. Mantener S.O.L.I.D. (SRP con parsers/validadores desacoplados de transporte, OCP con registries de factorías, ISP sin métodos muertos en protocolos y DIP inyectando dependencias abstractas).
 
 ## Base de datos e infraestructura
 
