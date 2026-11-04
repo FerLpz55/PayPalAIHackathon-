@@ -253,6 +253,13 @@ id_ed25519*
 .agents
 .agents/
 /skills/
+skills-lock.json
+.skills/
+*mcp*.json
+.mcp/
+.gemini/
+*.token
+*.tokens
 .codex/
 *.sqlite
 *.sqlite3

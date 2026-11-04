@@ -25,7 +25,7 @@ class Database:
         )
         try:
             self._pool.open()
-            self._pool.wait(timeout=2)
+            self._pool.wait(timeout=10)
         except Exception:
             # El pool permanecerá cerrado; las operaciones fallarán claramente.
             self._pool = None
