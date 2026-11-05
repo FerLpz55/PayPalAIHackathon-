@@ -23,9 +23,10 @@ pnpm run dev
 
 Copy `.env.example` to `.env`. Set `VITE_API_BASE_URL` to the backend origin for REAL mode. Set `VITE_APP_MODE=demo` only when you intentionally want browser-only sample data.
 
-Open the local URL printed by Vite. The project requires Node.js and pnpm. To lint and create a production build:
+Open the local URL printed by Vite. The project requires Node.js and pnpm. To run tests, lint, and build for production:
 
 ```bash
+pnpm run test
 pnpm run lint
 pnpm run build
 pnpm run preview
@@ -61,8 +62,10 @@ The app uses hash routes so the current screen can be opened directly without a 
 | `#/receipts` | Local receipt-name entries and illustrative spending summary |
 | `#/accounting` | Illustrative monthly income and expenses |
 | `#/customer/new` | Customer project request |
-| `#/customer/quote` | Fixed sample cost breakdown and simulated approval/payment actions |
-| `#/customer/tracking` | Local example progress, receipt entries, and simulated payment summary |
+| `#/customer/quote` | Quote review, approval, and PayPal deposit checkout (sample data in DEMO) |
+| `#/customer/tracking` | Order progress, receipt entries, and balance payment (sample data in DEMO) |
+| `#/customer/payment/return` | Customer PayPal return and backend capture verification |
+| `#/customer/payment/cancel` | Customer PayPal cancellation review and checkout resume |
 | `#/order/TC-1048` | Workshop order details and status editor |
 
 ## Demo behavior
@@ -92,8 +95,16 @@ src/
   pages/                  One file per workshop screen
     customer/             Customer screens (request, quote review, tracking)
   hooks/                  useDemoData, useHashRoute, useQuoteRequest, useSpeechInput
-  services/mockApi.js     Replaceable local demo service
-  utils/                  formatMoney and shared constants
+    __tests__/            Vitest suites for quote title derivation
+  services/
+    apiClient.js          Facade preserving the public service interface
+    http.js               Fetch transport, mode detection, and ApiError
+    adapters.js           API-to-UI normalization for quotes and orders
+    sessionStore.js       sessionStorage for tokens and payment recovery
+    mockApi.js            Replaceable local demo service
+    __tests__/            Vitest suites for adapters
+  utils/                  formatMoney, shared constants, security, and analytics
+    __tests__/            Vitest suites for URL safety
   styles/                 Global reset and application styles
 docs/
   API_CONTRACT.md         Backend source contract and frontend integration status

@@ -1,206 +1,41 @@
 import { mockApi, resetDemoData as mockResetDemoData } from './mockApi.js'
+import {
+  API_BASE_URL,
+  isDemoMode,
+  isConnectedMode,
+  isConfigurationMissing,
+  apiRequest,
+} from './http.js'
+import {
+  adaptQuoteResponse,
+  adaptOrderResponse,
+  parseNumericId,
+} from './adapters.js'
+import {
+  getSession,
+  saveSession,
+  clearSession,
+  readPendingPayment,
+  savePendingPayment,
+  getPendingPayment,
+  getAnyPendingPayment,
+  getCompletedPayment,
+  clearPendingPayment,
+  discardPendingPayment,
+  clearUnresolvedPaymentAttempt,
+} from './sessionStore.js'
+import { isSafePayPalUrl } from '../utils/security.js'
 
-const API_BASE_URL = (import.meta.env?.VITE_API_BASE_URL || '').trim().replace(/\/+$/, '')
-export const isDemoMode = String(import.meta.env?.VITE_APP_MODE || '').trim().toLowerCase() === 'demo'
-export const isConnectedMode = !isDemoMode && Boolean(API_BASE_URL)
-export const isConfigurationMissing = !isDemoMode && !API_BASE_URL
-
-const SESSION_KEY = 'tallerclaro.session.v1'
-const PENDING_PAYMENT_KEY = 'tallerclaro.pending-payment.v1'
-const COMPLETED_PAYMENT_KEY = 'tallerclaro.completed-payment.v1'
-
-function readPendingPayment() {
-  try {
-    const value = JSON.parse(sessionStorage.getItem(PENDING_PAYMENT_KEY) || 'null')
-    return value && typeof value === 'object' ? value : null
-  } catch {
-    return null
-  }
-}
-
-function savePendingPayment(value) {
-  try {
-    sessionStorage.setItem(PENDING_PAYMENT_KEY, JSON.stringify(value))
-    return true
-  } catch {
-    return false
-  }
-}
-
-export function getSession() {
-  try {
-    const raw = sessionStorage.getItem(SESSION_KEY)
-    const parsed = raw ? JSON.parse(raw) : {}
-    return (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) ? parsed : {}
-  } catch {
-    return {}
-  }
-}
-
-export function saveSession(patch) {
-  try {
-    const current = getSession()
-    const updated = { ...current, ...patch }
-    sessionStorage.setItem(SESSION_KEY, JSON.stringify(updated))
-    return updated
-  } catch {
-    return {}
-  }
-}
-
-export function clearSession() {
-  try {
-    sessionStorage.removeItem(SESSION_KEY)
-  } catch {
-    // Ignore storage errors in browser sandbox
-  }
-}
-
-function parseNumericId(id) {
-  if (id == null) return null
-  if (typeof id === 'number') return id
-  const digits = String(id).replace(/\D/g, '')
-  return digits ? parseInt(digits, 10) : id
-}
-
-function extractMeasurements(text) {
-  if (!text) {
-    return { width: '1.20 m', height: '1.80 m', depth: '0.55 m', unit: 'm' }
-  }
-  const widthMatch = text.match(/(\d+(?:[.,]\d+)?\s*(?:m|cm|mm))\s*(?:de\s*)?anch[oa]/i)
-  const heightMatch = text.match(/(\d+(?:[.,]\d+)?\s*(?:m|cm|mm))\s*(?:de\s*)?alt[oa]/i)
-  const depthMatch = text.match(/(\d+(?:[.,]\d+)?\s*(?:m|cm|mm))\s*(?:de\s*)?profund[a-z]*/i)
-
-  return {
-    width: widthMatch ? widthMatch[1] : '1.20 m',
-    height: heightMatch ? heightMatch[1] : '1.80 m',
-    depth: depthMatch ? depthMatch[1] : '0.55 m',
-    unit: 'm',
-  }
-}
-
-export function adaptQuoteResponse(data, fallbackCustomer = {}) {
-  if (!data) return null
-  const session = getSession()
-  const customerName = fallbackCustomer.name || fallbackCustomer.customer || session.customerName || data.customer_name || 'Cliente'
-  const customerEmail = fallbackCustomer.email || session.customerEmail || data.customer_email || ''
-
-  const total = Number(data.total ?? 0)
-  const deposit = Number(data.deposit_amount ?? (total ? Math.round(total * 0.5 * 100) / 100 : 0))
-  const balance = Number(data.balance_amount ?? (total ? total - deposit : 0))
-
-  const items = Array.isArray(data.items)
-    ? data.items.map((item, index) => ({
-        id: item.id || `item-${index}`,
-        label: item.description || item.label || 'Item',
-        kind: (item.type || item.kind || 'material').toLowerCase(),
-        amount: Number(item.amount ?? 0),
-        quantity: Number(item.quantity ?? 1),
-        unitAmount: Number(item.unit_amount ?? item.unitAmount ?? item.amount ?? 0),
-        unit: item.unit || 'unit',
-      }))
-    : []
-
-  const measurements = data.measurements || extractMeasurements(data.request || data.description)
-
-  return {
-    id: data.code || (data.id ? (String(data.id).startsWith('TC-') ? String(data.id) : `TC-${data.id}`) : 'TC-New'),
-    numericId: parseNumericId(data.id),
-    customer: customerName,
-    email: customerEmail,
-    project: data.description || data.request || 'Custom woodwork',
-    description: data.description || data.request || '',
-    request: data.request || data.description || '',
-    total,
-    deposit,
-    balance,
-    measurements,
-    items,
-    status: data.status || 'draft',
-    assumptions: Array.isArray(data.assumptions) ? data.assumptions : [],
-    missing_info: Array.isArray(data.missing_info) ? data.missing_info : [],
-    customer_token: data.customer_token || session.customerToken || null,
-    createdAt: data.created_at || new Date().toISOString(),
-    isDemo: false,
-  }
-}
-
-export function adaptOrderResponse(order) {
-  if (!order) return null
-  const total = Number(order.total ?? order.amount ?? 0)
-  const deposit = Number(order.deposit_amount ?? order.deposit ?? (total ? Math.round(total * 0.5 * 100) / 100 : 0))
-  const balance = Number(order.balance_amount ?? order.balance ?? (total ? total - deposit : 0))
-
-  return {
-    id: order.code || (order.id ? (String(order.id).startsWith('TC-') ? String(order.id) : `TC-${order.id}`) : 'TC-Order'),
-    orderId: parseNumericId(order.id),
-    quoteId: parseNumericId(order.quote_id),
-    customer: order.customer_name || order.customer || 'Cliente',
-    email: order.customer_email || order.email || '',
-    project: order.project_request || order.project || 'Proyecto de carpintería',
-    amount: total,
-    deposit,
-    balance,
-    remainingBalance: order.remaining_balance == null ? null : Number(order.remaining_balance),
-    status: order.status || 'pending',
-    date: order.created_at ? order.created_at.slice(0, 10) : (order.date || new Date().toISOString().slice(0, 10)),
-    paid: Number(order.paid_amount ?? order.paid ?? 0),
-    spent: Number(order.spent ?? 0),
-    receipts: Array.isArray(order.receipts) ? order.receipts : [],
-    payments: Array.isArray(order.payments) ? order.payments : [],
-  }
-}
-
-async function apiRequest(path, options = {}) {
-  if (!isConnectedMode) {
-    throw new Error('Backend connection is not configured. Set VITE_API_BASE_URL, or explicitly select VITE_APP_MODE=demo for sample data.')
-  }
-  const session = getSession()
-  const headers = {
-    'Content-Type': 'application/json',
-    ...options.headers,
-  }
-
-  const customerToken = options.customerToken || session.customerToken
-  if (customerToken && !headers['X-Customer-Token']) {
-    headers['X-Customer-Token'] = customerToken
-  }
-
-  if (options.workshopAuth || options.isWorkshopRoute) {
-    const creds = session.workshopCredentials || btoa('taller:demo-password')
-    if (!headers['Authorization']) {
-      headers['Authorization'] = `Basic ${creds}`
-    }
-  }
-
-  const cleanPath = path.startsWith('/') ? path : `/${path}`
-  const url = `${API_BASE_URL}${cleanPath}`
-  const response = await fetch(url, { ...options, headers })
-
-  if (!response.ok) {
-    let errorDetail = null
-    try {
-      errorDetail = await response.json()
-    } catch {
-      // Non-JSON response
-    }
-
-    const message =
-      errorDetail?.message ||
-      errorDetail?.detail ||
-      (Array.isArray(errorDetail?.field_errors)
-        ? errorDetail.field_errors.map((e) => `${e.field}: ${e.message}`).join(', ')
-        : null) ||
-      `HTTP error ${response.status}: ${response.statusText}`
-
-    const error = new Error(message)
-    error.status = response.status
-    error.payload = errorDetail
-    throw error
-  }
-
-  if (response.status === 204) return null
-  return response.json()
+export {
+  API_BASE_URL,
+  isDemoMode,
+  isConnectedMode,
+  isConfigurationMissing,
+  getSession,
+  saveSession,
+  clearSession,
+  adaptQuoteResponse,
+  adaptOrderResponse,
 }
 
 export const apiClient = {
@@ -264,17 +99,17 @@ export const apiClient = {
       customerEmail,
     })
 
-    // Request proposal generation through the documented route.
+    // Solicita la generación de la propuesta por la ruta documentada.
     try {
       await apiRequest(`/api/quotes/${quoteId}/generate`, {
         method: 'POST',
         isWorkshopRoute: true,
       })
     } catch {
-      // Keep the persisted quote available when generation is unavailable.
+      // Mantiene la cotización disponible si el servicio de IA no responde.
     }
 
-    // Retrieve full quote with calculated totals and line items
+    // Recupera la cotización completa con totales y partidas calculadas.
     const fullQuote = await apiRequest(`/api/quotes/${quoteId}`, {
       customerToken: token,
     })
@@ -306,7 +141,7 @@ export const apiClient = {
       body,
     })
 
-    // Refresh full quote to ensure deposit, balance, and all fields are loaded
+    // Refresca la cotización completa para cargar anticipo, saldo y demás campos.
     try {
       const fullQuote = await apiRequest(`/api/quotes/${targetId}`)
       return adaptQuoteResponse(fullQuote)
@@ -330,7 +165,7 @@ export const apiClient = {
       saveSession({ activeOrderId: parseNumericId(orderData.id), activeOrderQuoteId: targetId })
     }
 
-    // Fetch the updated quote so the UI shows approved state
+    // Refresca la cotización para reflejar el estado aprobado en la UI.
     const updatedQuote = await apiRequest(`/api/quotes/${targetId}`)
     return adaptQuoteResponse(updatedQuote)
   },
@@ -373,41 +208,27 @@ export const apiClient = {
   },
 
   getPendingPayment(orderId, type) {
-    const pending = readPendingPayment()
-    return pending && String(pending.orderId) === String(orderId) && pending.type === type ? pending : null
+    return getPendingPayment(parseNumericId(orderId), type)
   },
 
   getAnyPendingPayment() {
-    return readPendingPayment()
+    return getAnyPendingPayment()
   },
 
   getCompletedPayment(orderId, type) {
-    try {
-      const value = JSON.parse(sessionStorage.getItem(COMPLETED_PAYMENT_KEY) || 'null')
-      return value && String(value.orderId) === String(orderId) && value.type === type ? value : null
-    } catch {
-      return null
-    }
+    return getCompletedPayment(parseNumericId(orderId), type)
   },
 
   clearPendingPayment(paymentId) {
-    const pending = readPendingPayment()
-    if (!paymentId || !pending || String(pending.paymentId) !== String(parseNumericId(paymentId))) return
-    try { sessionStorage.removeItem(PENDING_PAYMENT_KEY) } catch { /* ignore storage errors */ }
-    try { sessionStorage.setItem(COMPLETED_PAYMENT_KEY, JSON.stringify({ orderId: pending.orderId, type: pending.type, paymentId: pending.paymentId })) } catch { /* ignore storage errors */ }
+    clearPendingPayment(parseNumericId(paymentId))
   },
 
   discardPendingPayment(paymentId) {
-    const pending = readPendingPayment()
-    if (!paymentId || !pending || String(pending.paymentId) !== String(parseNumericId(paymentId))) return
-    try { sessionStorage.removeItem(PENDING_PAYMENT_KEY) } catch { /* ignore storage errors */ }
+    discardPendingPayment(parseNumericId(paymentId))
   },
 
   clearUnresolvedPaymentAttempt(orderId, type) {
-    const pending = readPendingPayment()
-    if (pending?.unresolved && String(pending.orderId) === String(parseNumericId(orderId)) && pending.type === type) {
-      try { sessionStorage.removeItem(PENDING_PAYMENT_KEY) } catch { /* ignore storage errors */ }
-    }
+    clearUnresolvedPaymentAttempt(parseNumericId(orderId), type)
   },
 
   async createOrderPayment(orderId, type) {
@@ -415,6 +236,7 @@ export const apiClient = {
     if (isConfigurationMissing) throw new Error('Backend connection is not configured. No payment attempt was created.')
     if (!getSession().customerToken) throw new Error('A customer access token is required to start checkout.')
     if (!['deposit', 'balance'].includes(type)) throw new Error('Unsupported payment type.')
+
     const targetOrderId = parseNumericId(orderId)
     const existing = readPendingPayment()
     if (existing) {
@@ -423,6 +245,7 @@ export const apiClient = {
     if (!savePendingPayment({ orderId: targetOrderId, type, unresolved: true })) {
       throw new Error('Secure payment recovery storage is unavailable. No payment attempt was started.')
     }
+
     let data
     try {
       data = await apiRequest(`/api/orders/${targetOrderId}/payments`, {
@@ -433,26 +256,29 @@ export const apiClient = {
       if (error?.status >= 400 && error.status < 500) this.clearUnresolvedPaymentAttempt(targetOrderId, type)
       throw error
     }
+
     const paymentId = parseNumericId(data?.payment_id)
     const paypalOrderId = data?.paypal_order_id == null ? '' : String(data.paypal_order_id)
-    const approvalUrl = typeof data?.approval_url === 'string' ? data.approval_url : ''
-    let approvalHost = ''
-    try { approvalHost = new URL(approvalUrl).hostname.toLowerCase() } catch { /* invalid URL */ }
-    if (!paymentId || !paypalOrderId) throw new Error('The backend response did not include payment identifiers. This attempt cannot safely be repeated yet.')
-    const safeApprovalUrl = approvalUrl && approvalUrl.startsWith('https://') && (approvalHost === 'sandbox.paypal.com' || approvalHost.endsWith('.sandbox.paypal.com'))
-      ? approvalUrl
-      : null
+    const rawApprovalUrl = typeof data?.approval_url === 'string' ? data.approval_url : ''
+
+    if (!paymentId || !paypalOrderId) {
+      throw new Error('The backend response did not include payment identifiers. This attempt cannot safely be repeated yet.')
+    }
+
+    const safeApprovalUrl = isSafePayPalUrl(rawApprovalUrl) ? rawApprovalUrl : null
+
     const payment = {
       paymentId,
       paypalOrderId,
-      orderId: parseNumericId(orderId),
+      orderId: targetOrderId,
       type,
       amount: data.amount,
       currency: data.currency,
       approvalUrl: safeApprovalUrl,
       unresolved: false,
-      checkoutIssue: approvalUrl && !safeApprovalUrl ? 'The backend returned an unsafe PayPal approval URL.' : null,
+      checkoutIssue: rawApprovalUrl && !safeApprovalUrl ? 'The backend returned an unsafe PayPal approval URL.' : null,
     }
+
     if (!savePendingPayment(payment)) {
       throw new Error('The backend created a payment, but this browser could not save its recovery details. Do not start another attempt; contact the workshop to reconcile it.')
     }

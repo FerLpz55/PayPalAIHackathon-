@@ -4,6 +4,7 @@ import EmptyState from '../../components/ui/EmptyState.jsx'
 import LoadingState from '../../components/ui/LoadingState.jsx'
 import PageHeading from '../../components/ui/PageHeading.jsx'
 import { apiClient } from '../../services/apiClient.js'
+import { cleanPayPalUrlParams, isSafePayPalUrl } from '../../utils/security.js'
 
 function readReturnParameters() {
   const search = new URLSearchParams(window.location.search)
@@ -12,20 +13,6 @@ function readReturnParameters() {
   return {
     paypalOrderId: search.get('token') || hashParams.get('token'),
   }
-}
-
-function removePayPalParameters() {
-  const search = new URLSearchParams(window.location.search)
-  search.delete('token')
-  search.delete('PayerID')
-  const hashParts = window.location.hash.split('?')
-  const hashPath = hashParts[0]
-  const hashParams = new URLSearchParams(hashParts.slice(1).join('?'))
-  hashParams.delete('token')
-  hashParams.delete('PayerID')
-  const remainingHash = hashParams.toString()
-  const cleanUrl = `${window.location.pathname}${search.toString() ? `?${search}` : ''}${hashPath}${remainingHash ? `?${remainingHash}` : ''}`
-  window.history.replaceState(window.history.state, '', cleanUrl)
 }
 
 function safePaymentError(error) {
@@ -120,7 +107,7 @@ function PaymentReturnPage({ cancelled = false, go, refresh }) {
   }, [cancelled, paypalOrderId, refresh])
 
   useEffect(() => {
-    removePayPalParameters()
+    cleanPayPalUrlParams()
     if (started.current) return
     started.current = true
     void verify({ shouldCapture: !cancelled })
@@ -129,7 +116,7 @@ function PaymentReturnPage({ cancelled = false, go, refresh }) {
   const retryPayment = () => {
     const saved = apiClient.getAnyPendingPayment()
     if (!saved) return
-    if (cancelled && saved.approvalUrl) {
+    if (cancelled && saved.approvalUrl && isSafePayPalUrl(saved.approvalUrl)) {
       window.location.assign(saved.approvalUrl)
       return
     }

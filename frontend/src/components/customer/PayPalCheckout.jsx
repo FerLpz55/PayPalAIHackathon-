@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import Button from '../ui/Button.jsx'
 import { apiClient } from '../../services/apiClient.js'
+import { isSafePayPalUrl } from '../../utils/security.js'
 
 function formatServerAmount(amount, currency) {
   if (typeof amount !== 'number' || !Number.isFinite(amount) || typeof currency !== 'string' || !/^[A-Z]{3}$/.test(currency)) return null
@@ -77,6 +78,10 @@ function PayPalCheckout({ orderId, type, refresh }) {
   }
 
   const redirectToPayPal = () => {
+    if (!isSafePayPalUrl(payment?.approvalUrl)) {
+      setError('The PayPal checkout URL is invalid or untrusted. Redirect cancelled.')
+      return
+    }
     setMessage('Redirecting to PayPal…')
     window.location.assign(payment.approvalUrl)
   }

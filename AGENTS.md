@@ -20,8 +20,10 @@ Frontend (desde `frontend/`, usar **solo `pnpm`**, nunca `npm`/`yarn`):
 ```bash
 pnpm install
 pnpm run dev
-pnpm run lint && pnpm run build      # no existe script de tests
+pnpm run test && pnpm run lint && pnpm run build
 ```
+
+`pnpm run test` ejecuta la suite de Vitest (sin navegador ni backend).
 
 `frontend/README.md` documenta modos y despliegue en Vercel; la fuente de verdad del modo sigue siendo `frontend/src/services/apiClient.js`.
 
