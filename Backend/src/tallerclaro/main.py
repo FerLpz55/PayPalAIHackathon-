@@ -10,6 +10,7 @@ from tallerclaro.infrastructure.ai.service import build_ai_service
 from tallerclaro.infrastructure.db.connection import Database
 from tallerclaro.infrastructure.db.unit_of_work import PostgresUnitOfWork
 from tallerclaro.infrastructure.payment.paypal_processor import build_payment_processor
+from tallerclaro.infrastructure.security.workshop_auth import ensure_workshop_auth_configured
 from tallerclaro.presentation.http.exception_handlers import register as register_exception_handlers
 from tallerclaro.presentation.http.routers.health import router as health_router
 from tallerclaro.presentation.http.routers.orders import router as orders_router
@@ -20,13 +21,11 @@ from tallerclaro.presentation.http.routers.quotes import router as quotes_router
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings: Settings = app.state.settings
+    ensure_workshop_auth_configured(settings)
     database = getattr(app.state, "database", None)
     if database is None:
         database = Database(settings)
-        try:
-            database.connect()
-        except Exception:
-            pass
+        database.connect()
         app.state.database = database
 
     if getattr(app.state, "uow_factory", None) is None:

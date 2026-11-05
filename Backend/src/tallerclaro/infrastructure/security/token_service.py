@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import secrets
+from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 
 import psycopg
@@ -15,15 +16,16 @@ from tallerclaro.domain.entities import CustomerId, QuoteId
 class CustomerTokenService:
     """Genera y verifica tokens de enlace de cliente."""
 
-    def __init__(self, conn: psycopg.Connection, secret: str, ttl_hours: int = 72) -> None:
+    def __init__(self, conn: psycopg.Connection, secret: str, ttl_hours: int = 72, *, clock: Callable[[], datetime] | None = None) -> None:
         self._conn = conn
         self._secret = secret.encode("utf-8")
         self._ttl_hours = ttl_hours
+        self._clock = clock if clock is not None else lambda: datetime.now(timezone.utc)
 
     def create(self, customer_id: CustomerId, quote_id: QuoteId) -> str:
         raw = secrets.token_urlsafe(32)
         token_hash = self._hash(raw)
-        expiration = datetime.now(timezone.utc) + timedelta(hours=self._ttl_hours)
+        expiration = self._clock() + timedelta(hours=self._ttl_hours)
         self._conn.execute(
             """
             INSERT INTO tallerclaro.cliente_token
@@ -50,7 +52,7 @@ class CustomerTokenService:
         ).fetchone()
         if row is None:
             return None
-        if row[2] < datetime.now(timezone.utc) or row[3]:
+        if row[2] < self._clock() or row[3]:
             return None
         return CustomerId(row[0]), QuoteId(row[1])
 

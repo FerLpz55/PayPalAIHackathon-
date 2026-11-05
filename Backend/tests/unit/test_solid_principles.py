@@ -55,7 +55,7 @@ def test_srp_ai_proposal_parser_isolated_from_http_client():
 
 def test_srp_auth_extraction_and_verification_helpers():
     """Authentication parsing and comparison logic is partitioned into cohesive functions."""
-    settings = Settings(workshop_username="taller", workshop_password="secret-password")
+    settings = Settings(workshop_username="taller", workshop_password_hash=__import__("bcrypt").hashpw(b"secret-password", __import__("bcrypt").gensalt(rounds=4)).decode())
 
     # Credential verification
     assert _verify_workshop_credentials("taller", "secret-password", settings) is True
@@ -93,7 +93,7 @@ def test_ocp_payment_processor_factory_extensibility():
     s_none = Settings(paypal_mode="none")
     assert isinstance(build_payment_processor(s_none), UnconfiguredPaymentProcessor)
 
-    s_sandbox = Settings(paypal_mode="sandbox", paypal_client_id="id", paypal_client_secret="sec")
+    s_sandbox = Settings(paypal_mode="sandbox", paypal_client_id="id", paypal_client_secret="sec", paypal_return_url="https://example.org/return", paypal_cancel_url="https://example.org/cancel")
     assert isinstance(build_payment_processor(s_sandbox), PayPalPaymentProcessor)
 
     s_unknown = Settings(paypal_mode="unknown-mode")
@@ -142,7 +142,7 @@ def test_isp_quote_repository_requires_only_active_use_case_methods():
         def get_by_id(self, quote_id: QuoteId) -> Quote | None:
             return None
 
-    # Verifies MinimalQuoteRepo conforms to QuoteRepository protocol without needing get_by_id_with_customer
+    # Verifies MinimalQuoteRepo conforms to QuoteRepository protocol without extra methods
     repo: QuoteRepository = MinimalQuoteRepo()
     assert repo.get_by_id(QuoteId(1)) is None
 

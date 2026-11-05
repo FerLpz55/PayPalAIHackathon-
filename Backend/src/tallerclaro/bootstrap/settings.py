@@ -43,14 +43,13 @@ class Settings(BaseSettings):
     paypal_client_id: str | None = None
     paypal_client_secret: str | None = None
     paypal_base_url: str | None = None  # Se infiere del modo si no se provee.
+    paypal_return_url: str | None = None
+    paypal_cancel_url: str | None = None
 
     # Acceso de demo del taller
     workshop_username: str = "taller"
-    workshop_password: str = "demo-password"
     workshop_carpenter_id: int = 1
-    workshop_password_hash: str = (
-        "$2b$12$invalidplaceholderhash"  # bcrypt ficticio; reemplazar en producción.
-    )
+    workshop_password_hash: str = ""
 
     # CORS
     cors_origins: list[str] = Field(

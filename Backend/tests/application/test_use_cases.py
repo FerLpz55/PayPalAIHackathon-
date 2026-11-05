@@ -38,7 +38,9 @@ from tests.fakes import FakeAIService, FakePaymentProcessor, FakeUnitOfWork
 
 def test_create_quote():
     uow = FakeUnitOfWork()
-    uow.carpenters.seed(Carpenter(id=CarpenterId(1), name="José", workshop_name="Taller", email="j@example.com", phone=None))
+    with uow:
+        uow.carpenters.seed(Carpenter(id=CarpenterId(1), name="José", workshop_name="Taller", email="j@example.com", phone=None))
+        uow.commit()
     use_case = CreateQuote(uow)
     quote = use_case.execute(
         CreateQuoteInput(
@@ -53,7 +55,9 @@ def test_create_quote():
 
 def test_generate_quote_proposal():
     uow = FakeUnitOfWork()
-    uow.carpenters.seed(Carpenter(id=CarpenterId(1), name="José", workshop_name="Taller", email="j@example.com", phone=None))
+    with uow:
+        uow.carpenters.seed(Carpenter(id=CarpenterId(1), name="José", workshop_name="Taller", email="j@example.com", phone=None))
+        uow.commit()
     create = CreateQuote(uow)
     quote = create.execute(
         CreateQuoteInput(
@@ -69,9 +73,107 @@ def test_generate_quote_proposal():
     assert result.total.amount == Decimal("200.00")
 
 
+def test_generate_quote_rejects_changes_during_ai_call():
+    uow = FakeUnitOfWork()
+    with uow:
+        uow.carpenters.seed(Carpenter(id=CarpenterId(1), name="José", workshop_name="Taller", email="j@example.com", phone=None))
+        uow.commit()
+    quote = CreateQuote(uow).execute(CreateQuoteInput(customer=CustomerInput(name="Carlos", email="carlos@example.com", phone=None), carpenter_id=1, request="Mesa"))
+
+    class ConcurrentAI(FakeAIService):
+        def generate_quote_proposal(self, request):
+            with uow:
+                current = uow.quotes.get_by_id(quote.id)
+                current.request = "Mesa modificada"
+                uow.quotes.save(current)
+                uow.commit()
+            return super().generate_quote_proposal(request)
+
+    with pytest.raises(ConflictError, match="changed"):
+        GenerateQuoteProposal(uow, ConcurrentAI()).execute(quote.id)
+
+
+def test_create_payment_rejects_amount_change_during_provider_call():
+    uow = FakeUnitOfWork()
+    with uow:
+        order = uow.orders.save(Order(id=None, quote_id=QuoteId(1), carpenter_id=CarpenterId(1), code="TC-1", total=Money("200"), deposit_amount=Money("100"), currency="USD", status=ORDER_STATUS_PENDING, created_at=None, updated_at=None))
+        uow.commit()
+
+    class ChangingProcessor(FakePaymentProcessor):
+        def create_order(self, amount, currency):
+            intent = super().create_order(amount, currency)
+            with uow:
+                changed = uow.orders.get_by_id(order.id)
+                changed.deposit_amount = Money("90")
+                uow.orders.save(changed)
+                uow.commit()
+            return intent
+
+    with pytest.raises(ConflictError, match="changed"):
+        CreateOrderPayment(uow, ChangingProcessor()).execute(order.id, "deposit")
+
+
+def test_uncertain_capture_blocks_other_payment_until_reconciled():
+    uow = FakeUnitOfWork()
+    with uow:
+        order = uow.orders.save(Order(id=None, quote_id=QuoteId(1), carpenter_id=CarpenterId(1), code="TC-1", total=Money("200"), deposit_amount=Money("100"), currency="USD", status=ORDER_STATUS_PENDING, created_at=None, updated_at=None))
+        uow.commit()
+    processor = FakePaymentProcessor()
+    first = CreateOrderPayment(uow, processor).execute(order.id, "deposit")
+    second = CreateOrderPayment(uow, processor).execute(order.id, "balance")
+
+    class UncertainProcessor:
+        def capture_order(self, paypal_order_id):
+            raise RuntimeError("timeout")
+
+    with pytest.raises(RuntimeError, match="timeout"):
+        CapturePayment(uow, UncertainProcessor()).execute(first.payment_id)
+    with pytest.raises(ConflictError, match="capture"):
+        CapturePayment(uow, processor).execute(second.payment_id)
+
+
+def test_capture_recovers_after_local_commit_failure():
+    class FailingCommitUow(FakeUnitOfWork):
+        fail_next_commit = False
+
+        def commit(self):
+            if self.fail_next_commit:
+                self.fail_next_commit = False
+                raise RuntimeError("commit failed")
+            return super().commit()
+
+    uow = FailingCommitUow()
+    with uow:
+        order = uow.orders.save(Order(id=None, quote_id=QuoteId(1), carpenter_id=CarpenterId(1), code="TC-1", total=Money("200"), deposit_amount=Money("100"), currency="USD", status=ORDER_STATUS_PENDING, created_at=None, updated_at=None))
+        uow.commit()
+
+    class CapturingProcessor(FakePaymentProcessor):
+        fail_once = True
+
+        def capture_order(self, paypal_order_id):
+            result = super().capture_order(paypal_order_id)
+            if self.fail_once:
+                self.fail_once = False
+                uow.fail_next_commit = True
+            return result
+
+    processor = CapturingProcessor()
+    intent = CreateOrderPayment(uow, processor).execute(order.id, "deposit")
+    with pytest.raises(RuntimeError, match="commit failed"):
+        CapturePayment(uow, processor).execute(intent.payment_id)
+    with uow:
+        assert uow.payments.get_by_id(intent.payment_id).status == "pending"
+    result = CapturePayment(uow, processor).execute(intent.payment_id)
+    assert result.status == "completed"
+    with uow:
+        assert len([p for p in uow.payments.list_by_order(order.id) if p.status == "completed"]) == 1
+
+
 def test_approve_quote_creates_order_idempotently():
     uow = FakeUnitOfWork()
-    uow.carpenters.seed(Carpenter(id=CarpenterId(1), name="José", workshop_name="Taller", email="j@example.com", phone=None))
+    with uow:
+        uow.carpenters.seed(Carpenter(id=CarpenterId(1), name="José", workshop_name="Taller", email="j@example.com", phone=None))
+        uow.commit()
     create = CreateQuote(uow)
     quote = create.execute(
         CreateQuoteInput(
@@ -90,7 +192,9 @@ def test_approve_quote_creates_order_idempotently():
 
 def test_reject_quote_not_pending_review_fails():
     uow = FakeUnitOfWork()
-    uow.carpenters.seed(Carpenter(id=CarpenterId(1), name="José", workshop_name="Taller", email="j@example.com", phone=None))
+    with uow:
+        uow.carpenters.seed(Carpenter(id=CarpenterId(1), name="José", workshop_name="Taller", email="j@example.com", phone=None))
+        uow.commit()
     quote = CreateQuote(uow).execute(
         CreateQuoteInput(
             customer=CustomerInput(name="Carlos", email="carlos@example.com", phone=None),
@@ -104,7 +208,9 @@ def test_reject_quote_not_pending_review_fails():
 
 def test_create_payment_and_capture():
     uow = FakeUnitOfWork()
-    uow.carpenters.seed(Carpenter(id=CarpenterId(1), name="José", workshop_name="Taller", email="j@example.com", phone=None))
+    with uow:
+        uow.carpenters.seed(Carpenter(id=CarpenterId(1), name="José", workshop_name="Taller", email="j@example.com", phone=None))
+        uow.commit()
     quote = CreateQuote(uow).execute(
         CreateQuoteInput(
             customer=CustomerInput(name="Carlos", email="carlos@example.com", phone=None),
@@ -133,7 +239,9 @@ def test_create_payment_and_capture():
 
 def test_capture_duplicate_returns_existing():
     uow = FakeUnitOfWork()
-    uow.carpenters.seed(Carpenter(id=CarpenterId(1), name="José", workshop_name="Taller", email="j@example.com", phone=None))
+    with uow:
+        uow.carpenters.seed(Carpenter(id=CarpenterId(1), name="José", workshop_name="Taller", email="j@example.com", phone=None))
+        uow.commit()
     quote = CreateQuote(uow).execute(
         CreateQuoteInput(
             customer=CustomerInput(name="Carlos", email="carlos@example.com", phone=None),
@@ -152,7 +260,9 @@ def test_capture_duplicate_returns_existing():
 
 def test_cannot_deliver_unpaid_order():
     uow = FakeUnitOfWork()
-    uow.carpenters.seed(Carpenter(id=CarpenterId(1), name="José", workshop_name="Taller", email="j@example.com", phone=None))
+    with uow:
+        uow.carpenters.seed(Carpenter(id=CarpenterId(1), name="José", workshop_name="Taller", email="j@example.com", phone=None))
+        uow.commit()
     quote = CreateQuote(uow).execute(
         CreateQuoteInput(
             customer=CustomerInput(name="Carlos", email="carlos@example.com", phone=None),
@@ -162,18 +272,20 @@ def test_cannot_deliver_unpaid_order():
     )
     GenerateQuoteProposal(uow, FakeAIService()).execute(quote.id)
     order = ApproveQuote(uow).execute(quote.id)
-    uow.orders.save(Order(
-        id=order.id,
-        quote_id=order.quote_id,
-        carpenter_id=order.carpenter_id,
-        code=order.code,
-        total=order.total,
-        deposit_amount=order.deposit_amount,
-        currency=order.currency,
-        status=ORDER_STATUS_IN_PROGRESS,
-        created_at=order.created_at,
-        updated_at=order.updated_at,
-    ))
+    with uow:
+        uow.orders.save(Order(
+            id=order.id,
+            quote_id=order.quote_id,
+            carpenter_id=order.carpenter_id,
+            code=order.code,
+            total=order.total,
+            deposit_amount=order.deposit_amount,
+            currency=order.currency,
+            status=ORDER_STATUS_IN_PROGRESS,
+            created_at=order.created_at,
+            updated_at=order.updated_at,
+        ))
+        uow.commit()
     with pytest.raises(ConflictError):
         UpdateOrder(uow).execute(order.id, UpdateOrderInput(status=ORDER_STATUS_DELIVERED))
 
@@ -245,7 +357,9 @@ def test_external_ai_and_paypal_calls_occur_outside_db_transactions():
             return super().__exit__(exc_type, exc_val, exc_tb)
 
     uow = TrackingUnitOfWork()
-    uow.carpenters.seed(Carpenter(id=CarpenterId(1), name="José", workshop_name="Taller", email="j@example.com", phone=None))
+    with uow:
+        uow.carpenters.seed(Carpenter(id=CarpenterId(1), name="José", workshop_name="Taller", email="j@example.com", phone=None))
+        uow.commit()
     created = CreateQuote(uow).execute(
         CreateQuoteInput(
             customer=CustomerInput(name="Carlos", email="carlos@example.com", phone=None),
@@ -299,7 +413,9 @@ def test_capture_payment_rejects_mismatched_amount_and_currency():
     from tallerclaro.application.dtos import CapturedPayment, PaymentIntent
 
     uow = FakeUnitOfWork()
-    uow.carpenters.seed(Carpenter(id=CarpenterId(1), name="José", workshop_name="Taller", email="j@example.com", phone=None))
+    with uow:
+        uow.carpenters.seed(Carpenter(id=CarpenterId(1), name="José", workshop_name="Taller", email="j@example.com", phone=None))
+        uow.commit()
     created = CreateQuote(uow).execute(
         CreateQuoteInput(
             customer=CustomerInput(name="Carlos", email="carlos@example.com", phone=None),
@@ -352,6 +468,14 @@ def test_capture_payment_rejects_mismatched_amount_and_currency():
     with pytest.raises(ConflictError, match="Captured PayPal order ID"):
         CapturePayment(uow, proc_wrong_order).execute(intent1.payment_id)
 
+    # More precision than the expected amount must not be rounded into a match.
+    proc_fractional = TamperedPayPalProcessor(amount=Decimal("100.004"), currency="USD")
+    with pytest.raises(ConflictError, match="Captured payment amount"):
+        CapturePayment(uow, proc_fractional).execute(intent1.payment_id)
+    proc_extra_precision = TamperedPayPalProcessor(amount=Decimal("100.000"), currency="USD")
+    with pytest.raises(ConflictError, match="Captured payment amount"):
+        CapturePayment(uow, proc_extra_precision).execute(intent1.payment_id)
+
 
 def test_generate_quote_proposal_enforces_workshop_authorization():
     """Verify Carpenter 1 cannot generate a proposal for Carpenter 2's quote."""
@@ -359,8 +483,12 @@ def test_generate_quote_proposal_enforces_workshop_authorization():
     from tallerclaro.application.exceptions import ForbiddenError
 
     uow = FakeUnitOfWork()
-    uow.carpenters.seed(Carpenter(id=CarpenterId(1), name="Carp 1", workshop_name="W1", email="c1@ex.com", phone=None))
-    uow.carpenters.seed(Carpenter(id=CarpenterId(2), name="Carp 2", workshop_name="W2", email="c2@ex.com", phone=None))
+    with uow:
+        uow.carpenters.seed(Carpenter(id=CarpenterId(1), name="Carp 1", workshop_name="W1", email="c1@ex.com", phone=None))
+        uow.commit()
+    with uow:
+        uow.carpenters.seed(Carpenter(id=CarpenterId(2), name="Carp 2", workshop_name="W2", email="c2@ex.com", phone=None))
+        uow.commit()
 
     created = CreateQuote(uow).execute(
         CreateQuoteInput(
@@ -380,7 +508,9 @@ def test_generate_quote_proposal_enforces_workshop_authorization():
 def test_capture_payment_rejects_overpayment_and_duplicate_deposit_intents():
     """Verify capturing stale/duplicate pending intents cannot exceed remaining order balance."""
     uow = FakeUnitOfWork()
-    uow.carpenters.seed(Carpenter(id=CarpenterId(1), name="José", workshop_name="Taller", email="j@example.com", phone=None))
+    with uow:
+        uow.carpenters.seed(Carpenter(id=CarpenterId(1), name="José", workshop_name="Taller", email="j@example.com", phone=None))
+        uow.commit()
     created = CreateQuote(uow).execute(
         CreateQuoteInput(
             customer=CustomerInput(name="Carlos", email="carlos@example.com", phone=None),
@@ -421,6 +551,8 @@ def test_paypal_adapter_verifies_real_response_structure_and_capture_status():
         paypal_mode="sandbox",
         paypal_client_id="client-id",
         paypal_client_secret="client-secret",
+        paypal_return_url="https://example.org/return",
+        paypal_cancel_url="https://example.org/cancel",
     )
 
     def _make_client(capture_json: dict) -> MagicMock:
@@ -482,20 +614,24 @@ def test_fake_unit_of_work_rolls_back_uncommitted_changes_and_exceptions():
     # 1. Exiting without commit() reverts changes
     with uow:
         uow.customers.save(Customer(id=None, name="Ghost", email="ghost@example.com", phone=None))
-    assert uow.customers.get_by_id(CustomerId(1)) is None
+    with uow:
+        assert uow.customers.get_by_id(CustomerId(1)) is None
 
     # 2. Exception after save() reverts changes
     with pytest.raises(RuntimeError):
         with uow:
             uow.customers.save(Customer(id=None, name="Crash", email="crash@example.com", phone=None))
             raise RuntimeError("boom")
-    assert uow.customers.get_by_id(CustomerId(1)) is None
+    with uow:
+        assert uow.customers.get_by_id(CustomerId(1)) is None
 
     # 3. Explicit commit() persists changes
     with uow:
         saved = uow.customers.save(Customer(id=None, name="Real", email="real@example.com", phone=None))
         uow.commit()
-    assert uow.customers.get_by_id(saved.id) is not None
-    assert uow.customers.get_by_id(saved.id).name == "Real"
+    with uow:
+        assert uow.customers.get_by_id(saved.id) is not None
+    with uow:
+        assert uow.customers.get_by_id(saved.id).name == "Real"
 
 

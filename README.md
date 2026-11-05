@@ -5,9 +5,10 @@ TallerClaro is a PayPal AI Hackathon project for carpentry quotes, customer paym
 ## Current project status
 
 - **Frontend (`frontend/`)**: Workshop and customer screens with an explicit split between local **DEMO** mode (`mockApi` + `localStorage`) and **REAL** mode (`fetch` to the FastAPI backend). Includes a Vitest suite, ESLint, a production build, and a Vercel configuration.
-- **Backend (`Backend/`)**: Domain entities and monetary rules (`Decimal`, USD, 50 % deposit, status transitions), use cases, PostgreSQL repositories, OpenAI-compatible AI quote generation, PayPal Sandbox processing, workshop Basic Auth, and customer link tokens. Application abstractions live in `application/interfaces.py`; implementations live in `infrastructure/ai/service.py`, `infrastructure/payment/paypal_processor.py`, and `infrastructure/db/`.
+- **Backend (`Backend/`)**: Domain entities and monetary rules (`Decimal`, USD, 50 % deposit, status transitions), use cases, PostgreSQL repositories, OpenAI-compatible AI quote generation, PayPal Sandbox processing, workshop Basic Auth, and customer link tokens. Application abstractions live in `application/interfaces.py`; implementations live in `infrastructure/ai/service.py`, `infrastructure/payment/` (processor facade plus separate HTTP transport and response parsing), `infrastructure/security/`, and `infrastructure/db/`. Monetary rules and payment eligibility live in the domain; capture reservations use a dedicated protocol exposed by the unit of work.
 - **Database (`database/`)**: PostgreSQL schema in the dedicated `tallerclaro` schema, numbered migrations, and a self-contained, idempotent demo seed.
 - **Pending live verification**: Supabase `DATABASE_URL`, real AI credentials, and a complete PayPal Sandbox round trip. Unit and API tests use in-memory fakes; passing them does not prove that external services are configured or reachable.
+- **Current payment limits**: Capture reservations and retry recovery are implemented in source. Concurrent captures against PostgreSQL, provider idempotency, and operational recovery remain unverified; there is no background reconciliation or manual resolution tool.
 
 ## Architecture
 
@@ -23,7 +24,10 @@ FastAPI layered monolith (Backend/src/tallerclaro/)
   infrastructure/db/repositories.py
   infrastructure/ai/service.py
   infrastructure/payment/paypal_processor.py
+  infrastructure/payment/paypal_transport.py
+  infrastructure/payment/paypal_parsing.py
   infrastructure/security/token_service.py
+  infrastructure/security/workshop_auth.py
         │                    │                     │
         ▼                    ▼                     ▼
   PostgreSQL             AI provider          PayPal Sandbox
@@ -81,7 +85,14 @@ The mode is decided in `frontend/src/services/apiClient.js` through `frontend/sr
 - `VITE_APP_MODE=demo` uses `mockApi` and `localStorage`; no PayPal charge is made.
 - Otherwise, a non-empty `VITE_API_BASE_URL` enables real `fetch` calls to `/api`.
 - If neither is configured, the app shows an "application mode is not configured" screen and never displays sample data.
-- Backend errors are propagated; there is **no silent fallback** to demo data.
+- Requests never silently fall back to demo data. Some quote operations catch errors: initial generation failure leaves the draft available, and clarification can return the generation response if its refresh fails.
+
+REAL integration still has an authorization gap: `http.js` sends stored workshop
+credentials or falls back to `taller:demo-password`. The backend now requires a
+configured bcrypt hash and supplies no default workshop password. The customer
+request/clarification flow also invokes workshop-only generation; a customer
+token alone cannot authorize that operation. These paths need integration work
+before the complete customer journey can be presented as operational.
 
 Never put AI, PayPal, database, or other secrets in `VITE_*` variables: they are embedded in the public bundle. Secrets belong only in `Backend/.env`.
 
@@ -153,10 +164,11 @@ All sensitive settings are read from environment variables. The templates are in
 - `DATABASE_URL` (recommended Supabase Session Pooler URL) or the individual `TALLERCLARO_DATABASE_*` fields.
 - `TALLERCLARO_AI_PROVIDER`, `TALLERCLARO_AI_API_KEY`, `TALLERCLARO_AI_MODEL`.
 - `TALLERCLARO_PAYPAL_MODE`, `TALLERCLARO_PAYPAL_CLIENT_ID`, `TALLERCLARO_PAYPAL_CLIENT_SECRET`.
+- `TALLERCLARO_PAYPAL_RETURN_URL` and `TALLERCLARO_PAYPAL_CANCEL_URL` (HTTPS frontend routes when PayPal is enabled).
 - `TALLERCLARO_WORKSHOP_USERNAME`, `TALLERCLARO_WORKSHOP_PASSWORD_HASH`.
 - `TALLERCLARO_CUSTOMER_TOKEN_SECRET` and `TALLERCLARO_CUSTOMER_TOKEN_TTL_HOURS`.
 
-AI and PayPal default to `none`; without credentials the services return `SERVICE_UNAVAILABLE`. `GET /api/health` checks HTTP liveness only, not PostgreSQL connectivity.
+AI and PayPal default to `none`; without credentials the services return `SERVICE_UNAVAILABLE`. A valid workshop bcrypt hash is required at startup; see the backend guide for generation. Startup fails if PostgreSQL cannot be reached. `GET /api/health` checks HTTP liveness only, not PostgreSQL connectivity.
 
 ### API (`/api`)
 
@@ -168,7 +180,7 @@ AI and PayPal default to `none`; without credentials the services return `SERVIC
 | `POST` | `/api/quotes/{id}/generate` | Generate AI quote breakdown or clarification questions (workshop) |
 | `POST` | `/api/quotes/{id}/approve` | Approve quote and create order with a 50 % deposit |
 | `POST` | `/api/quotes/{id}/reject` | Reject a pending quote |
-| `GET` | `/api/orders` | List and filter workshop orders (workshop) |
+| `GET` | `/api/orders` | List workshop orders with limit/offset pagination (workshop) |
 | `GET` | `/api/orders/{id}` | Retrieve order details, payments, and remaining balance |
 | `PATCH` | `/api/orders/{id}` | Update order status or estimated delivery date (workshop) |
 | `POST` | `/api/orders/{id}/payments` | Create a PayPal Sandbox order for deposit or balance (`X-Customer-Token`) |
@@ -187,7 +199,7 @@ Supabase is used **only as a managed PostgreSQL server**. The backend connects d
 
 ```text
 database/
-  schema.sql                    initial schema and consolidated migrations 001–002
+  schema.sql                    initial schema including migrations 001–003 for new databases
   migrations/                   numbered SQL changes
   seeds/demo.sql                self-contained, idempotent demo data
   tests/schema_test.sql         schema acceptance checks (rolled back)
@@ -200,7 +212,7 @@ psql -X "$DATABASE_URL" -v ON_ERROR_STOP=1 -f database/schema.sql
 psql -X "$DATABASE_URL" -v ON_ERROR_STOP=1 -f database/seeds/demo.sql
 ```
 
-The recommended connection is the Supabase **Session Pooler** on port `5432` with `sslmode=require` (IPv4-compatible). The `psycopg` pool disables automatic prepared statements and each unit of work opens a `SERIALIZABLE` transaction.
+The recommended connection is the Supabase **Session Pooler** on port `5432` with `sslmode=require` (IPv4-compatible). The `psycopg` pool disables automatic prepared statements and each unit of work opens a `SERIALIZABLE` transaction. Existing databases require migration 003 before deploying the capture reservation change.
 
 The database lives in the `tallerclaro` schema, isolated from `public` and PostgREST. `schema.sql` revokes privileges from `PUBLIC`, `anon`, and `authenticated`. The optional `tallerclaro_app` role receives `SELECT/INSERT/UPDATE` and sequence usage but **no `DELETE`**.
 
@@ -220,6 +232,13 @@ cd ../Backend
 
 Backend tests use in-memory fakes and do not require PostgreSQL, AI, or PayPal. Frontend tests run in Node with Vitest. There is no CI workflow; verification is local.
 
+On 2026-11-04, the backend command `python -m pytest -q` passed 206 tests with
+one `pytest-asyncio` deprecation warning under Python 3.14. It ran outside the
+agent sandbox because TestClient blocked inside it; plugin involvement was not
+established. This does not verify deployed services or concurrent SQL captures.
+Frontend commands above are available checks, not a claim of a fresh successful
+run during this documentation update.
+
 ## Repository layout
 
 ```text
@@ -233,7 +252,7 @@ PayPalAIHackathon-/
 └── README.md         # This guide
 ```
 
-`AGENTS.md` contains the mandatory operating rules for agents (package managers, architecture invariants, Supabase constraints, and security). `Database` and backend details are expanded in [`database/README.md`](database/README.md) and [`Backend/README.md`](Backend/README.md); frontend details are in [`frontend/README.md`](frontend/README.md).
+`AGENTS.md` contains the mandatory operating rules for agents (package managers, architecture invariants, Supabase constraints, and security). `Database` and backend details are expanded in [`database/README.md`](database/README.md) and [`Backend/BACKENDREADME.md`](Backend/BACKENDREADME.md); frontend details are in [`frontend/README.md`](frontend/README.md).
 
 ## Security notes
 

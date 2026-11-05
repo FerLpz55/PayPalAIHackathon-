@@ -36,20 +36,22 @@ def unmocked_auth_app():
 
     settings = Settings(
         workshop_username="taller",
-        workshop_password="demo-password",
+        workshop_password_hash=__import__("bcrypt").hashpw(b"demo-password", __import__("bcrypt").gensalt(rounds=4)).decode(),
         workshop_carpenter_id=1,
         cors_origins=["http://localhost:5173"],
     )
     uow = FakeUnitOfWork()
-    uow.carpenters.seed(
-        Carpenter(
-            id=CarpenterId(1),
-            name="José Carpintero",
-            workshop_name="Taller José",
-            email="jose@tallerclaro.com",
-            phone=None,
+    with uow:
+        uow.carpenters.seed(
+            Carpenter(
+                id=CarpenterId(1),
+                name="José Carpintero",
+                workshop_name="Taller José",
+                email="jose@tallerclaro.com",
+                phone=None,
+            )
         )
-    )
+        uow.commit()
     ai_service = FakeAIService()
     payment_processor = FakePaymentProcessor(success=True)
 

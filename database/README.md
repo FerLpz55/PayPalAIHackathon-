@@ -8,7 +8,7 @@ Directorio central para el esquema SQL y los archivos relacionados con PostgreSQ
 - [x] Esquema inicial y actualización del esquema existente en `schema.sql`.
 - [x] Datos de demostración en `seeds/demo.sql`.
 - [x] Pruebas de aceptación del esquema en `tests/schema_test.sql`.
-- [x] Conexión con FastAPI y repositorios PostgreSQL compatibles con Supabase Pooler (Supavisor).
+- [x] Implementación de conexión con FastAPI y repositorios PostgreSQL preparados para Supabase Pooler (Supavisor); operación real pendiente de verificar.
 - [x] Migraciones numeradas en `migrations/`.
 - [ ] Verificar permisos y esquema del PostgreSQL en Supabase; verificar IA/PayPal.
 
@@ -23,12 +23,13 @@ database/
   migrations/               cambios posteriores numerados
     001_add_customer_link_tokens.sql
     002_add_quote_clarification_fields.sql
+    003_reserve_payment_capture.sql
 ```
 
-`schema.sql` incorpora las migraciones 001 y 002 y puede ejecutarse en un
-proyecto nuevo de Supabase o sobre el esquema inicial existente. No sustituye
-futuras migraciones numeradas ni comprueba automáticamente todas las diferencias
-de un esquema modificado manualmente.
+`schema.sql` incorpora 001–002 y la columna de 003 al crear tablas nuevas.
+Sobre una base existente, `CREATE TABLE IF NOT EXISTS` no añade esa columna:
+aplica 003 por separado. El esquema no sustituye futuras migraciones ni comprueba
+automáticamente todas las diferencias de una base modificada manualmente.
 
 ## Requisitos
 
@@ -107,14 +108,18 @@ configuracion deben contener unicamente valores ficticios.
 
 ## Migraciones
 
-`schema.sql` incluye las migraciones 001 y 002. Para inicializar o actualizar
-el esquema en Supabase, puedes pegarlo en el SQL Editor o ejecutarlo con `psql`.
-La ejecución es transaccional.
+`schema.sql` incluye 001–002 y la columna de 003 para tablas nuevas. Puede
+ejecutarse en el SQL Editor o con `psql`; su ejecución es transaccional. Las
+actualizaciones de bases existentes deben revisar las migraciones por separado.
 
 No ejecutes la migración 001 después de aplicar `schema.sql`: su `CREATE TABLE`
 no es repetible. La migración 002 ya está incorporada. Conserva las migraciones
 para bases inicializadas antes de esta actualización; los cambios posteriores
 seguirán en archivos numerados.
+
+En bases existentes, aplica `003_reserve_payment_capture.sql` antes de desplegar
+el backend que reserva capturas; la migración es repetible. El seed autocontenido
+incluye la columna al crear la tabla, pero no actualiza tablas ya existentes.
 
 Ejemplo de aplicación por CLI:
 

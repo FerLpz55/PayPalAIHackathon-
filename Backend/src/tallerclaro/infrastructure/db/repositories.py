@@ -279,15 +279,6 @@ class PostgresQuoteRepository:
         quote.line_items = self._load_line_items(quote_id)
         return quote
 
-    def get_by_id_with_customer(self, quote_id: QuoteId) -> tuple[Quote, Customer] | None:
-        quote = self.get_by_id(quote_id)
-        if quote is None:
-            return None
-        customer = PostgresCustomerRepository(self._conn).get_by_id(quote.customer_id)
-        if customer is None:
-            return None
-        return quote, customer
-
     def _row_to_quote(self, row: tuple) -> Quote:
         assumptions = list(row[10] or []) if len(row) > 10 and row[10] is not None else []
         missing_info = list(row[11] or []) if len(row) > 11 and row[11] is not None else []
@@ -327,6 +318,30 @@ class PostgresQuoteRepository:
             )
             for row in rows
         ]
+
+
+class PostgresCaptureReservationRepository:
+    """Reserva de captura sobre ``pedido.captura_en_curso``.
+
+    ``reserve`` es un UPDATE condicional atómico; ``release`` solo limpia la
+    reserva del pago indicado. Ambos participan de la transacción del UoW.
+    """
+
+    def __init__(self, conn: psycopg.Connection) -> None:
+        self._conn = conn
+
+    def reserve(self, order_id: OrderId, payment_id: PaymentId) -> bool:
+        row = self._conn.execute(
+            "UPDATE tallerclaro.pedido SET captura_en_curso = %s WHERE id_pedido = %s AND (captura_en_curso IS NULL OR captura_en_curso = %s) RETURNING id_pedido",
+            (payment_id, order_id, payment_id),
+        ).fetchone()
+        return row is not None
+
+    def release(self, order_id: OrderId, payment_id: PaymentId) -> None:
+        self._conn.execute(
+            "UPDATE tallerclaro.pedido SET captura_en_curso = NULL WHERE id_pedido = %s AND captura_en_curso = %s",
+            (order_id, payment_id),
+        )
 
 
 class PostgresOrderRepository:
@@ -520,21 +535,6 @@ class PostgresPaymentRepository:
             WHERE id_pago = %s
             """,
             (payment_id,),
-        ).fetchone()
-        if row is None:
-            return None
-        return self._row_to_payment(row)
-
-    def get_by_paypal_order_id(self, paypal_order_id: str) -> Payment | None:
-        row = self._conn.execute(
-            """
-            SELECT id_pago, id_pedido, tipo, monto, moneda, estado,
-                   paypal_order_id, paypal_capture_id, fecha_creacion,
-                   ultima_actualizacion, fecha_pago
-            FROM tallerclaro.pago
-            WHERE paypal_order_id = %s
-            """,
-            (paypal_order_id,),
         ).fetchone()
         if row is None:
             return None

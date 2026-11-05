@@ -14,6 +14,7 @@ dependencies = [
     "psycopg-pool>=3.2,<4",
     "httpx>=0.27,<1",
     "email-validator>=2,<3",
+    "bcrypt>=4,<6",
 ]
 
 [project.optional-dependencies]

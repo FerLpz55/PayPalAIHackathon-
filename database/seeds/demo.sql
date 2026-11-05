@@ -145,6 +145,7 @@ CREATE TABLE IF NOT EXISTS tallerclaro.pedido (
     fecha_creacion          timestamptz NOT NULL DEFAULT now(),
     ultima_actualizacion    timestamptz NOT NULL DEFAULT now(),
     fecha_entrega_estimada  date,
+    captura_en_curso        bigint,
 
     CONSTRAINT pk_pedido PRIMARY KEY (id_pedido),
     CONSTRAINT fk_pedido_cotizacion_carpintero FOREIGN KEY (id_cotizacion, id_carpintero)

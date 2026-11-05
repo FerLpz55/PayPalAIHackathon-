@@ -73,7 +73,9 @@ from tests.fakes import FakeAIService, FakePaymentProcessor, FakeUnitOfWork
 def test_adversarial_customer_cannot_access_or_modify_other_customer_quote():
     """IDOR boundary check: Customer 1 token cannot view, approve, or reject Quote 2."""
     uow = FakeUnitOfWork()
-    uow.carpenters.seed(Carpenter(id=CarpenterId(1), name="Carp 1", workshop_name="W1", email="c1@ex.com", phone=None))
+    with uow:
+        uow.carpenters.seed(Carpenter(id=CarpenterId(1), name="Carp 1", workshop_name="W1", email="c1@ex.com", phone=None))
+        uow.commit()
     
     cq = CreateQuote(uow)
     q1 = cq.execute(CreateQuoteInput(customer=CustomerInput(name="Cust 1", email="c1@ex.com", phone=None), carpenter_id=CarpenterId(1), request="Req 1")).quote
@@ -101,8 +103,12 @@ def test_adversarial_customer_cannot_access_or_modify_other_customer_quote():
 def test_adversarial_workshop_cannot_access_or_modify_other_workshop_resources():
     """IDOR boundary check: Carpenter 1 cannot access or update Carpenter 2 quotes or orders."""
     uow = FakeUnitOfWork()
-    uow.carpenters.seed(Carpenter(id=CarpenterId(1), name="Carp 1", workshop_name="W1", email="c1@ex.com", phone=None))
-    uow.carpenters.seed(Carpenter(id=CarpenterId(2), name="Carp 2", workshop_name="W2", email="c2@ex.com", phone=None))
+    with uow:
+        uow.carpenters.seed(Carpenter(id=CarpenterId(1), name="Carp 1", workshop_name="W1", email="c1@ex.com", phone=None))
+        uow.commit()
+    with uow:
+        uow.carpenters.seed(Carpenter(id=CarpenterId(2), name="Carp 2", workshop_name="W2", email="c2@ex.com", phone=None))
+        uow.commit()
 
     cq = CreateQuote(uow)
     q_carp2 = cq.execute(CreateQuoteInput(customer=CustomerInput(name="Cust", email="c@ex.com", phone=None), carpenter_id=CarpenterId(2), request="Req")).quote
@@ -127,7 +133,9 @@ def test_adversarial_workshop_cannot_access_or_modify_other_workshop_resources()
 def test_adversarial_customer_impersonation_attempts():
     """A customer attempting to forge workshop fields or invalid principal roles."""
     uow = FakeUnitOfWork()
-    uow.carpenters.seed(Carpenter(id=CarpenterId(1), name="Carp 1", workshop_name="W1", email="c1@ex.com", phone=None))
+    with uow:
+        uow.carpenters.seed(Carpenter(id=CarpenterId(1), name="Carp 1", workshop_name="W1", email="c1@ex.com", phone=None))
+        uow.commit()
     cq = CreateQuote(uow)
     q = cq.execute(CreateQuoteInput(customer=CustomerInput(name="Cust", email="c@ex.com", phone=None), carpenter_id=CarpenterId(1), request="Req")).quote
 
@@ -145,7 +153,9 @@ def test_adversarial_customer_impersonation_attempts():
 def test_adversarial_payment_authorization_boundary():
     """Payments for Order A cannot be created, captured, or viewed with Quote B authorization."""
     uow = FakeUnitOfWork()
-    uow.carpenters.seed(Carpenter(id=CarpenterId(1), name="Carp 1", workshop_name="W1", email="c1@ex.com", phone=None))
+    with uow:
+        uow.carpenters.seed(Carpenter(id=CarpenterId(1), name="Carp 1", workshop_name="W1", email="c1@ex.com", phone=None))
+        uow.commit()
     processor = FakePaymentProcessor(success=True)
 
     cq = CreateQuote(uow)
@@ -179,7 +189,9 @@ def test_adversarial_payment_authorization_boundary():
 def test_adversarial_proposal_state_transitions_comprehensive():
     """Verify transitions across draft, needs_information, pending_review, approved, rejected."""
     uow = FakeUnitOfWork()
-    uow.carpenters.seed(Carpenter(id=CarpenterId(1), name="Carp", workshop_name="W", email="c@ex.com", phone=None))
+    with uow:
+        uow.carpenters.seed(Carpenter(id=CarpenterId(1), name="Carp", workshop_name="W", email="c@ex.com", phone=None))
+        uow.commit()
     created = CreateQuote(uow).execute(CreateQuoteInput(customer=CustomerInput(name="A", email="a@ex.com", phone=None), carpenter_id=CarpenterId(1), request="Mesa"))
     qid = created.quote.id
 
@@ -223,7 +235,8 @@ def test_adversarial_proposal_state_transitions_comprehensive():
 
     # 5. pending_review -> approved
     ApproveQuote(uow).execute(qid)
-    approved_q = uow.quotes.get_by_id(qid)
+    with uow:
+        approved_q = uow.quotes.get_by_id(qid)
     assert approved_q.status == QUOTE_STATUS_APPROVED
 
     # 6. approved -> GenerateQuoteProposal MUST FAIL with ConflictError
@@ -241,7 +254,9 @@ def test_adversarial_proposal_state_transitions_comprehensive():
 def test_adversarial_proposal_ai_returns_empty_items_or_zero_total():
     """If AI claims success (needs_information=False) but returns no items or 0 price, submit_for_review must reject it."""
     uow = FakeUnitOfWork()
-    uow.carpenters.seed(Carpenter(id=CarpenterId(1), name="Carp", workshop_name="W", email="c@ex.com", phone=None))
+    with uow:
+        uow.carpenters.seed(Carpenter(id=CarpenterId(1), name="Carp", workshop_name="W", email="c@ex.com", phone=None))
+        uow.commit()
     created = CreateQuote(uow).execute(CreateQuoteInput(customer=CustomerInput(name="A", email="a@ex.com", phone=None), carpenter_id=CarpenterId(1), request="Mesa"))
 
     # AI returns empty line items
@@ -265,7 +280,9 @@ def test_adversarial_proposal_ai_returns_empty_items_or_zero_total():
 def test_adversarial_additional_info_whitespace_and_none():
     """Whitespace-only or None additional_info should not contaminate quote.request."""
     uow = FakeUnitOfWork()
-    uow.carpenters.seed(Carpenter(id=CarpenterId(1), name="Carp", workshop_name="W", email="c@ex.com", phone=None))
+    with uow:
+        uow.carpenters.seed(Carpenter(id=CarpenterId(1), name="Carp", workshop_name="W", email="c@ex.com", phone=None))
+        uow.commit()
     ai = FakeAIService()
 
     # None additional_info
@@ -287,7 +304,9 @@ def test_adversarial_additional_info_whitespace_and_none():
 def test_adversarial_additional_info_special_characters_and_prompts():
     """Adversarial payloads: SQL injection patterns, JSON injection, HTML, Unicode, emojis."""
     uow = FakeUnitOfWork()
-    uow.carpenters.seed(Carpenter(id=CarpenterId(1), name="Carp", workshop_name="W", email="c@ex.com", phone=None))
+    with uow:
+        uow.carpenters.seed(Carpenter(id=CarpenterId(1), name="Carp", workshop_name="W", email="c@ex.com", phone=None))
+        uow.commit()
     ai = FakeAIService()
 
     payloads = [
@@ -307,7 +326,9 @@ def test_adversarial_additional_info_special_characters_and_prompts():
 def test_adversarial_additional_info_multiple_clarification_rounds():
     """Simulate 3 rounds of clarification and verify quote.request accumulates history cleanly."""
     uow = FakeUnitOfWork()
-    uow.carpenters.seed(Carpenter(id=CarpenterId(1), name="Carp", workshop_name="W", email="c@ex.com", phone=None))
+    with uow:
+        uow.carpenters.seed(Carpenter(id=CarpenterId(1), name="Carp", workshop_name="W", email="c@ex.com", phone=None))
+        uow.commit()
     
     ai_needs_info = FakeAIService(proposal=QuoteProposalResult(description="", line_items=[], needs_information=True, missing_info=["info"]))
     ai_complete = FakeAIService()
@@ -335,7 +356,9 @@ def test_adversarial_additional_info_multiple_clarification_rounds():
 def test_adversarial_customer_token_uniqueness_and_verification():
     """Verify 50 sequentially generated tokens are all unique and faithfully map to (customer_id, quote_id)."""
     uow = FakeUnitOfWork()
-    uow.carpenters.seed(Carpenter(id=CarpenterId(1), name="Carp", workshop_name="W", email="c@ex.com", phone=None))
+    with uow:
+        uow.carpenters.seed(Carpenter(id=CarpenterId(1), name="Carp", workshop_name="W", email="c@ex.com", phone=None))
+        uow.commit()
     cq = CreateQuote(uow)
 
     tokens = set()
@@ -346,15 +369,19 @@ def test_adversarial_customer_token_uniqueness_and_verification():
         tokens.add(token)
 
         # Verification check
-        verified = uow.tokens.verify(token)
+        with uow:
+            verified = uow.tokens.verify(token)
         assert verified is not None
         assert verified[0] == res.quote.customer_id
         assert verified[1] == res.quote.id
 
     # Unknown or malformed tokens
-    assert uow.tokens.verify("non-existent-token-xyz") is None
-    assert uow.tokens.verify("") is None
-    assert uow.tokens.verify(str(uuid.uuid4())) is None
+    with uow:
+        assert uow.tokens.verify("non-existent-token-xyz") is None
+    with uow:
+        assert uow.tokens.verify("") is None
+    with uow:
+        assert uow.tokens.verify(str(uuid.uuid4())) is None
 
 
 # ==============================================================================
@@ -364,7 +391,9 @@ def test_adversarial_customer_token_uniqueness_and_verification():
 def test_adversarial_get_order_transaction_isolation_and_resilience():
     """Verify GetOrder returns OrderDetailResult with all payments and handles missing related entities safely."""
     uow = FakeUnitOfWork()
-    uow.carpenters.seed(Carpenter(id=CarpenterId(1), name="Carp", workshop_name="W", email="c@ex.com", phone=None))
+    with uow:
+        uow.carpenters.seed(Carpenter(id=CarpenterId(1), name="Carp", workshop_name="W", email="c@ex.com", phone=None))
+        uow.commit()
     cq = CreateQuote(uow)
     created = cq.execute(CreateQuoteInput(customer=CustomerInput(name="Carlos", email="c@ex.com", phone=None), carpenter_id=CarpenterId(1), request="Mesa"))
     GenerateQuoteProposal(uow, FakeAIService()).execute(created.quote.id)
@@ -395,7 +424,9 @@ def test_adversarial_get_order_transaction_isolation_and_resilience():
         created_at=None,
         updated_at=None,
     )
-    uow.orders.save(corrupted_order)
+    with uow:
+        uow.orders.save(corrupted_order)
+        uow.commit()
     res_corrupt = GetOrder(uow).execute(corrupted_order.id, AccessPrincipal(kind="workshop", carpenter_id=CarpenterId(1)))
     assert res_corrupt.order.id == corrupted_order.id
     assert res_corrupt.customer_name is None
@@ -414,7 +445,9 @@ def test_adversarial_two_stage_payment_lifecycle():
     This tests whether CapturePayment can complete when order is in_progress.
     """
     uow = FakeUnitOfWork()
-    uow.carpenters.seed(Carpenter(id=CarpenterId(1), name="Carp 1", workshop_name="W1", email="c1@ex.com", phone=None))
+    with uow:
+        uow.carpenters.seed(Carpenter(id=CarpenterId(1), name="Carp 1", workshop_name="W1", email="c1@ex.com", phone=None))
+        uow.commit()
     processor = FakePaymentProcessor(success=True)
 
     cq = CreateQuote(uow)
@@ -429,12 +462,14 @@ def test_adversarial_two_stage_payment_lifecycle():
     assert cap_dep.status == "completed"
 
     # Order remains pending because only 50% paid
-    order_after_dep = uow.orders.get_by_id(order.id)
+    with uow:
+        order_after_dep = uow.orders.get_by_id(order.id)
     assert order_after_dep.status == ORDER_STATUS_PENDING
 
     # 2. Workshop begins work
     UpdateOrder(uow).execute(order.id, carpenter_id=CarpenterId(1), input=UpdateOrderInput(status="in_progress"))
-    order_in_progress = uow.orders.get_by_id(order.id)
+    with uow:
+        order_in_progress = uow.orders.get_by_id(order.id)
     assert order_in_progress.status == ORDER_STATUS_IN_PROGRESS
 
     # 3. Customer pays remaining balance
@@ -447,7 +482,8 @@ def test_adversarial_two_stage_payment_lifecycle():
         cap_bal = CapturePayment(uow, processor).execute(intent_bal.payment_id, authorized_quote_id=qid)
         assert cap_bal.status == "completed"
         # If it succeeded, order should now be paid or remain in_progress
-        order_final = uow.orders.get_by_id(order.id)
+        with uow:
+            order_final = uow.orders.get_by_id(order.id)
         assert order_final.status in {ORDER_STATUS_PAID, ORDER_STATUS_IN_PROGRESS}
     except ConflictError as e:
         # Documented failure mode: cannot transition order from in_progress to paid
@@ -457,7 +493,9 @@ def test_adversarial_two_stage_payment_lifecycle():
 def test_adversarial_stale_assumptions_in_needs_information():
     """When a quote in pending_review transitions back to needs_information, assumptions should be cleared."""
     uow = FakeUnitOfWork()
-    uow.carpenters.seed(Carpenter(id=CarpenterId(1), name="Carp", workshop_name="W", email="c@ex.com", phone=None))
+    with uow:
+        uow.carpenters.seed(Carpenter(id=CarpenterId(1), name="Carp", workshop_name="W", email="c@ex.com", phone=None))
+        uow.commit()
 
     ai_with_assumptions = FakeAIService(proposal=QuoteProposalResult(
         description="Mesa",
@@ -487,13 +525,16 @@ def test_adversarial_stale_assumptions_in_needs_information():
 def test_adversarial_phone_whitespace_normalization():
     """A phone containing only whitespace should be normalized to None or empty string, without error."""
     uow = FakeUnitOfWork()
-    uow.carpenters.seed(Carpenter(id=CarpenterId(1), name="Carp", workshop_name="W", email="c@ex.com", phone=None))
+    with uow:
+        uow.carpenters.seed(Carpenter(id=CarpenterId(1), name="Carp", workshop_name="W", email="c@ex.com", phone=None))
+        uow.commit()
     created = CreateQuote(uow).execute(CreateQuoteInput(
         customer=CustomerInput(name="Carlos", email="c@ex.com", phone="   \t   "),
         carpenter_id=CarpenterId(1),
         request="Mesa",
     ))
-    saved_cust = uow.customers.get_by_id(created.quote.customer_id)
+    with uow:
+        saved_cust = uow.customers.get_by_id(created.quote.customer_id)
     # Check whether phone is None or empty string
     assert saved_cust.phone in {None, ""}
 

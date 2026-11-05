@@ -1,14 +1,14 @@
 """Procesador de pagos PayPal.
 
-Provee la integración con PayPal REST API v2 (Sandbox y Live) para la
-creación y captura de órdenes de pago.
+Coordina la creación y captura de órdenes delegando el transporte HTTP en
+``paypal_transport`` y la validación de respuestas en ``paypal_parsing``.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import datetime, timezone
-from decimal import Decimal, InvalidOperation
+import hashlib
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -16,6 +16,14 @@ from tallerclaro.application.dtos import CapturedPayment, PaymentIntent
 from tallerclaro.application.interfaces import PaymentProcessor
 from tallerclaro.bootstrap.settings import Settings
 from tallerclaro.domain.exceptions import DomainError
+from tallerclaro.infrastructure.payment.paypal_parsing import (
+    PayPalCaptureParser,
+    PayPalOrderParser,
+)
+from tallerclaro.infrastructure.payment.paypal_transport import (
+    PayPalHttpTransport,
+    PayPalResponse,
+)
 
 
 class UnconfiguredPaymentProcessor:
@@ -32,198 +40,85 @@ class UnconfiguredPaymentProcessor:
 
 
 class PayPalPaymentProcessor:
-    """Procesador de pagos usando PayPal REST API v2."""
+    """Fachada de pagos PayPal para la capa de aplicación."""
 
-    def __init__(self, settings: Settings, client: httpx.Client | None = None) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        client: httpx.Client | None = None,
+        transport: PayPalHttpTransport | None = None,
+        order_parser: PayPalOrderParser | None = None,
+        capture_parser: PayPalCaptureParser | None = None,
+    ) -> None:
         self._settings = settings
-        self._client = client or httpx.Client(timeout=30.0)
-        self._base_url = settings.paypal_api_base
-        if self._base_url is None:
-            raise DomainError(code="SERVICE_UNAVAILABLE", message="PayPal mode is not configured")
+        self._transport = transport or PayPalHttpTransport(settings, client=client)
+        self._order_parser = order_parser or PayPalOrderParser()
+        self._capture_parser = capture_parser or PayPalCaptureParser()
+        for name, url in (("return", settings.paypal_return_url), ("cancel", settings.paypal_cancel_url)):
+            parts = urlsplit(url or "")
+            if parts.scheme != "https" or not parts.hostname or parts.username or parts.password:
+                raise DomainError(code="SERVICE_UNAVAILABLE", message=f"PayPal {name} URL must be an HTTPS URL")
 
     def create_order(self, amount: str, currency: str) -> PaymentIntent:
-        access_token = self._get_access_token()
-        response = self._client.post(
-            f"{self._base_url}/v2/checkout/orders",
-            headers={
-                "Authorization": f"Bearer {access_token}",
-                "Content-Type": "application/json",
-                "Prefer": "return=representation",
-            },
-            json={
-                "intent": "CAPTURE",
-                "purchase_units": [
-                    {
-                        "amount": {"currency_code": currency, "value": amount},
-                    }
-                ],
-                "application_context": {
-                    "return_url": "https://example.com/payment/return",
-                    "cancel_url": "https://example.com/payment/cancel",
-                },
-            },
+        access_token = self._transport.access_token()
+        response = self._transport.create_order(
+            amount=amount,
+            currency=currency,
+            return_url=self._settings.paypal_return_url,
+            cancel_url=self._settings.paypal_cancel_url,
+            access_token=access_token,
         )
         if response.status_code != 201:
             raise DomainError(
                 code="PAYMENT_PROVIDER_ERROR",
                 message=f"PayPal create order failed: {response.status_code}",
             )
-        data = response.json()
-        paypal_order_id = data["id"]
-        approval_url = None
-        for link in data.get("links", []):
-            if link.get("rel") == "approve":
-                approval_url = link["href"]
-                break
-        return PaymentIntent(
-            payment_id=0,
-            paypal_order_id=paypal_order_id,
-            amount=Decimal(amount),
-            currency=currency,
-            approval_url=approval_url,
-        )
+        return self._order_parser.parse(self._require_payload(
+            response, "Invalid JSON in PayPal create order response"
+        ), amount, currency)
 
     def capture_order(self, paypal_order_id: str) -> CapturedPayment:
-        access_token = self._get_access_token()
-        response = self._client.post(
-            f"{self._base_url}/v2/checkout/orders/{paypal_order_id}/capture",
-            headers={
-                "Authorization": f"Bearer {access_token}",
-                "Content-Type": "application/json",
-                "Prefer": "return=representation",
-            },
+        access_token = self._transport.access_token()
+        response = self._transport.capture_order(
+            paypal_order_id=paypal_order_id,
+            request_id=self._request_id(paypal_order_id),
+            access_token=access_token,
         )
         if response.status_code not in (200, 201):
-            raise DomainError(
-                code="PAYMENT_PROVIDER_ERROR",
-                message=f"PayPal capture failed: {response.status_code}",
-            )
-        try:
-            data = response.json()
-        except Exception as exc:
-            raise DomainError(
-                code="PAYMENT_PROVIDER_ERROR",
-                message="Invalid JSON in PayPal capture response",
-            ) from exc
-
-        return self._validate_and_parse_capture(data, paypal_order_id)
-
-    def _validate_and_parse_capture(self, data: object, expected_order_id: str) -> CapturedPayment:
-        if not isinstance(data, dict):
-            raise DomainError(
-                code="PAYMENT_PROVIDER_ERROR",
-                message="Malformed PayPal capture payload",
-            )
-
-        if data.get("status") != "COMPLETED":
-            raise DomainError(
-                code="PAYMENT_FAILED",
-                message=f"PayPal order not completed: {data.get('status')}",
-            )
-
-        returned_order_id = str(data.get("id") or "").strip()
-        if not returned_order_id:
-            raise DomainError(
-                code="PAYMENT_PROVIDER_ERROR",
-                message="PayPal capture response is missing order id",
-            )
-        if returned_order_id != expected_order_id:
-            raise DomainError(
-                code="PAYMENT_PROVIDER_ERROR",
-                message="PayPal capture order id mismatch",
-            )
-
-        purchase_units = data.get("purchase_units")
-        if not isinstance(purchase_units, list) or not purchase_units:
-            raise DomainError(
-                code="PAYMENT_PROVIDER_ERROR",
-                message="PayPal capture response is missing purchase_units",
-            )
-        first_unit = purchase_units[0] if isinstance(purchase_units[0], dict) else {}
-        payments_obj = first_unit.get("payments") if isinstance(first_unit.get("payments"), dict) else {}
-        captures = payments_obj.get("captures")
-        if not isinstance(captures, list) or not captures or not isinstance(captures[0], dict):
-            raise DomainError(
-                code="PAYMENT_PROVIDER_ERROR",
-                message="PayPal capture response is missing captures",
-            )
-
-        capture = captures[0]
-        capture_status = str(capture.get("status") or "").upper()
-        if capture_status != "COMPLETED":
-            raise DomainError(
-                code="PAYMENT_FAILED",
-                message=f"PayPal capture status is not COMPLETED: {capture.get('status')}",
-            )
-
-        capture_id = str(capture.get("id") or "").strip()
-        if not capture_id:
-            raise DomainError(
-                code="PAYMENT_PROVIDER_ERROR",
-                message="PayPal capture response is missing capture id",
-            )
-
-        amount_obj = capture.get("amount")
-        if not isinstance(amount_obj, dict):
-            raise DomainError(
-                code="PAYMENT_PROVIDER_ERROR",
-                message="PayPal capture response is missing amount",
-            )
-        raw_value = amount_obj.get("value")
-        currency_code = str(amount_obj.get("currency_code") or "").strip()
-        if raw_value is None or not currency_code:
-            raise DomainError(
-                code="PAYMENT_PROVIDER_ERROR",
-                message="PayPal capture amount value or currency_code missing",
-            )
-        try:
-            parsed_amount = Decimal(str(raw_value))
-        except (InvalidOperation, ValueError, TypeError) as exc:
-            raise DomainError(
-                code="PAYMENT_PROVIDER_ERROR",
-                message="PayPal capture amount is not a valid decimal",
-            ) from exc
-
-        raw_paid_at = str(capture.get("update_time") or capture.get("create_time") or "").strip()
-        if raw_paid_at:
-            if raw_paid_at.endswith("Z"):
-                raw_paid_at = raw_paid_at[:-1] + "+00:00"
-            paid_at = raw_paid_at
-        else:
-            paid_at = datetime.now(timezone.utc).isoformat()
-
-        return CapturedPayment(
-            payment_id=0,
-            status="completed",
-            paypal_order_id=returned_order_id,
-            paypal_capture_id=capture_id,
-            amount=parsed_amount,
-            currency=currency_code,
-            paid_at=paid_at,
+            response = self._transport.get_order(paypal_order_id, access_token=access_token)
+            if response.status_code != 200:
+                raise DomainError(
+                    code="PAYMENT_PROVIDER_ERROR",
+                    message="PayPal capture outcome is uncertain; retry reconciliation",
+                )
+        return self._capture_parser.parse(
+            self._require_payload(response, "Invalid JSON in PayPal capture response"),
+            paypal_order_id,
         )
 
-    def _get_access_token(self) -> str:
-        if not self._settings.paypal_client_id or not self._settings.paypal_client_secret:
-            raise DomainError(code="SERVICE_UNAVAILABLE", message="PayPal credentials missing")
-        response = self._client.post(
-            f"{self._base_url}/v1/oauth2/token",
-            auth=(self._settings.paypal_client_id, self._settings.paypal_client_secret),
-            data={"grant_type": "client_credentials"},
-            headers={"Accept": "application/json"},
-        )
-        if response.status_code != 200:
-            raise DomainError(
-                code="PAYMENT_PROVIDER_ERROR",
-                message=f"PayPal authentication failed: {response.status_code}",
-            )
-        return response.json()["access_token"]
+    @staticmethod
+    def _require_payload(response: PayPalResponse, message: str) -> object:
+        if response.payload is None:
+            raise DomainError(code="PAYMENT_PROVIDER_ERROR", message=message)
+        return response.payload
+
+    @staticmethod
+    def _request_id(paypal_order_id: str) -> str:
+        return hashlib.sha256(paypal_order_id.encode()).hexdigest()[:36]
 
 
-# Registro extensible de modos de procesador de pago (Open/Closed Principle)
-_PAYPAL_FACTORIES: dict[str, Callable[[Settings], PaymentProcessor]] = {
+# Registro extensible de modos de procesador de pago (Open/Closed Principle).
+_PAYMENT_PROCESSOR_FACTORIES: dict[str, Callable[[Settings], PaymentProcessor]] = {
     "sandbox": lambda s: PayPalPaymentProcessor(s),
     "live": lambda s: PayPalPaymentProcessor(s),
 }
+
+
+def register_payment_processor(
+    mode: str, factory: Callable[[Settings], PaymentProcessor]
+) -> None:
+    """Registra una implementación para un modo sin modificar los casos de uso."""
+    _PAYMENT_PROCESSOR_FACTORIES[mode.lower().strip()] = factory
 
 
 def build_payment_processor(settings: Settings) -> PaymentProcessor:
@@ -231,9 +126,8 @@ def build_payment_processor(settings: Settings) -> PaymentProcessor:
     if not mode or mode == "none":
         return UnconfiguredPaymentProcessor()
 
-    factory = _PAYPAL_FACTORIES.get(mode)
+    factory = _PAYMENT_PROCESSOR_FACTORIES.get(mode)
     if factory is not None:
         return factory(settings)
 
     return UnconfiguredPaymentProcessor(f"Unknown PayPal mode: {settings.paypal_mode}")
-

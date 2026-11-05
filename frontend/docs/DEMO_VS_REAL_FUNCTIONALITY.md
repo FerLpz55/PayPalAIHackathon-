@@ -1,6 +1,13 @@
 ﻿# Demo Versus Real Functionality
 
 **Evidence date:** 2026-11-03
+
+> **Historical matrix:** Some rows below describe an earlier implementation
+> (including claims that no HTTP client exists). The current transport is
+> `src/services/http.js`, called through `apiClient.js`. Use [the frontend
+> guide](../README.md) for current DEMO/REAL behavior and authorization limits,
+> and [the backend guide](../../Backend/BACKENDREADME.md) for server capabilities.
+> Source integration still does not establish a working deployed flow.
 **Scope:** Current frontend implementation compared with checked-in backend source. This is a source review; backend route availability, deployment, configuration, and production readiness were not tested.
 
 ## Classification rules
@@ -32,7 +39,7 @@ Backend route handlers can exist without being operational. They are called out 
 
 The checked-in FastAPI app includes `/api/health`, quote, order, and payment routers. Their request/response fields, status values, authentication dependencies, and known gaps are documented in [API_CONTRACT.md](./API_CONTRACT.md). These are **verified in source**, not runtime-tested. DEMO invokes `mockApi`; REAL calls the configured business routes and shows connection errors without fixture fallback.
 
-The root `README.md` still says the backend exposes only a health endpoint. That statement conflicts with the checked-in route handlers; update it through the repository documentation owner. The route source still does not establish deployed or operational capability.
+The root `BACKENDREADME.md` still says the backend exposes only a health endpoint. That statement conflicts with the checked-in route handlers; update it through the repository documentation owner. The route source still does not establish deployed or operational capability.
 
 ## Demo data behavior
 

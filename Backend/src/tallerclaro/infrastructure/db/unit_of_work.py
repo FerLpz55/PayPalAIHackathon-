@@ -9,6 +9,7 @@ from typing import Any
 from tallerclaro.application.interfaces import CustomerTokenRepository, UnitOfWork
 from tallerclaro.infrastructure.db.connection import Database
 from tallerclaro.infrastructure.db.repositories import (
+    PostgresCaptureReservationRepository,
     PostgresCarpenterRepository,
     PostgresCustomerRepository,
     PostgresOrderRepository,
@@ -25,6 +26,7 @@ class _TransactionFrame:
     carpenters: PostgresCarpenterRepository
     quotes: PostgresQuoteRepository
     orders: PostgresOrderRepository
+    capture_reservations: PostgresCaptureReservationRepository
     payments: PostgresPaymentRepository
     tokens: CustomerTokenRepository
     committed: bool = False
@@ -65,6 +67,7 @@ class PostgresUnitOfWork:
             carpenters=PostgresCarpenterRepository(conn),
             quotes=PostgresQuoteRepository(conn),
             orders=PostgresOrderRepository(conn),
+            capture_reservations=PostgresCaptureReservationRepository(conn),
             payments=PostgresPaymentRepository(conn),
             tokens=CustomerTokenService(
                 conn,
@@ -108,6 +111,10 @@ class PostgresUnitOfWork:
     @property
     def orders(self) -> PostgresOrderRepository:
         return self._active_frame().orders
+
+    @property
+    def capture_reservations(self) -> PostgresCaptureReservationRepository:
+        return self._active_frame().capture_reservations
 
     @property
     def payments(self) -> PostgresPaymentRepository:

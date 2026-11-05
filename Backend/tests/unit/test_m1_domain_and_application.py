@@ -120,18 +120,24 @@ def test_access_principal_dtos():
 
 def test_fake_customer_token_repository():
     uow = FakeUnitOfWork()
-    token = uow.tokens.create(CustomerId(1), QuoteId(100))
+    with uow:
+        token = uow.tokens.create(CustomerId(1), QuoteId(100))
+        uow.commit()
     assert token.startswith("fake-token-")
-    verified = uow.tokens.verify(token)
+    with uow:
+        verified = uow.tokens.verify(token)
     assert verified == (CustomerId(1), QuoteId(100))
-    assert uow.tokens.verify("non-existent-token") is None
+    with uow:
+        assert uow.tokens.verify("non-existent-token") is None
 
 
 def test_create_quote_normalization_and_token():
     uow = FakeUnitOfWork()
-    uow.carpenters.seed(
-        Carpenter(id=CarpenterId(1), name="José", workshop_name="Taller", email="j@example.com", phone=None)
-    )
+    with uow:
+        uow.carpenters.seed(
+            Carpenter(id=CarpenterId(1), name="José", workshop_name="Taller", email="j@example.com", phone=None)
+        )
+        uow.commit()
     use_case = CreateQuote(uow)
     result = use_case.execute(
         CreateQuoteInput(
@@ -145,11 +151,13 @@ def test_create_quote_normalization_and_token():
     assert result.customer_token.startswith("fake-token-")
 
     # Verificar que el token se asocia al cliente y cotización
-    verified = uow.tokens.verify(result.customer_token)
+    with uow:
+        verified = uow.tokens.verify(result.customer_token)
     assert verified == (result.quote.customer_id, result.quote.id)
 
     # Verificar normalización
-    saved_customer = uow.customers.get_by_id(result.quote.customer_id)
+    with uow:
+        saved_customer = uow.customers.get_by_id(result.quote.customer_id)
     assert saved_customer.name == "María López"
     assert saved_customer.email == "maria.lopez@example.com"
     assert saved_customer.phone == "+502 12345678"
@@ -157,12 +165,16 @@ def test_create_quote_normalization_and_token():
 
 def test_get_quote_authorization():
     uow = FakeUnitOfWork()
-    uow.carpenters.seed(
-        Carpenter(id=CarpenterId(1), name="José", workshop_name="Taller 1", email="j@example.com", phone=None)
-    )
-    uow.carpenters.seed(
-        Carpenter(id=CarpenterId(2), name="Pedro", workshop_name="Taller 2", email="p@example.com", phone=None)
-    )
+    with uow:
+        uow.carpenters.seed(
+            Carpenter(id=CarpenterId(1), name="José", workshop_name="Taller 1", email="j@example.com", phone=None)
+        )
+        uow.commit()
+    with uow:
+        uow.carpenters.seed(
+            Carpenter(id=CarpenterId(2), name="Pedro", workshop_name="Taller 2", email="p@example.com", phone=None)
+        )
+        uow.commit()
     created = CreateQuote(uow).execute(
         CreateQuoteInput(
             customer=CustomerInput(name="Carlos", email="carlos@example.com", phone=None),
@@ -199,9 +211,11 @@ def test_get_quote_authorization():
 
 def test_approve_and_reject_quote_authorization():
     uow = FakeUnitOfWork()
-    uow.carpenters.seed(
-        Carpenter(id=CarpenterId(1), name="José", workshop_name="Taller 1", email="j@example.com", phone=None)
-    )
+    with uow:
+        uow.carpenters.seed(
+            Carpenter(id=CarpenterId(1), name="José", workshop_name="Taller 1", email="j@example.com", phone=None)
+        )
+        uow.commit()
     created = CreateQuote(uow).execute(
         CreateQuoteInput(
             customer=CustomerInput(name="Carlos", email="carlos@example.com", phone=None),
@@ -250,9 +264,11 @@ def test_approve_and_reject_quote_authorization():
 
 def test_generate_quote_proposal_needs_information_and_additional_info():
     uow = FakeUnitOfWork()
-    uow.carpenters.seed(
-        Carpenter(id=CarpenterId(1), name="José", workshop_name="Taller", email="j@example.com", phone=None)
-    )
+    with uow:
+        uow.carpenters.seed(
+            Carpenter(id=CarpenterId(1), name="José", workshop_name="Taller", email="j@example.com", phone=None)
+        )
+        uow.commit()
     created = CreateQuote(uow).execute(
         CreateQuoteInput(
             customer=CustomerInput(name="Carlos", email="carlos@example.com", phone=None),
@@ -310,9 +326,11 @@ def test_generate_quote_proposal_needs_information_and_additional_info():
 
 def test_get_order_authorization_and_details():
     uow = FakeUnitOfWork()
-    uow.carpenters.seed(
-        Carpenter(id=CarpenterId(1), name="José", workshop_name="Taller 1", email="j@example.com", phone=None)
-    )
+    with uow:
+        uow.carpenters.seed(
+            Carpenter(id=CarpenterId(1), name="José", workshop_name="Taller 1", email="j@example.com", phone=None)
+        )
+        uow.commit()
     created = CreateQuote(uow).execute(
         CreateQuoteInput(
             customer=CustomerInput(name="Carlos Gómez", email="carlos@example.com", phone=None),
@@ -358,9 +376,11 @@ def test_get_order_authorization_and_details():
 
 def test_update_order_carpenter_authorization():
     uow = FakeUnitOfWork()
-    uow.carpenters.seed(
-        Carpenter(id=CarpenterId(1), name="José", workshop_name="Taller 1", email="j@example.com", phone=None)
-    )
+    with uow:
+        uow.carpenters.seed(
+            Carpenter(id=CarpenterId(1), name="José", workshop_name="Taller 1", email="j@example.com", phone=None)
+        )
+        uow.commit()
     created = CreateQuote(uow).execute(
         CreateQuoteInput(
             customer=CustomerInput(name="Carlos", email="carlos@example.com", phone=None),
@@ -392,9 +412,11 @@ def test_update_order_carpenter_authorization():
 
 def test_payments_authorization_and_capture_id():
     uow = FakeUnitOfWork()
-    uow.carpenters.seed(
-        Carpenter(id=CarpenterId(1), name="José", workshop_name="Taller 1", email="j@example.com", phone=None)
-    )
+    with uow:
+        uow.carpenters.seed(
+            Carpenter(id=CarpenterId(1), name="José", workshop_name="Taller 1", email="j@example.com", phone=None)
+        )
+        uow.commit()
     created = CreateQuote(uow).execute(
         CreateQuoteInput(
             customer=CustomerInput(name="Carlos", email="carlos@example.com", phone=None),
@@ -451,9 +473,11 @@ def test_payments_authorization_and_capture_id():
 
 def test_create_quote_whitespace_phone_normalizes_to_none():
     uow = FakeUnitOfWork()
-    uow.carpenters.seed(
-        Carpenter(id=CarpenterId(1), name="José", workshop_name="Taller", email="j@example.com", phone=None)
-    )
+    with uow:
+        uow.carpenters.seed(
+            Carpenter(id=CarpenterId(1), name="José", workshop_name="Taller", email="j@example.com", phone=None)
+        )
+        uow.commit()
     res = CreateQuote(uow).execute(
         CreateQuoteInput(
             customer=CustomerInput(name="Juan", email="juan@example.com", phone="   \t   "),
@@ -461,7 +485,8 @@ def test_create_quote_whitespace_phone_normalizes_to_none():
             request="Mesa de centro",
         )
     )
-    saved_cust = uow.customers.get_by_id(res.quote.customer_id)
+    with uow:
+        saved_cust = uow.customers.get_by_id(res.quote.customer_id)
     assert saved_cust.phone is None
 
 
@@ -487,9 +512,11 @@ def test_quote_mark_needs_information_clears_assumptions():
 
 def test_payment_capture_when_order_in_progress_does_not_crash():
     uow = FakeUnitOfWork()
-    uow.carpenters.seed(
-        Carpenter(id=CarpenterId(1), name="José", workshop_name="Taller", email="j@example.com", phone=None)
-    )
+    with uow:
+        uow.carpenters.seed(
+            Carpenter(id=CarpenterId(1), name="José", workshop_name="Taller", email="j@example.com", phone=None)
+        )
+        uow.commit()
     created = CreateQuote(uow).execute(
         CreateQuoteInput(
             customer=CustomerInput(name="Ana", email="ana@example.com", phone="12345678"),
@@ -508,7 +535,8 @@ def test_payment_capture_when_order_in_progress_does_not_crash():
 
     # Taller inicia trabajo
     UpdateOrder(uow).execute(order.id, carpenter_id=CarpenterId(1), input=UpdateOrderInput(status=ORDER_STATUS_IN_PROGRESS))
-    order_in_prog = uow.orders.get_by_id(order.id)
+    with uow:
+        order_in_prog = uow.orders.get_by_id(order.id)
     assert order_in_prog.status == ORDER_STATUS_IN_PROGRESS
 
     # Cliente paga saldo mientras está in_progress
@@ -516,6 +544,7 @@ def test_payment_capture_when_order_in_progress_does_not_crash():
     captured = CapturePayment(uow, processor).execute(bal_intent.payment_id, authorized_quote_id=qid)
     assert captured.status == "completed"
 
-    order_final = uow.orders.get_by_id(order.id)
+    with uow:
+        order_final = uow.orders.get_by_id(order.id)
     assert order_final.status == ORDER_STATUS_IN_PROGRESS
 

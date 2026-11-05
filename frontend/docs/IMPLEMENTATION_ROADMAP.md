@@ -1,6 +1,12 @@
 ﻿# Frontend Implementation Roadmap
 
 **Prepared:** 2026-11-02 from local checkout `main` at `a45a1c3`.
+
+> **Historical roadmap:** Backend and frontend changes since this checkout
+> supersede several blockers below, including token issuance, CORS, bcrypt
+> authentication and configurable PayPal return URLs. This is not a current
+> task list. Refer to [the frontend guide](../README.md) and [the backend
+> guide](../../Backend/BACKENDREADME.md) for current capabilities and gaps.
 **Purpose:** Sequence frontend-owned implementation for issues #15, #16, #18, #20, #21, #22 and frontend contributions to #19/#23. The exact GitHub issue bodies and dependency graph were unavailable; priorities below are a recommended technical sequence, not official issue acceptance criteria.
 
 ## Delivery principles

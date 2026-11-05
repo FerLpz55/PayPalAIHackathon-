@@ -2,6 +2,15 @@
 
 **Evidence date:** 2026-11-02
 
+> **Historical snapshot:** The inventory below describes the reviewed checkout,
+> not the current API. As of 2026-11-04, customer token issuance, shared
+> customer/workshop authorization, clarification fields and configurable PayPal
+> HTTPS return URLs exist. Workshop authentication uses bcrypt; payment capture
+> has a persistent reservation and retry recovery with remaining operational
+> limits. Use [the backend guide](../../Backend/BACKENDREADME.md) and current
+> routers/schemas as authority; use [the frontend guide](../README.md) for current
+> integration gaps. The older blocker statements below are historical.
+
 **Repository evidence:** current checkout branch `feat/issue-22-demo-real-separation`, HEAD `1122c58`; backend route handlers, Pydantic schemas, dependencies, use cases, domain status constants, error handlers, app composition, configuration, and frontend call sites inspected.
 **Scope:** Source-level contract inventory only. Route presence does not prove an endpoint is reachable, configured, deployed, or safe for production use. No backend code was changed.
 

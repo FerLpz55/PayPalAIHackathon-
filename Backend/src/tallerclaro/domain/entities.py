@@ -206,6 +206,62 @@ class Order:
             return Money.zero()
         return self.total - paid
 
+    def is_fully_paid(self, payments: list[Payment]) -> bool:
+        return self.calculate_paid_amount(payments).amount >= self.total.amount
+
+    def _completed_deposit_exists(self, payments: list[Payment]) -> bool:
+        return any(
+            p.type == PAYMENT_TYPE_DEPOSIT and p.status == PAYMENT_STATUS_COMPLETED
+            for p in payments
+        )
+
+    def requested_payment_amount(
+        self, payment_type: PaymentType, payments: list[Payment]
+    ) -> Money:
+        """Importe que corresponde solicitar para un nuevo intento de pago.
+
+        Precondiciones: ``payments`` son los intentos del propio pedido.
+        Devuelve el anticipo o el saldo pendiente y valida que exista saldo,
+        que el importe sea positivo y que no se repita un anticipo completado.
+        """
+        if payment_type not in {PAYMENT_TYPE_DEPOSIT, PAYMENT_TYPE_BALANCE}:
+            raise ValidationDomainError(f"Invalid payment type: {payment_type}")
+
+        remaining = self.calculate_remaining_balance(payments)
+        amount = self.deposit_amount if payment_type == PAYMENT_TYPE_DEPOSIT else remaining
+
+        if amount > remaining:
+            raise ConflictError(f"Payment amount exceeds remaining balance: {remaining.amount}")
+        if not amount.is_positive():
+            raise ConflictError("Payment amount must be positive")
+        if payment_type == PAYMENT_TYPE_DEPOSIT and self._completed_deposit_exists(payments):
+            raise ConflictError("Deposit already paid")
+        return amount
+
+    def validate_capture(self, payment: Payment, payments: list[Payment]) -> None:
+        """Valida que un intento pendiente pueda capturarse contra el saldo actual.
+
+        ``payments`` son los intentos del pedido; el propio ``payment`` no cuenta
+        como pagado todavía. Lanza ``ConflictError`` si el anticipo ya se pagó o
+        si el importe supera el saldo restante tras otros pagos completados.
+        """
+        completed_others = [
+            p
+            for p in payments
+            if p.status == PAYMENT_STATUS_COMPLETED and p.id != payment.id
+        ]
+        if payment.type == PAYMENT_TYPE_DEPOSIT and any(
+            p.type == PAYMENT_TYPE_DEPOSIT for p in completed_others
+        ):
+            raise ConflictError("Deposit already paid")
+
+        already_paid = sum((p.amount.amount for p in completed_others), Decimal("0"))
+        remaining = Money(self.total.amount - already_paid)
+        if payment.amount > remaining:
+            raise ConflictError(
+                f"Payment amount {payment.amount.amount} exceeds remaining balance: {remaining.amount}"
+            )
+
 
 @dataclass
 class Payment:

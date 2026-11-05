@@ -12,7 +12,14 @@ Responsive React frontend for TallerClaro. DEMO uses local sample data; REAL mod
 | **PARTIAL** | Voice-to-text can use the browser Web Speech API where available. It only transcribes text into the request form; it does not call an AI quote service. |
 | **NOT IMPLEMENTED** | Receipt upload and accounting reports backed by server data. |
 
-The backend repository contains quote, order, and payment route handlers, but source presence does not establish that those routes are deployed, configured, or operational. PayPal return/cancel URLs remain a backend blocker. See [API contract and source status](docs/API_CONTRACT.md), [PayPal return URL requirements](docs/PAYPAL_RETURN_URLS.md), and the [demo versus real feature matrix](docs/DEMO_VS_REAL_FUNCTIONALITY.md).
+The backend repository contains quote, order, and payment route handlers, but source presence does not establish that those routes are deployed, configured, or operational. PayPal return/cancel URLs are now configurable on the backend and require HTTPS. See [the current backend guide](../Backend/BACKENDREADME.md) and [PayPal return URL requirements](docs/PAYPAL_RETURN_URLS.md). The [API inventory](docs/API_CONTRACT.md) and [feature matrix](docs/DEMO_VS_REAL_FUNCTIONALITY.md) are historical snapshots with superseded statements.
+
+The transport still uses stored workshop credentials or `taller:demo-password`.
+The backend now requires a configured bcrypt hash and has no default workshop
+password. Customer quote creation and clarification invoke workshop-only
+generation, so a customer token alone is insufficient. Initial generation errors
+are caught and leave the draft available; there is no fallback to demo data.
+The complete REAL customer flow needs integration work.
 
 ## Run locally
 
@@ -117,4 +124,4 @@ The interface uses semantic landmarks, labeled fields, visible focus styles, key
 
 ## Backend handoff
 
-Keep demo operations isolated in `src/services/mockApi.js`. Do not silently fall back to demo data after a backend error. Keep server-side pricing and payment verification authoritative. The endpoint behavior in the contract is verified from checked-in source only; runtime availability has not been established. No backend, database, AI provider, or PayPal secret is included in this frontend.
+Keep demo operations isolated in `src/services/mockApi.js`. Do not silently fall back to demo data after a backend error. Keep server-side pricing and payment verification authoritative. Consult current routers and schemas rather than the historical contract for endpoint behavior; runtime availability has not been established. Database, AI and PayPal provider secrets belong on the backend; the workshop credential fallback described above remains in the public frontend source.

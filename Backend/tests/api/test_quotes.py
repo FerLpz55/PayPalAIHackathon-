@@ -7,15 +7,17 @@ from tests.fakes import FakeDependenciesContainer
 
 def _seed_carpenter(deps: FakeDependenciesContainerContainer):
     from tallerclaro.domain.entities import Carpenter, CarpenterId
-    deps.uow.carpenters.seed(
-        Carpenter(
-            id=CarpenterId(1),
-            name="José",
-            workshop_name="Taller",
-            email="j@example.com",
-            phone=None,
+    with deps.uow:
+        deps.uow.carpenters.seed(
+            Carpenter(
+                id=CarpenterId(1),
+                name="José",
+                workshop_name="Taller",
+                email="j@example.com",
+                phone=None,
+            )
         )
-    )
+        deps.uow.commit()
 
 
 def test_create_quote(client: TestClient, deps: FakeDependenciesContainer):

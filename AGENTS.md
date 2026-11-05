@@ -38,7 +38,7 @@ pnpm run test && pnpm run lint && pnpm run build
 ## Mapa del backend
 
 - **Monolito por capas** (*layered monolith*, **no** arquitectura hexagonal): `src/tallerclaro/{domain,application,infrastructure,presentation,bootstrap}` + `main.py` (composición y `lifespan`).
-- **Lectura obligatoria antes de evaluar o cambiar**: al trabajar sobre `Backend/` o `database/`, leer siempre `Backend/README.md` y `database/README.md` en el primer turno antes de emitir un diagnóstico o plan; nunca inferir patrones arquitectónicos solo por nombres de archivos (`ports.py`, `adapter.py`, ahora migrados a `interfaces.py`, `service.py`, `paypal_processor.py`).
+- **Lectura obligatoria antes de evaluar o cambiar**: al trabajar sobre `Backend/` o `database/`, leer siempre `Backend/BACKENDREADME.md` y `database/README.md` en el primer turno antes de emitir un diagnóstico o plan; nunca inferir patrones arquitectónicos solo por nombres de archivos (`ports.py`, `adapter.py`, ahora migrados a `interfaces.py`, `service.py`, `paypal_processor.py`).
 - Tests: `Backend/tests/` usa dobles de `tests/fakes.py` y `TestClient` con `app.dependency_overrides` (`tests/api/conftest.py`). Comportamiento nuevo debe reflejarse en fakes y en repositorios Postgres.
 - IA y PayPal por defecto en `none`; sin credenciales los servicios responden `SERVICE_UNAVAILABLE`. Los tests con fakes no validan integraciones reales.
 - Los routers importan casos de uso; no hay ORM, los repositorios usan SQL directo con `psycopg`.
@@ -66,6 +66,16 @@ pnpm run test && pnpm run lint && pnpm run build
 - Cliente: header `X-Customer-Token` (o `Authorization: Bearer`) en pagos. Lecturas/acciones de cotización y detalle de pedido usan `PrincipalDep` (token de cliente **o** Basic del taller).
 - `frontend/docs/API_CONTRACT.md` es una foto del 2026-11-02 y contiene afirmaciones desactualizadas (p. ej. auth de cotizaciones); verificar contra los routers y esquemas actuales.
 
-## Issues de GitHub
+## Contexto verificado el 2026-11-04
+
+- El arranque exige hash bcrypt válido en `TALLERCLARO_WORKSHOP_PASSWORD_HASH` y conexión inicial a PostgreSQL. El backend no tiene contraseña de taller predeterminada. PayPal habilitado exige URL HTTPS en `TALLERCLARO_PAYPAL_RETURN_URL` y `TALLERCLARO_PAYPAL_CANCEL_URL`.
+- La migración 003 añade `pedido.captura_en_curso`. Esquema y seed incluyen la columna para tablas nuevas; `CREATE TABLE IF NOT EXISTS` no actualiza una tabla existente. Verificar su presencia antes del despliegue.
+- La reserva se confirma antes de llamar a PayPal y se libera al persistir la captura completada. Los errores mantienen el bloqueo para otros pagos del pedido.
+- El procesador usa una clave de idempotencia estable por orden y consulta la orden tras un HTTP de captura no exitoso. Un timeout requiere reintentar el mismo pago. No hay conciliación en segundo plano ni herramienta de resolución manual.
+- Las pruebas con dobles no demuestran capturas simultáneas en PostgreSQL ni idempotencia real de PayPal.
+- El frontend aún usa credenciales guardadas o `taller:demo-password` para rutas de taller. Su flujo de cliente llama a generación protegida por Basic; documentar esta limitación y no habilitar credenciales demo en el backend como solución.
+- Verificación local: 120 pruebas backend aprobadas y una advertencia de `pytest-asyncio`. TestClient se bloqueó en el sandbox y pasó fuera de él con pytest normal. No atribuir el bloqueo a plugins sin evidencia.
+
+## Gestión de issues
 
 Nunca cerrar una issue que dependa de servicios/credenciales externas (PostgreSQL en Supabase, IA real o PayPal Sandbox) si solo se probó con mocks. Dejarla abierta y comentar qué quedó listo en `main` y qué prueba en vivo falta.

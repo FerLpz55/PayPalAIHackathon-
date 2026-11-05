@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import copy
-from datetime import datetime, timezone
+from dataclasses import replace
+from datetime import datetime, timedelta, timezone
+from collections.abc import Callable
 from decimal import Decimal
 
 from tallerclaro.application.dtos import (
@@ -64,15 +66,24 @@ class FakeCarpenterRepository:
 
 
 class FakeQuoteRepository:
-    def __init__(self, customer_repo: FakeCustomerRepository | None = None) -> None:
+    def __init__(self) -> None:
         self._store: dict[QuoteId, Quote] = {}
         self._next_id = 1
-        self._customer_repo = customer_repo
+        self._next_line_item_id = 1
 
     def save(self, quote: Quote) -> Quote:
         if quote.id is None:
             quote.id = QuoteId(self._next_id)
             self._next_id += 1
+        persisted_items = []
+        for item in quote.line_items:
+            if item.id is None:
+                item = replace(item, id=self._next_line_item_id)
+                self._next_line_item_id += 1
+            else:
+                self._next_line_item_id = max(self._next_line_item_id, item.id + 1)
+            persisted_items.append(item)
+        quote.line_items = persisted_items
         quote.created_at = quote.created_at or datetime.now(timezone.utc)
         quote.updated_at = datetime.now(timezone.utc)
         self._store[quote.id] = quote
@@ -81,16 +92,23 @@ class FakeQuoteRepository:
     def get_by_id(self, quote_id: QuoteId) -> Quote | None:
         return self._store.get(quote_id)
 
-    def get_by_id_with_customer(self, quote_id: QuoteId) -> tuple[Quote, Customer] | None:
-        quote = self._store.get(quote_id)
-        if quote is None:
-            return None
-        if self._customer_repo is None:
-            return None
-        customer = self._customer_repo.get_by_id(quote.customer_id)
-        if customer is None:
-            return None
-        return quote, customer
+
+class FakeCaptureReservationRepository:
+    """Reserva de captura en memoria con la misma semántica que PostgreSQL."""
+
+    def __init__(self) -> None:
+        self._captures: dict[OrderId, PaymentId] = {}
+
+    def reserve(self, order_id: OrderId, payment_id: PaymentId) -> bool:
+        current = self._captures.get(order_id)
+        if current is not None and current != payment_id:
+            return False
+        self._captures[order_id] = payment_id
+        return True
+
+    def release(self, order_id: OrderId, payment_id: PaymentId) -> None:
+        if self._captures.get(order_id) == payment_id:
+            self._captures.pop(order_id)
 
 
 class FakeOrderRepository:
@@ -144,72 +162,119 @@ class FakePaymentRepository:
     def get_by_id(self, payment_id: PaymentId) -> Payment | None:
         return self._store.get(payment_id)
 
-    def get_by_paypal_order_id(self, paypal_order_id: str) -> Payment | None:
-        for payment in self._store.values():
-            if payment.paypal_order_id == paypal_order_id:
-                return payment
-        return None
-
     def list_by_order(self, order_id: OrderId) -> list[Payment]:
         return [p for p in self._store.values() if p.order_id == order_id]
 
 
 class FakeCustomerTokenRepository:
-    def __init__(self) -> None:
-        self._tokens: dict[str, tuple[CustomerId, QuoteId]] = {}
+    def __init__(self, ttl_hours: int = 72, *, clock: Callable[[], datetime] | None = None) -> None:
+        self._tokens: dict[str, dict] = {}
         self._counter = 0
+        self._ttl_hours = ttl_hours
+        self._clock = clock if clock is not None else lambda: datetime.now(timezone.utc)
 
     def create(self, customer_id: CustomerId, quote_id: QuoteId) -> str:
         self._counter += 1
         token = f"fake-token-{self._counter}"
-        self._tokens[token] = (customer_id, quote_id)
+        self._tokens[token] = {'customer_id': customer_id, 'quote_id': quote_id, 'expiration': self._clock() + timedelta(hours=self._ttl_hours), 'used': False}
         return token
 
     def verify(self, token: str) -> tuple[CustomerId, QuoteId] | None:
-        return self._tokens.get(token)
+        record = self._tokens.get(token)
+        if record is None or record['used'] or record['expiration'] < self._clock():
+            return None
+        return record['customer_id'], record['quote_id']
 
 
 class FakeUnitOfWork:
     """Unidad de trabajo en memoria para pruebas unitarias con soporte real de commit y rollback."""
 
-    def __init__(self) -> None:
-        self.customers = FakeCustomerRepository()
-        self.carpenters = FakeCarpenterRepository()
-        self.quotes = FakeQuoteRepository(self.customers)
-        self.orders = FakeOrderRepository()
-        self.payments = FakePaymentRepository()
-        self.tokens = FakeCustomerTokenRepository()
+    def __init__(self, *, tokens=None) -> None:
+        self._customers = FakeCustomerRepository()
+        self._carpenters = FakeCarpenterRepository()
+        self._quotes = FakeQuoteRepository()
+        self._orders = FakeOrderRepository()
+        self._capture_reservations = FakeCaptureReservationRepository()
+        self._payments = FakePaymentRepository()
+        self._tokens = tokens if tokens is not None else FakeCustomerTokenRepository()
         self._committed = False
         self._frames: list[dict] = []
 
+    def _active_frame(self):
+        if not self._frames:
+            raise RuntimeError("Transaction is not open")
+        return self._frames[-1]
+
+    @property
+    def customers(self):
+        self._active_frame()
+        return self._customers
+
+    @property
+    def carpenters(self):
+        self._active_frame()
+        return self._carpenters
+
+    @property
+    def quotes(self):
+        self._active_frame()
+        return self._quotes
+
+    @property
+    def orders(self):
+        self._active_frame()
+        return self._orders
+
+    @property
+    def payments(self):
+        self._active_frame()
+        return self._payments
+
+    @property
+    def tokens(self):
+        self._active_frame()
+        return self._tokens
+
+    @property
+    def capture_reservations(self):
+        self._active_frame()
+        return self._capture_reservations
+
     def _take_snapshot(self) -> dict:
         return {
-            "customers_store": copy.deepcopy(self.customers._store),
-            "customers_next_id": self.customers._next_id,
-            "carpenters_store": copy.deepcopy(self.carpenters._store),
-            "carpenters_next_id": self.carpenters._next_id,
-            "quotes_store": copy.deepcopy(self.quotes._store),
-            "quotes_next_id": self.quotes._next_id,
-            "orders_store": copy.deepcopy(self.orders._store),
-            "orders_next_id": self.orders._next_id,
-            "payments_store": copy.deepcopy(self.payments._store),
-            "payments_next_id": self.payments._next_id,
-            "tokens_dict": copy.deepcopy(self.tokens.__dict__),
+            "customers_store": copy.deepcopy(self._customers._store),
+            "customers_next_id": self._customers._next_id,
+            "carpenters_store": copy.deepcopy(self._carpenters._store),
+            "carpenters_next_id": self._carpenters._next_id,
+            "quotes_store": copy.deepcopy(self._quotes._store),
+            "quotes_next_id": self._quotes._next_id,
+            "quotes_next_line_item_id": self._quotes._next_line_item_id,
+            "orders_store": copy.deepcopy(self._orders._store),
+            "orders_next_id": self._orders._next_id,
+            "capture_reservations": copy.deepcopy(self._capture_reservations._captures),
+            "payments_store": copy.deepcopy(self._payments._store),
+            "payments_next_id": self._payments._next_id,
+            "tokens_dict": copy.deepcopy({key: value for key, value in self._tokens.__dict__.items() if key != '_clock'}),
         }
 
     def _restore_snapshot(self, snap: dict) -> None:
-        self.customers._store = copy.deepcopy(snap["customers_store"])
-        self.customers._next_id = snap["customers_next_id"]
-        self.carpenters._store = copy.deepcopy(snap["carpenters_store"])
-        self.carpenters._next_id = snap["carpenters_next_id"]
-        self.quotes._store = copy.deepcopy(snap["quotes_store"])
-        self.quotes._next_id = snap["quotes_next_id"]
-        self.orders._store = copy.deepcopy(snap["orders_store"])
-        self.orders._next_id = snap["orders_next_id"]
-        self.payments._store = copy.deepcopy(snap["payments_store"])
-        self.payments._next_id = snap["payments_next_id"]
-        self.tokens.__dict__.clear()
-        self.tokens.__dict__.update(copy.deepcopy(snap["tokens_dict"]))
+        self._customers._store = copy.deepcopy(snap["customers_store"])
+        self._customers._next_id = snap["customers_next_id"]
+        self._carpenters._store = copy.deepcopy(snap["carpenters_store"])
+        self._carpenters._next_id = snap["carpenters_next_id"]
+        self._quotes._store = copy.deepcopy(snap["quotes_store"])
+        self._quotes._next_id = snap["quotes_next_id"]
+        self._quotes._next_line_item_id = snap["quotes_next_line_item_id"]
+        self._orders._store = copy.deepcopy(snap["orders_store"])
+        self._orders._next_id = snap["orders_next_id"]
+        self._capture_reservations._captures = copy.deepcopy(snap["capture_reservations"])
+        self._payments._store = copy.deepcopy(snap["payments_store"])
+        self._payments._next_id = snap["payments_next_id"]
+        clock = self._tokens.__dict__.get('_clock')
+        self._tokens.__dict__.clear()
+        self._tokens.__dict__.update(copy.deepcopy(snap["tokens_dict"]))
+        if clock is not None:
+            self._tokens._clock = clock
 
     def __enter__(self) -> UnitOfWork:
         self._frames.append(
@@ -228,12 +293,14 @@ class FakeUnitOfWork:
             self._restore_snapshot(frame["snapshot"])
 
     def commit(self) -> None:
+        self._active_frame()
         self._committed = True
         if self._frames:
             self._frames[-1]["committed"] = True
             self._frames[-1]["snapshot"] = self._take_snapshot()
 
     def rollback(self) -> None:
+        self._active_frame()
         self._committed = False
         if self._frames:
             self._restore_snapshot(self._frames[-1]["snapshot"])

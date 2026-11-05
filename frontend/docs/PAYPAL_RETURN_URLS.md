@@ -7,7 +7,13 @@ The customer application handles these hash routes:
 
 For a local Vite run, the corresponding routes are `http://localhost:5173/#/customer/payment/return` and `http://localhost:5173/#/customer/payment/cancel`. PayPal Sandbox must be able to reach the configured frontend host; localhost is only useful for local navigation checks.
 
-The current backend does not expose settings for either URL. `Backend/src/tallerclaro/infrastructure/payment/paypal_adapter.py` hardcodes both values to `https://example.com/payment/return` and `https://example.com/payment/cancel`. To enable the routes above, backend configuration for the deployed frontend origin must feed `application_context.return_url` and `application_context.cancel_url` when creating the PayPal Orders v2 order. This is the remaining #17 configuration dependency; no frontend query parameter can override it.
+As of 2026-11-04, backend settings `TALLERCLARO_PAYPAL_RETURN_URL` and
+`TALLERCLARO_PAYPAL_CANCEL_URL` feed `application_context` in
+`Backend/src/tallerclaro/infrastructure/payment/paypal_processor.py`. Both must
+be HTTPS URLs; invalid or missing values prevent startup when PayPal is enabled.
+The local HTTP routes above are useful for navigation checks; use an HTTPS host
+for checkout configuration. No frontend query parameter overrides these settings.
+A complete PayPal Sandbox round trip remains unverified.
 
 The PayPal Orders v2 approval link contains the PayPal order token as `token` (the checked-in adapter returns the approval link supplied by PayPal). The return page treats that value only as a consistency check against the `paypal_order_id` saved from the backend response. It never treats it as authentication or payment success. The customer token is never put in the URL. `PayerID` is not used by this REST Orders v2 flow.
 

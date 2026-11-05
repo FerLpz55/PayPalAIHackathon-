@@ -20,7 +20,6 @@ from tallerclaro.domain.entities import (
     ORDER_STATUS_DELIVERED,
     ORDER_STATUS_PAID,
     CarpenterId,
-    Money,
     Order,
     OrderId,
 )
@@ -101,8 +100,7 @@ class UpdateOrder:
             if input.status is not None:
                 if input.status == ORDER_STATUS_DELIVERED:
                     payments = self._uow.payments.list_by_order(order_id)
-                    paid = order.calculate_paid_amount(payments)
-                    if paid < order.total:
+                    if not order.is_fully_paid(payments):
                         raise ConflictError("Cannot deliver order without full payment verified")
                 order.update_status(input.status, input.estimated_delivery_date)
             elif input.estimated_delivery_date is not None:

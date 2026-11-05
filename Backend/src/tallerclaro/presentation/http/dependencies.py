@@ -7,7 +7,6 @@ procesadores de pago y autenticación (HTTP Basic y token de enlace de cliente).
 from __future__ import annotations
 
 import base64
-import secrets
 from typing import Annotated
 
 from fastapi import Depends, Header, HTTPException, Request, status
@@ -18,6 +17,7 @@ from tallerclaro.application.interfaces import AIService, PaymentProcessor, Unit
 from tallerclaro.application.use_cases import VerifyCustomerToken
 from tallerclaro.bootstrap.settings import Settings
 from tallerclaro.domain.entities import CarpenterId
+from tallerclaro.infrastructure.security.workshop_auth import verify_workshop_credentials
 
 security = HTTPBasic(auto_error=False)
 
@@ -48,9 +48,8 @@ PaymentProcessorDep = Annotated[PaymentProcessor, Depends(get_payment_processor)
 # --- Funciones auxiliares de autenticación (Single Responsibility Principle) ---
 
 def _verify_workshop_credentials(username: str, password: str, settings: Settings) -> bool:
-    valid_user = secrets.compare_digest(username, settings.workshop_username)
-    valid_pass = secrets.compare_digest(password, settings.workshop_password)
-    return valid_user and valid_pass
+    """Resuelve credenciales HTTP; la verificación criptográfica vive en infraestructura."""
+    return verify_workshop_credentials(username, password, settings)
 
 
 def _extract_customer_token(request: Request, x_customer_token: str | None = None) -> str | None:

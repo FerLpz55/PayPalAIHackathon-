@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime
 from decimal import Decimal, InvalidOperation
 
 from tallerclaro.application.dtos import CapturedPayment, PaymentIntent
@@ -43,28 +43,7 @@ class CreateOrderPayment:
             raise ForbiddenError("Not authorized to make payment for this order")
 
         payments = self._uow.payments.list_by_order(order_id)
-        completed_payments = [p for p in payments if p.status == PAYMENT_STATUS_COMPLETED]
-        paid = sum((p.amount.amount for p in completed_payments), Money.zero().amount)
-        remaining = order.total.amount - paid
-
-        if payment_type == "deposit":
-            amount = order.deposit_amount
-        elif payment_type == "balance":
-            amount = Money(remaining)
-        else:
-            raise ValidationDomainError(f"Invalid payment type: {payment_type}")
-
-        if amount.amount > remaining:
-            raise ConflictError(f"Payment amount exceeds remaining balance: {remaining}")
-        if amount.amount <= 0:
-            raise ConflictError("Payment amount must be positive")
-
-        if payment_type == "deposit":
-            for p in payments:
-                if p.type == "deposit" and p.status == PAYMENT_STATUS_COMPLETED:
-                    raise ConflictError("Deposit already paid")
-
-        return amount
+        return order.requested_payment_amount(payment_type, payments)
 
     def execute(
         self, order_id: OrderId, payment_type: PaymentType, authorized_quote_id: QuoteId | None = None
@@ -77,7 +56,9 @@ class CreateOrderPayment:
         )
 
         with self._uow:
-            amount = self._validate_and_compute_amount(order_id, payment_type, authorized_quote_id)
+            current_amount = self._validate_and_compute_amount(order_id, payment_type, authorized_quote_id)
+            if current_amount != amount:
+                raise ConflictError("Payment amount changed while creating PayPal order")
             payment = Payment(
                 id=None,
                 order_id=order_id,
@@ -110,18 +91,7 @@ class CapturePayment:
 
     def _validate_order_balance_for_capture(self, order: Order, payment: Payment) -> None:
         payments = self._uow.payments.list_by_order(order.id)
-        completed_others = [
-            p for p in payments
-            if p.status == PAYMENT_STATUS_COMPLETED and p.id != payment.id
-        ]
-        if payment.type == "deposit" and any(p.type == "deposit" for p in completed_others):
-            raise ConflictError("Deposit already paid")
-        already_paid = sum((p.amount.amount for p in completed_others), Money.zero().amount)
-        remaining = order.total.amount - already_paid
-        if payment.amount.amount > remaining:
-            raise ConflictError(
-                f"Payment amount {payment.amount.amount} exceeds remaining balance: {remaining}"
-            )
+        order.validate_capture(payment, payments)
 
     def execute(
         self, payment_id: PaymentId, authorized_quote_id: QuoteId | None = None
@@ -159,6 +129,9 @@ class CapturePayment:
             expected_paypal_order_id = payment.paypal_order_id
             expected_amount = payment.amount.amount
             expected_currency = payment.currency
+            if not self._uow.capture_reservations.reserve(order.id, payment.id):
+                raise ConflictError("Another capture is in progress for this order")
+            self._uow.commit()
 
         captured = self._payment_processor.capture_order(expected_paypal_order_id)
 
@@ -171,13 +144,15 @@ class CapturePayment:
                 f"Captured currency {captured.currency} does not match expected {expected_currency}"
             )
         try:
-            captured_money = Money(Decimal(str(captured.amount)))
+            captured_amount = Decimal(str(captured.amount))
+            if not captured_amount.is_finite() or captured_amount.as_tuple().exponent < -2:
+                raise ValueError("invalid USD amount")
         except (InvalidOperation, TypeError, ValueError, ValidationDomainError) as exc:
             raise ConflictError("Captured payment amount is invalid") from exc
 
-        if captured_money.amount != expected_amount:
+        if captured_amount != expected_amount:
             raise ConflictError(
-                f"Captured amount {captured_money.amount} does not match expected {expected_amount}"
+                f"Captured amount {captured_amount} does not match expected {expected_amount}"
             )
         if not captured.paypal_capture_id or not str(captured.paypal_capture_id).strip():
             raise ConflictError("Captured payment is missing PayPal capture ID")
@@ -218,6 +193,7 @@ class CapturePayment:
 
             self._maybe_mark_order_paid(order)
             self._uow.orders.save(order)
+            self._uow.capture_reservations.release(order.id, payment.id)
 
             self._uow.commit()
             captured.payment_id = payment.id
@@ -227,13 +203,8 @@ class CapturePayment:
 
     def _maybe_mark_order_paid(self, order: Order) -> None:
         payments = self._uow.payments.list_by_order(order.id)
-        paid = sum(
-            (p.amount.amount for p in payments if p.status == PAYMENT_STATUS_COMPLETED),
-            Money.zero().amount,
-        )
-        if paid >= order.total.amount:
-            if order.status == ORDER_STATUS_PENDING:
-                order.update_status(ORDER_STATUS_PAID)
+        if order.is_fully_paid(payments) and order.status == ORDER_STATUS_PENDING:
+            order.update_status(ORDER_STATUS_PAID)
 
 
 class GetPayment:

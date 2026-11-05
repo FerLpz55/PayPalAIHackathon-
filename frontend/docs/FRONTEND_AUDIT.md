@@ -11,7 +11,7 @@
 
 The frontend is a responsive React 19/Vite demonstration with workshop and customer hash routes. Its interactive quote, order, receipt, and payment state is handled by `frontend/src/services/mockApi.js` and browser `localStorage`; there are no HTTP calls from `frontend/src`. A proposed contract exists in `frontend/docs/API_CONTRACT.md`.
 
-The checked-in backend has moved beyond the older root `README.md` and `PRODUCT.md` claims: FastAPI routers and use cases for quote, order, and payment flows are present, in addition to health. Backend documentation says PostgreSQL, AI, and PayPal need environment configuration; backend `.env.example` is a template, not evidence of a deployed/usable service. The front-end contract is broadly similar but has discrepancies that need reconciliation against backend schemas/OpenAPI before integration. Therefore interface work is actionable now, but production-like flow completion depends on backend/API agreement, reachable configured services, auth/customer-link delivery, and test credentials.
+The checked-in backend has moved beyond the older root `BACKENDREADME.md` and `PRODUCT.md` claims: FastAPI routers and use cases for quote, order, and payment flows are present, in addition to health. Backend documentation says PostgreSQL, AI, and PayPal need environment configuration; backend `.env.example` is a template, not evidence of a deployed/usable service. The front-end contract is broadly similar but has discrepancies that need reconciliation against backend schemas/OpenAPI before integration. Therefore interface work is actionable now, but production-like flow completion depends on backend/API agreement, reachable configured services, auth/customer-link delivery, and test credentials.
 
 No issue descriptions, acceptance criteria, status, assignees, or dependency links could be verified in GitHub during this audit. The issue numbers and titles in the request are treated as scope labels only. The matrix separates requested-title interpretation from repository evidence; confirm issue bodies with the team before treating inferred criteria as authoritative.
 
@@ -31,7 +31,7 @@ No issue descriptions, acceptance criteria, status, assignees, or dependency lin
 | Area | Confirmed repository state | Confidence / limitation |
 |---|---|---|
 | Product requirements | `REQUIREMENTS.md` defines customer quote generation/review, PayPal checkout, order dashboard, persistence, and security constraints. | Confirmed as requirements, not implementation. |
-| Root/product documentation | Root `README.md` and `PRODUCT.md` say backend only has health and business integrations are pending. | Stale relative to actual backend router source at this commit. |
+| Root/product documentation | Root `BACKENDREADME.md` and `PRODUCT.md` say backend only has health and business integrations are pending. | Stale relative to actual backend router source at this commit. |
 | Backend | `Backend/src/tallerclaro/main.py` includes health, quotes, orders, and payments routers. Router source implements their HTTP handlers. | Confirmed source implementation; no claim of deployed services or production readiness. |
 | Backend integrations | Backend README and `.env.example` document database/AI/PayPal configuration; adapter/config code exists. | Configuration/deployment values are not present in the frontend and were not tested. |
 | API contract | `frontend/docs/API_CONTRACT.md` proposes quote/order/payment endpoints, response shapes, auth, and error format. | Proposed contract; validate field names/statuses against backend Pydantic schemas/OpenAPI. |
@@ -116,7 +116,7 @@ This is a source-level checklist, not a penetration test or claim of backend sec
 
 ## Files reviewed
 
-Root: `README.md`, `REQUIREMENTS.md`, `PRODUCT.md`, backend README and architecture plan, database README/schema/migration/seeds. Frontend: `package.json`, lockfile presence, Vite/ESLint configuration, frontend README, `docs/API_CONTRACT.md`, `docs/DESIGN_REFERENCE.md`, `src/App.jsx`, all files under `src/components`, `src/pages`, `src/hooks`, `src/services`, `src/styles`, `src/utils`, and `src/main.jsx`. Backend source was read to establish actual router and configuration scope. No code changes were made.
+Root: `BACKENDREADME.md`, `REQUIREMENTS.md`, `PRODUCT.md`, backend README and architecture plan, database README/schema/migration/seeds. Frontend: `package.json`, lockfile presence, Vite/ESLint configuration, frontend README, `docs/API_CONTRACT.md`, `docs/DESIGN_REFERENCE.md`, `src/App.jsx`, all files under `src/components`, `src/pages`, `src/hooks`, `src/services`, `src/styles`, `src/utils`, and `src/main.jsx`. Backend source was read to establish actual router and configuration scope. No code changes were made.
 
 ## External references
 

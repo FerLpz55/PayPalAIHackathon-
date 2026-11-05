@@ -140,6 +140,8 @@ class GenerateQuoteProposal:
             if quote.status not in valid_statuses:
                 raise ConflictError(f"Cannot generate proposal for quote in status {quote.status}")
 
+            original_request = quote.request
+            original_updated_at = quote.updated_at
             prompt = quote.request
             if additional_info and additional_info.strip():
                 prompt = f"{quote.request}\nInformación adicional: {additional_info.strip()}"
@@ -151,6 +153,8 @@ class GenerateQuoteProposal:
             if quote is None:
                 raise NotFoundError("Quote", quote_id)
             _authorize_quote_access(quote, principal)
+            if quote.request != original_request or quote.updated_at != original_updated_at:
+                raise ConflictError("Quote changed while generating proposal")
             if quote.status not in valid_statuses:
                 raise ConflictError(f"Cannot generate proposal for quote in status {quote.status}")
 

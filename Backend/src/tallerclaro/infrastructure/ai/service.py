@@ -228,6 +228,11 @@ _AI_FACTORIES: dict[str, Callable[[Settings], AIService]] = {
 }
 
 
+def register_ai_provider(name: str, factory: Callable[[Settings], AIService]) -> None:
+    """Registra una implementación para un proveedor sin tocar los casos de uso."""
+    _AI_FACTORIES[name.lower().strip()] = factory
+
+
 def build_ai_service(settings: Settings) -> AIService:
     provider = (settings.ai_provider or "").lower().strip()
     if not provider or provider == "none":

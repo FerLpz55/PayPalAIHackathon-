@@ -7,15 +7,17 @@ from tests.fakes import FakeDependenciesContainer
 
 
 def _seed_and_create_quote(client: TestClient, deps: FakeDependenciesContainer):
-    deps.uow.carpenters.seed(
-        Carpenter(
-            id=CarpenterId(1),
-            name="José",
-            workshop_name="Taller",
-            email="j@example.com",
-            phone=None,
+    with deps.uow:
+        deps.uow.carpenters.seed(
+            Carpenter(
+                id=CarpenterId(1),
+                name="José",
+                workshop_name="Taller",
+                email="j@example.com",
+                phone=None,
+            )
         )
-    )
+        deps.uow.commit()
     response = client.post("/api/quotes", json={
         "customer": {"name": "Carlos", "email": "carlos@example.com"},
         "carpenter_id": 1,
