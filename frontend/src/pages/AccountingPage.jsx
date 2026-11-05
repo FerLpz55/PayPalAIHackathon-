@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import AccountingAssistant from '../components/accounting/AccountingAssistant.jsx'
 import Button from '../components/ui/Button.jsx'
 import ConfirmDialog from '../components/ui/ConfirmDialog.jsx'
 import DataLine from '../components/ui/DataLine.jsx'
@@ -35,7 +36,8 @@ function AccountingPage({ orders, loading, mutate }) {
   return (
     <div className="page-content">
       <PageHeading title="Illustrative workshop totals" description="Explore sample payment and expense summaries; these are not business financial records." />
-      <DemoNotice text="All values on this page are demo data calculated in the browser. They are not verified payments, expenses, accounting records, or tax reports." />
+      <AccountingAssistant />
+      <DemoNotice text="The charts and totals below are demo data calculated in the browser. They are not verified payments, expenses, accounting records, or tax reports." />
       {completionNote && <p className="info-callout" role="status" aria-live="polite">A local demo note was recorded for {completionNote.id}. Its production status and payment information were not changed.</p>}
       {ready && (
         <section className="panel finish-banner">

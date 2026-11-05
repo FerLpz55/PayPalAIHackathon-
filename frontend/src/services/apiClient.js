@@ -177,6 +177,17 @@ async function apiRequest(path, options = {}) {
   return response.json()
 }
 
+export function adaptAccountingSummary(summary = {}) {
+  return {
+    currency: summary.currency || 'USD',
+    ordersCount: Number(summary.orders_count ?? 0),
+    awaitingDeposit: Number(summary.orders_awaiting_deposit ?? 0),
+    totalContracted: Number(summary.total_contracted ?? 0),
+    collectedTotal: Number(summary.collected_total ?? 0),
+    pendingToCollect: Number(summary.pending_to_collect ?? 0),
+  }
+}
+
 export const apiClient = {
   async listOrders() {
     if (!isConnectedMode) {
@@ -397,6 +408,23 @@ export const apiClient = {
 
   async recordDemoCompletionNote(orderId) {
     return mockApi.recordDemoCompletionNote(orderId)
+  },
+
+  async askAccountingAssistant(question) {
+    if (!isConnectedMode) {
+      return mockApi.askAccountingAssistant(question)
+    }
+    const data = await apiRequest('/api/accounting/assistant', {
+      method: 'POST',
+      isWorkshopRoute: true,
+      body: JSON.stringify({ question }),
+    })
+    return {
+      question: data?.question ?? question,
+      answer: data?.answer ?? '',
+      summary: adaptAccountingSummary(data?.summary),
+      isDemo: false,
+    }
   },
 
   async addReceipt(orderId, file) {

@@ -86,6 +86,8 @@ The API runs at `http://127.0.0.1:8000`; `/docs` provides the generated OpenAPI 
 | `POST` | `/api/orders/{id}/payments` | Create PayPal Sandbox order for deposit or balance (`X-Customer-Token`) |
 | `POST` | `/api/payments/{id}/capture` | Capture PayPal payment and update order accounting (`X-Customer-Token`) |
 | `GET` | `/api/payments/{id}` | Retrieve payment attempt status (`X-Customer-Token`) |
+| `GET` | `/api/accounting/summary` | Workshop totals from verified payments (Workshop Basic Auth) |
+| `POST` | `/api/accounting/assistant` | AI bookkeeping assistant: explains the workshop totals in plain words (Workshop Basic Auth) |
 
 Run the backend test suite (in-memory fakes, no external DB/network required):
 

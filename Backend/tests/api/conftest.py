@@ -31,6 +31,7 @@ def client(deps: FakeDependenciesContainer) -> TestClient:
         settings=settings,
         ai_service=deps.ai,
         payment_processor=deps.payment,
+        accounting_assistant=deps.accounting,
     )
 
     def override_uow(request: Request):
