@@ -6,11 +6,13 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from tallerclaro.bootstrap.settings import Settings
+from tallerclaro.infrastructure.ai.accounting_service import build_accounting_assistant
 from tallerclaro.infrastructure.ai.service import build_ai_service
 from tallerclaro.infrastructure.db.connection import Database
 from tallerclaro.infrastructure.db.unit_of_work import PostgresUnitOfWork
 from tallerclaro.infrastructure.payment.paypal_processor import build_payment_processor
 from tallerclaro.presentation.http.exception_handlers import register as register_exception_handlers
+from tallerclaro.presentation.http.routers.accounting import router as accounting_router
 from tallerclaro.presentation.http.routers.health import router as health_router
 from tallerclaro.presentation.http.routers.orders import router as orders_router
 from tallerclaro.presentation.http.routers.payments import router as payments_router
@@ -37,6 +39,8 @@ async def lifespan(app: FastAPI):
         )
     if getattr(app.state, "ai_service", None) is None:
         app.state.ai_service = build_ai_service(settings)
+    if getattr(app.state, "accounting_assistant", None) is None:
+        app.state.accounting_assistant = build_accounting_assistant(settings)
     if getattr(app.state, "payment_processor", None) is None:
         app.state.payment_processor = build_payment_processor(settings)
     yield
@@ -48,6 +52,7 @@ def create_app(
     database: Database | None = None,
     ai_service=None,
     payment_processor=None,
+    accounting_assistant=None,
 ) -> FastAPI:
     settings = settings if settings is not None else Settings()
     app = FastAPI(title=settings.app_name, lifespan=lifespan)
@@ -58,6 +63,8 @@ def create_app(
         app.state.ai_service = ai_service
     if payment_processor is not None:
         app.state.payment_processor = payment_processor
+    if accounting_assistant is not None:
+        app.state.accounting_assistant = accounting_assistant
 
     app.add_middleware(
         CORSMiddleware,
@@ -73,6 +80,7 @@ def create_app(
     app.include_router(quotes_router)
     app.include_router(orders_router)
     app.include_router(payments_router)
+    app.include_router(accounting_router)
     return app
 
 

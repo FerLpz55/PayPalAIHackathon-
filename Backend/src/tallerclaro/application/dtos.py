@@ -7,6 +7,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Literal
 
+from tallerclaro.domain.accounting import WorkshopFinancialSummary
 from tallerclaro.domain.entities import (
     CarpenterId,
     CustomerId,
@@ -152,3 +153,10 @@ class CapturedPayment:
     amount: Decimal
     currency: str
     paid_at: str
+
+
+@dataclass(frozen=True)
+class AccountingAnswer:
+    question: str
+    answer: str
+    summary: WorkshopFinancialSummary

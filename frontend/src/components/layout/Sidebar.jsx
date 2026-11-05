@@ -71,8 +71,8 @@ function Sidebar({ active, open, onClose, go, triggerRef }) {
         </div>
         <div className="sidebar-bottom">
           <h3>Need a hand?</h3>
-          <p>Try the local quote request demonstration.</p>
-          <button className="button button-subtle full" onClick={() => go('customer/new')}>Ask TallerClaro</button>
+          <p>Ask the AI assistant about your money.</p>
+          <button className="button button-subtle full" onClick={() => go('accounting')}>Ask TallerClaro</button>
           <div className="demo-pill"><span /> Demo workspace</div>
         </div>
       </aside>

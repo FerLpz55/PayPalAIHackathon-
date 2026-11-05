@@ -221,3 +221,15 @@ th:first-child, td:first-child { min-width: 210px; } th:nth-child(2), td:nth-chi
   .status-editor label { flex-basis: 100%; }
   .status-editor select { width: 100%; }
 }
+.assistant-panel { margin-bottom: 18px; padding: 20px 22px; display: grid; gap: 14px; }
+.assistant-head { display: flex; align-items: flex-start; gap: 12px; } .assistant-head h2 { margin: 0; font-size: 15px; } .assistant-head p { margin: 4px 0 0; color: var(--muted); font-size: 11px; line-height: 1.55; }
+.assistant-icon { width: 34px; height: 34px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 10px; color: white; background: var(--navy); font-size: 11px; font-weight: 700; }
+.assistant-suggestions { display: flex; flex-wrap: wrap; gap: 8px; }
+.assistant-chip { padding: 7px 12px; border: 1px solid var(--line); border-radius: 999px; color: var(--navy); background: var(--soft-blue); font-size: 11px; cursor: pointer; } .assistant-chip:hover:not(:disabled) { border-color: var(--blue); } .assistant-chip:disabled { opacity: .6; cursor: default; }
+.assistant-thread { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; max-height: 340px; overflow-y: auto; }
+.assistant-question { justify-self: end; margin: 0 0 6px auto; max-width: 80%; width: fit-content; padding: 8px 12px; border-radius: 12px 12px 2px 12px; color: white; background: var(--navy); font-size: 12px; line-height: 1.5; }
+.assistant-answer { max-width: 85%; padding: 10px 13px; border-radius: 12px 12px 12px 2px; background: var(--wash); border: 1px solid var(--line); } .assistant-answer p { margin: 0; color: var(--text); font-size: 12px; line-height: 1.6; } .assistant-answer small { display: block; margin-top: 6px; color: var(--muted); font-size: 10px; }
+.assistant-demo { display: inline-block; margin-bottom: 4px; padding: 2px 7px; border-radius: 999px; color: #7a5300; background: #fff4d6; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; }
+.assistant-form { display: flex; gap: 10px; } .assistant-form input { flex: 1; min-width: 0; height: 40px; padding: 0 12px; border: 1px solid #c8d6e6; border-radius: 8px; color: var(--text); font-size: 12px; } .assistant-form .button { flex: 0 0 auto; }
+.assistant-panel .inline-error { margin: 0; } .assistant-panel .fine-print { margin: 0; }
+@media (max-width: 760px) { .assistant-panel { padding: 16px; } .assistant-question, .assistant-answer { max-width: 100%; } .assistant-form { flex-direction: column; } .assistant-form input { flex: none; width: 100%; } }

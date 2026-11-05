@@ -74,6 +74,20 @@ migraciones automáticamente contra la base desplegada.
 
 En Windows PowerShell, activar con `.venv\Scripts\Activate.ps1`.
 
+## Asistente contable
+
+`GET /api/accounting/summary` y `POST /api/accounting/assistant` (Basic Auth del taller).
+
+- El dominio (`domain/accounting.py`) calcula los totales con `Decimal`: valor de los pedidos,
+  dinero cobrado (solo pagos `completed`), anticipos, saldos y monto pendiente.
+- La IA solo explica esas cifras en lenguaje simple; no calcula ni inventa importes.
+- Al proveedor de IA se envían únicamente totales agregados, nunca nombres, correos ni
+  identificadores de clientes (minimización de datos, Ley 29733).
+- La llamada a la IA se hace fuera de la transacción SQL. Sin IA configurada responde
+  `SERVICE_UNAVAILABLE`; el resumen sigue disponible.
+- Los gastos y costos de materiales aún no se registran, por lo que el asistente no
+  calcula ganancias y lo indica cuando se le pregunta.
+
 ## Pruebas
 
 ```bash

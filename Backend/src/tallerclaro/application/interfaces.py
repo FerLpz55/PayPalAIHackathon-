@@ -13,6 +13,7 @@ from tallerclaro.application.dtos import (
     PaymentIntent,
     QuoteProposalResult,
 )
+from tallerclaro.domain.accounting import WorkshopFinancialSummary
 from tallerclaro.domain.entities import (
     Carpenter,
     CarpenterId,
@@ -129,6 +130,17 @@ class UnitOfWork(Protocol):
 
 class AIService(Protocol):
     def generate_quote_proposal(self, request: str) -> QuoteProposalResult:
+        ...
+
+
+class AccountingAssistant(Protocol):
+    """Explica en lenguaje simple un resumen financiero ya calculado.
+
+    Recibe solo totales agregados (sin datos personales de clientes) y nunca
+    calcula importes: las cifras llegan resueltas desde el dominio.
+    """
+
+    def explain(self, summary: WorkshopFinancialSummary, question: str) -> str:
         ...
 
 
