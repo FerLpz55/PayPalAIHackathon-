@@ -102,7 +102,7 @@ src/
     adapters.js           API-to-UI normalization for quotes and orders
     sessionStore.js       sessionStorage for tokens and payment recovery
     mockApi.js            Replaceable local demo service
-    __tests__/            Vitest suites for adapters
+    __tests__/            Vitest suites for adapters and session storage
   utils/                  formatMoney, shared constants, security, and analytics
     __tests__/            Vitest suites for URL safety
   styles/                 Global reset and application styles

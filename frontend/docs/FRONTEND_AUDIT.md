@@ -5,6 +5,8 @@
 **Audited checkout:** `main` at `a45a1c3` (`feat(backend): implementa backend DDD con FastAPI, PostgreSQL y adaptadores`)
 **Scope:** Read-only application audit. This document and `IMPLEMENTATION_ROADMAP.md` are the only intended additions.
 
+> **Note (2026-11-04):** The root `PRODUCT.md` and `REQUIREMENTS.md` were removed during repository cleanup. References to them below describe the audited commit `a45a1c3`, not the current tree.
+
 ## Executive summary
 
 The frontend is a responsive React 19/Vite demonstration with workshop and customer hash routes. Its interactive quote, order, receipt, and payment state is handled by `frontend/src/services/mockApi.js` and browser `localStorage`; there are no HTTP calls from `frontend/src`. A proposed contract exists in `frontend/docs/API_CONTRACT.md`.

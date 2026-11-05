@@ -1,39 +1,93 @@
 # TallerClaro
 
-TallerClaro is a PayPal AI Hackathon project for carpentry quotes, customer payment journeys, and workshop order tracking. The repository contains a React 19 + Vite frontend and a Python/FastAPI backend organized as a layered monolith (`presentation`, `application`, `domain`, `infrastructure`, `bootstrap`).
+TallerClaro is a PayPal AI Hackathon project for carpentry quotes, customer payment journeys, and workshop order tracking. The repository is a monorepo with a React 19 + Vite frontend, a FastAPI layered monolith, and a PostgreSQL database designed for Supabase.
 
 ## Current project status
 
-- **Frontend (`frontend/`)**: Implements workshop and customer screens following the Penpot design system, with explicit separation between local **Demo mode** (`localStorage`) and **Real API mode** connected to the FastAPI backend (`src/services/apiClient.js`).
-- **Backend (`Backend/`)**: Implements domain entities, business rules (`Decimal` USD calculations, 50% deposit, status transitions, payment verification before delivery), use cases, PostgreSQL repositories, OpenAI-compatible AI quote & clarification adapter, PayPal Sandbox adapter, workshop Basic Auth, and signed `X-Customer-Token` link authorization.
-- **Database (`database/`)**: PostgreSQL schema (`database/schema.sql`) and migrations (`database/migrations/001_add_customer_link_tokens.sql`, `002_add_quote_clarification_fields.sql`) ready for deployment on **Supabase** (in the isolated `tallerclaro` schema).
-- **Pending live credentials**: Connecting the Supabase PostgreSQL instance (`DATABASE_URL`), configuring a live `TALLERCLARO_AI_API_KEY`, and running end-to-end Sandbox captures with live PayPal Sandbox credentials.
+- **Frontend (`frontend/`)**: Workshop and customer screens with an explicit split between local **DEMO** mode (`mockApi` + `localStorage`) and **REAL** mode (`fetch` to the FastAPI backend). Includes a Vitest suite, ESLint, a production build, and a Vercel configuration.
+- **Backend (`Backend/`)**: Domain entities and monetary rules (`Decimal`, USD, 50 % deposit, status transitions), use cases, PostgreSQL repositories, OpenAI-compatible AI quote generation, PayPal Sandbox processing, workshop Basic Auth, and customer link tokens. Application abstractions live in `application/interfaces.py`; implementations live in `infrastructure/ai/service.py`, `infrastructure/payment/paypal_processor.py`, and `infrastructure/db/`.
+- **Database (`database/`)**: PostgreSQL schema in the dedicated `tallerclaro` schema, numbered migrations, and a self-contained, idempotent demo seed.
+- **Pending live verification**: Supabase `DATABASE_URL`, real AI credentials, and a complete PayPal Sandbox round trip. Unit and API tests use in-memory fakes; passing them does not prove that external services are configured or reachable.
 
-## Run the frontend locally
+## Architecture
 
-### 1. Install prerequisites
+```text
+React 19 + Vite (frontend/)
+        │  fetch /api  (REAL mode) or localStorage mock (DEMO mode)
+        ▼
+FastAPI layered monolith (Backend/src/tallerclaro/)
+  presentation/http  →  application/use_cases  →  domain
+                              │
+                    application/interfaces.py
+                              ▲
+  infrastructure/db/repositories.py
+  infrastructure/ai/service.py
+  infrastructure/payment/paypal_processor.py
+  infrastructure/security/token_service.py
+        │                    │                     │
+        ▼                    ▼                     ▼
+  PostgreSQL             AI provider          PayPal Sandbox
+  (Supabase, schema      (OpenAI-compatible)  (server-side only)
+   tallerclaro)
+```
 
-- Install a current Node.js LTS release and **`pnpm`**.
-- Clone this repository and open a terminal in the repository folder.
+- `domain/`: entities and business rules; no FastAPI, Pydantic, ORM, or SDK dependencies.
+- `application/`: use cases and `Protocol` interfaces.
+- `infrastructure/`: PostgreSQL repositories, AI service, PayPal processor, and token service implementing the application interfaces.
+- `presentation/http/`: routers, Pydantic schemas, authentication, and exception handlers.
+- `bootstrap/` and `main.py`: settings, composition, and lifespan.
 
-### 2. Install frontend dependencies
+### Architectural invariants
+
+- One unit of work per request; no mutable unit-of-work instance is shared between requests.
+- No external network calls inside SQL transactions. AI and PayPal calls follow validate → call provider → reopen unit of work and revalidate → persist.
+- Payment capture is strict: the backend verifies PayPal order/capture identifiers, `COMPLETED` status, USD currency, and the exact expected amount before crediting a payment.
+- PostgreSQL and fake repositories must expose the same domain fields and behavior.
+- Monetary calculations live in `domain/`, not in routers or frontend code.
+
+## Business flow
+
+1. The customer describes a project (text or voice input) and requests a quote. The backend creates the customer and a draft quote, returning a customer link token.
+2. The workshop generates the proposal with AI. The response includes line items, assumptions, and possible missing information. The server validates and calculates the payable total.
+3. The customer reviews the quote and approves or rejects it. Approval creates at most one order with a 50 % deposit.
+4. For payments, the frontend asks the backend to create a PayPal order, redirects to the returned approval URL after validating it, and returns through a hash route. The backend captures and verifies the payment; a PayPal return URL alone never marks an order as paid.
+5. The workshop updates production statuses. Delivery requires a verified full payment.
+
+## Frontend
+
+### Run locally
 
 ```bash
 cd frontend
 pnpm install
-```
-
-### 3. Start the development server
-
-```bash
 pnpm run dev
 ```
 
-Open the local URL printed by Vite, usually `http://localhost:5173/`. By default, the frontend runs in local Demo mode unless `VITE_APP_MODE=real` (or `VITE_API_BASE_URL`) is configured to point at the running FastAPI backend.
+Use **pnpm only** (never `npm` or `yarn`). Node.js is pinned by `engines.node` (`24.x`) and pnpm by `packageManager` (`pnpm@12.14.0`) plus the committed `pnpm-lock.yaml`.
 
-### 4. Explore the screens
+Copy `.env.example` to `.env` and choose a mode:
 
-Use the left navigation on desktop or the menu button on a phone. The customer request flow is available from **New order** or **Ask TallerClaro**. You can also open the screens directly using these hash routes:
+```dotenv
+# DEMO: browser-only sample data under the localStorage key tallerclaro.demo.v1
+VITE_APP_MODE=demo
+
+# REAL: backend origin only (no /api suffix, no trailing slash)
+VITE_APP_MODE=real
+VITE_API_BASE_URL=https://api.example.com
+```
+
+The mode is decided in `frontend/src/services/apiClient.js` through `frontend/src/services/http.js`:
+
+- `VITE_APP_MODE=demo` uses `mockApi` and `localStorage`; no PayPal charge is made.
+- Otherwise, a non-empty `VITE_API_BASE_URL` enables real `fetch` calls to `/api`.
+- If neither is configured, the app shows an "application mode is not configured" screen and never displays sample data.
+- Backend errors are propagated; there is **no silent fallback** to demo data.
+
+Never put AI, PayPal, database, or other secrets in `VITE_*` variables: they are embedded in the public bundle. Secrets belong only in `Backend/.env`.
+
+### Routes
+
+The app uses hash routes, so screens can be opened directly without a router dependency.
 
 | Route | Screen |
 | --- | --- |
@@ -42,72 +96,149 @@ Use the left navigation on desktop or the menu button on a phone. The customer r
 | `#/quotes` | Quote overview and estimates awaiting approval |
 | `#/receipts` | Local receipt records and spending summary |
 | `#/accounting` | Illustrative monthly income and expenses |
-| `#/customer/new` | Customer project request and AI clarification flow |
-| `#/customer/quote` | Quote breakdown and deposit review |
-| `#/customer/tracking` | Order progress, payment summary, and PayPal checkout |
+| `#/customer/new` | Customer project request and clarification flow |
+| `#/customer/quote` | Quote breakdown, approval, and deposit checkout |
+| `#/customer/tracking` | Order progress, payment summary, and balance checkout |
+| `#/customer/payment/return` | PayPal return and backend capture verification |
+| `#/customer/payment/cancel` | PayPal cancellation review and checkout resume |
 | `#/order/TC-1048` | Workshop order details and status editor |
 
-### 5. Run checks or preview a production build
+### Checks
 
 ```bash
+cd frontend
+pnpm run test
 pnpm run lint
 pnpm run build
 pnpm run preview
 ```
 
-## Run the backend locally
+`pnpm run test` runs the Vitest suites for URL safety, API adapters, session/payment recovery storage, and quote-title derivation. There is no browser-based end-to-end suite.
 
-With Python 3.11+ (or Python 3.14 in `Backend/.venv`), from the repository root:
+### Deploy on Vercel
+
+The frontend is a static Vite build with hash routes, so no rewrite rules are needed. Import the repository into Vercel and set **Root Directory** to `frontend`. Install, build, output, security headers, and immutable asset caching come from `frontend/vercel.json`.
+
+Environment variables are applied at build time; redeploy after changing them:
+
+| Variable | Value | Required |
+| --- | --- | --- |
+| `ENABLE_EXPERIMENTAL_COREPACK` | `1` | Yes. Makes Vercel honor the exact pnpm version from `packageManager`. |
+| `VITE_APP_MODE` | `demo` or `real` | Yes |
+| `VITE_API_BASE_URL` | `https://<backend-origin>` (origin only) | Only in REAL mode |
+
+For REAL mode, add the Vercel origin to `TALLERCLARO_CORS_ORIGINS` in the backend, and point PayPal return/cancel URLs to `https://<vercel-origin>/#/customer/payment/return` and `https://<vercel-origin>/#/customer/payment/cancel`. Preview deployments receive different `*.vercel.app` origins; use DEMO for Preview unless those origins are added to CORS.
+
+## Backend
+
+With Python 3.11+ (the repository `.venv` uses Python 3.14) and `uv`, from the repository root:
 
 ```bash
 cd Backend
 uv venv .venv
 source .venv/bin/activate
 uv pip install -e '.[dev]'
+cp .env.example .env
 fastapi dev src/tallerclaro/main.py
 ```
 
 On Windows PowerShell, activate with `.venv\Scripts\Activate.ps1`.
-The API runs at `http://127.0.0.1:8000`; `/docs` provides the generated OpenAPI UI.
 
-### Main API endpoints (`/api`)
+The API runs at `http://127.0.0.1:8000`; `/docs` exposes the generated OpenAPI UI.
+
+### Configuration
+
+All sensitive settings are read from environment variables. The templates are in `Backend/.env.example`:
+
+- `DATABASE_URL` (recommended Supabase Session Pooler URL) or the individual `TALLERCLARO_DATABASE_*` fields.
+- `TALLERCLARO_AI_PROVIDER`, `TALLERCLARO_AI_API_KEY`, `TALLERCLARO_AI_MODEL`.
+- `TALLERCLARO_PAYPAL_MODE`, `TALLERCLARO_PAYPAL_CLIENT_ID`, `TALLERCLARO_PAYPAL_CLIENT_SECRET`.
+- `TALLERCLARO_WORKSHOP_USERNAME`, `TALLERCLARO_WORKSHOP_PASSWORD_HASH`.
+- `TALLERCLARO_CUSTOMER_TOKEN_SECRET` and `TALLERCLARO_CUSTOMER_TOKEN_TTL_HOURS`.
+
+AI and PayPal default to `none`; without credentials the services return `SERVICE_UNAVAILABLE`. `GET /api/health` checks HTTP liveness only, not PostgreSQL connectivity.
+
+### API (`/api`)
 
 | Method | Endpoint | Description |
 | --- | --- | --- |
 | `GET` | `/api/health` | Application liveness check |
 | `POST` | `/api/quotes` | Create customer and draft quote (returns `customer_token`) |
-| `GET` | `/api/quotes/{id}` | Retrieve quote details (Workshop Basic Auth or `X-Customer-Token`) |
-| `POST` | `/api/quotes/{id}/generate` | Generate AI quote breakdown or clarification questions |
-| `POST` | `/api/quotes/{id}/approve` | Approve quote and create workshop order with 50% deposit |
-| `POST` | `/api/quotes/{id}/reject` | Reject pending quote |
-| `GET` | `/api/orders` | List and filter workshop orders (Workshop Basic Auth) |
+| `GET` | `/api/quotes/{id}` | Retrieve quote details (workshop Basic Auth or `X-Customer-Token`) |
+| `POST` | `/api/quotes/{id}/generate` | Generate AI quote breakdown or clarification questions (workshop) |
+| `POST` | `/api/quotes/{id}/approve` | Approve quote and create order with a 50 % deposit |
+| `POST` | `/api/quotes/{id}/reject` | Reject a pending quote |
+| `GET` | `/api/orders` | List and filter workshop orders (workshop) |
 | `GET` | `/api/orders/{id}` | Retrieve order details, payments, and remaining balance |
-| `PATCH` | `/api/orders/{id}` | Update order status or estimated delivery date (Workshop Basic Auth) |
-| `POST` | `/api/orders/{id}/payments` | Create PayPal Sandbox order for deposit or balance (`X-Customer-Token`) |
-| `POST` | `/api/payments/{id}/capture` | Capture PayPal payment and update order accounting (`X-Customer-Token`) |
+| `PATCH` | `/api/orders/{id}` | Update order status or estimated delivery date (workshop) |
+| `POST` | `/api/orders/{id}/payments` | Create a PayPal Sandbox order for deposit or balance (`X-Customer-Token`) |
+| `POST` | `/api/payments/{id}/capture` | Capture and verify a PayPal payment (`X-Customer-Token`) |
 | `GET` | `/api/payments/{id}` | Retrieve payment attempt status (`X-Customer-Token`) |
 
-Run the backend test suite (in-memory fakes, no external DB/network required):
+### Authorization
+
+- **Workshop**: HTTP Basic Auth via `require_workshop_credentials` for order listing/updates and quote generation.
+- **Customer**: `X-Customer-Token` (or `Authorization: Bearer`) for payment creation, capture, and status lookup.
+- Quote reads, approvals, rejections, and order detail accept a customer token or workshop Basic Auth depending on the route.
+
+## Database
+
+Supabase is used **only as a managed PostgreSQL server**. The backend connects directly with `psycopg` and `DATABASE_URL`; it does not use Supabase SDKs, Supabase Auth, PostgREST, or Edge Functions.
+
+```text
+database/
+  schema.sql                    initial schema and consolidated migrations 001–002
+  migrations/                   numbered SQL changes
+  seeds/demo.sql                self-contained, idempotent demo data
+  tests/schema_test.sql         schema acceptance checks (rolled back)
+```
+
+Initialize a new Supabase project from the SQL Editor or `psql`:
 
 ```bash
-cd Backend
+psql -X "$DATABASE_URL" -v ON_ERROR_STOP=1 -f database/schema.sql
+psql -X "$DATABASE_URL" -v ON_ERROR_STOP=1 -f database/seeds/demo.sql
+```
+
+The recommended connection is the Supabase **Session Pooler** on port `5432` with `sslmode=require` (IPv4-compatible). The `psycopg` pool disables automatic prepared statements and each unit of work opens a `SERIALIZABLE` transaction.
+
+The database lives in the `tallerclaro` schema, isolated from `public` and PostgREST. `schema.sql` revokes privileges from `PUBLIC`, `anon`, and `authenticated`. The optional `tallerclaro_app` role receives `SELECT/INSERT/UPDATE` and sequence usage but **no `DELETE`**.
+
+Do not run migrations, seeds, or SQL tests that write data against a deployed database without explicit confirmation and a backup. Read-only checks are documented in [`database/README.md`](database/README.md).
+
+## Tests
+
+```bash
+# Frontend
+cd frontend
+pnpm run test && pnpm run lint && pnpm run build
+
+# Backend
+cd ../Backend
 .venv/bin/pytest
 ```
 
-See [backend setup and architecture](Backend/README.md) for environment variables and layer responsibilities.
-
-## Demo mode vs Real mode
-
-- **Demo mode (`localStorage`)**: Stores sample workshop data under `tallerclaro.demo.v1`. Clearly labeled in the UI as simulated demonstration data; does not contact PayPal or charge real money.
-- **Real mode (FastAPI + Supabase PostgreSQL + AI + PayPal Sandbox)**: Connects to `/api` endpoints, enforces workshop Basic Auth and customer link tokens (`X-Customer-Token`), and requires server-side credentials in `Backend/.env`.
+Backend tests use in-memory fakes and do not require PostgreSQL, AI, or PayPal. Frontend tests run in Node with Vitest. There is no CI workflow; verification is local.
 
 ## Repository layout
 
-- `frontend/` - React 19 and Vite application managed with `pnpm`.
-- `Backend/` - Python/FastAPI layered monolith (`presentation`, `application`, `domain`, `infrastructure`, `bootstrap`) and `pytest` suite.
-- `database/` - PostgreSQL schema (`schema.sql`) and migrations (`migrations/`). See the [database guide](database/README.md).
-- `AGENTS.md` - Development guidelines, package manager rules, and infrastructure constraints.
-- `REQUIREMENTS.md` - Product scope and functional/non-functional requirements.
-- `PRODUCT.md` - Confirmed product facts and constraints.
-- `frontend/docs/API_CONTRACT.md` - API boundary, data models, and backend contract.
-- `frontend/docs/DESIGN_REFERENCE.md` - Penpot screens and visual design reference.
+```text
+PayPalAIHackathon-/
+├── Backend/          # FastAPI layered monolith, integrations, and pytest suite
+├── database/         # PostgreSQL schema, migrations, demo seed, and SQL checks
+├── frontend/         # React 19 + Vite app (pnpm, Vitest, Vercel config)
+├── .gitignore
+├── AGENTS.md         # Architecture rules and verified agent commands
+├── LICENSE
+└── README.md         # This guide
+```
+
+`AGENTS.md` contains the mandatory operating rules for agents (package managers, architecture invariants, Supabase constraints, and security). `Database` and backend details are expanded in [`database/README.md`](database/README.md) and [`Backend/README.md`](Backend/README.md); frontend details are in [`frontend/README.md`](frontend/README.md).
+
+## Security notes
+
+- Keep all credentials in `Backend/.env` or the deployment environment; never in `VITE_*` variables or committed files.
+- The backend owns pricing, payment verification, authorization, and status transitions. The frontend never marks an order as paid on its own.
+- PayPal approval URLs are validated against an HTTPS allowlist of PayPal hosts before redirecting.
+- Vercel applies CSP, `X-Frame-Options`, `nosniff`, `Referrer-Policy`, `Permissions-Policy`, and immutable caching for hashed assets.
+- A successful build or test run does not establish that Supabase, the AI provider, or PayPal Sandbox are configured and operational.
