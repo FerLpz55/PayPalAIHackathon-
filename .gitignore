@@ -267,6 +267,5 @@ skills-lock.json
 *.db-journal
 uploads/
 frontend/package-lock.json
-
-# pnpm lockfile
-frontend/pnpm-lock.yaml
+# frontend/pnpm-lock.yaml se versiona: Cloudflare Pages lo usa para builds reproducibles con pnpm.
+.pnpm-store/

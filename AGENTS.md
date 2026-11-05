@@ -23,11 +23,12 @@ pnpm run dev
 pnpm run lint && pnpm run build      # no existe script de tests
 ```
 
-`frontend/README.md` está desactualizado (recomienda `npm` y dice que no hay integración con API). El código real ya tiene modo demo/API; la fuente de verdad es `frontend/src/services/apiClient.js`, no ese README.
+`frontend/README.md` documenta modos y despliegue en Cloudflare Pages; la fuente de verdad del modo sigue siendo `frontend/src/services/apiClient.js`.
 
 ## Modo demo vs API real (frontend)
 
-- El modo se decide únicamente por `VITE_API_BASE_URL`: vacío ⇒ `mockApi`/`localStorage`; no vacío ⇒ `fetch` a `/api`. `VITE_APP_MODE` aparece en el README raíz pero **no lo lee el código**.
+- El modo se decide en `frontend/src/services/apiClient.js`: `VITE_APP_MODE=demo` ⇒ `mockApi`/`localStorage`; si no es demo y `VITE_API_BASE_URL` (solo origen, las rutas ya incluyen `/api`) no está vacío ⇒ `fetch` al backend; si no es demo y falta la URL, la app muestra "no configurado" y no enseña datos de ejemplo.
+- Despliegue del frontend en Cloudflare Pages (raíz `frontend`, `pnpm run build`, salida `dist`); pnpm fijado por `packageManager` + `pnpm-lock.yaml` versionado, Node por `.node-version`, cabeceras en `public/_headers`. Las variables `VITE_*` se fijan en build.
 - Demo persiste en la clave `localStorage` `tallerclaro.demo.v1`; la sesión (token de cliente, credenciales) en `sessionStorage` `tallerclaro.session.v1`.
 - No hacer fallback silencioso a demo tras un error del backend: el error debe propagarse.
 - Nunca poner secretos de IA/PayPal en variables `VITE_*`; viven solo en `Backend/.env`.
