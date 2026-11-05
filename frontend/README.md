@@ -31,29 +31,23 @@ pnpm run build
 pnpm run preview
 ```
 
-## Deploy on Cloudflare Pages
+## Deploy on Vercel
 
-The frontend is a static Vite build with hash routes, so no redirect rules are needed. In Cloudflare Pages, connect the GitHub repository and use:
+The frontend is a static Vite build with hash routes, so no rewrite rules are needed. In Vercel, import the GitHub repository and set **Root Directory** to `frontend`. Install, build and output settings come from `vercel.json` (`pnpm install --frozen-lockfile`, `pnpm run build`, `dist`).
 
-| Setting | Value |
-| --- | --- |
-| Framework preset | `None` (or `Vite`) |
-| Root directory | `frontend` |
-| Build command | `pnpm run build` |
-| Build output directory | `dist` |
+Versions are pinned in the repository: pnpm through `packageManager` in `package.json` plus the committed `pnpm-lock.yaml`, and Node.js through `engines.node`.
 
-Versions are pinned in the repository: pnpm through `packageManager` in `package.json` plus the committed `pnpm-lock.yaml`, and Node.js through `.node-version`.
+Environment variables (Settings > Environment Variables) are embedded at build time; redeploy after changing them:
 
-Environment variables (Settings > Environment variables) are embedded at build time; redeploy after changing them:
+| Variable | Value | Required |
+| --- | --- | --- |
+| `ENABLE_EXPERIMENTAL_COREPACK` | `1` | Yes. Makes Vercel use the exact pnpm version from `packageManager`; without it Vercel may pick an older pnpm that cannot read this lockfile. |
+| `VITE_APP_MODE` | `demo` (no backend) or `real` | Yes |
+| `VITE_API_BASE_URL` | `https://<backend-origin>` (origin only, without `/api` or a trailing slash) | Only in REAL mode |
 
-| Mode | Variables |
-| --- | --- |
-| DEMO (no backend) | `VITE_APP_MODE=demo` |
-| REAL | `VITE_APP_MODE=real` and `VITE_API_BASE_URL=https://<backend-origin>` (origin only, without `/api` or a trailing slash) |
+For REAL mode the backend must allow the Vercel origin in `TALLERCLARO_CORS_ORIGINS`, and PayPal return/cancel URLs must point to `https://<vercel-origin>/#/customer/payment/return` and `/#/customer/payment/cancel`. Preview deployments get different `*.vercel.app` origins; set `VITE_APP_MODE=demo` for the Preview environment unless those origins are added to CORS.
 
-For REAL mode the backend must allow the Pages origin in `TALLERCLARO_CORS_ORIGINS`, and PayPal return/cancel URLs must point to `https://<pages-origin>/#/customer/payment/return` and `/#/customer/payment/cancel`. Preview deployments get different `*.pages.dev` origins; use DEMO for them unless they are added to CORS.
-
-`public/_headers` applies security headers (CSP, `X-Frame-Options`, `nosniff`, `Referrer-Policy`, `Permissions-Policy`) and long-term caching for hashed assets. Once the backend domain is fixed, narrow `connect-src` from `https:` to that origin. Never put secrets in `VITE_*` variables: they are public in the bundle.
+`vercel.json` applies security headers (CSP, `X-Frame-Options`, `nosniff`, `Referrer-Policy`, `Permissions-Policy`) and long-term caching for hashed assets. Once the backend domain is fixed, narrow `connect-src` from `https:` to that origin. Never put secrets in `VITE_*` variables: they are public in the bundle.
 
 ## Screens and routes
 
