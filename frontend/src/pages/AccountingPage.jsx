@@ -8,7 +8,8 @@ import LoadingState from '../components/ui/LoadingState.jsx'
 import Metric from '../components/ui/Metric.jsx'
 import PageHeading from '../components/ui/PageHeading.jsx'
 import ProgressTrack from '../components/ui/ProgressTrack.jsx'
-import { apiClient } from '../services/apiClient.js'
+import { apiClient, isDemoMode } from '../services/apiClient.js'
+import EmptyState from '../components/ui/EmptyState.jsx'
 import { formatMoney } from '../utils/format.js'
 
 function AccountingPage({ orders, loading, mutate }) {
@@ -25,6 +26,8 @@ function AccountingPage({ orders, loading, mutate }) {
   ]
   const highest = Math.max(...monthly.map((item) => item.in))
   const expenses = [['Materials', Math.min(spent, 4200)], ['Workshop costs', Math.max(0, spent - 4200)], ['Other expenses', 0]]
+
+  if (!isDemoMode) return <div className="page-content"><EmptyState title="Accounting data unavailable" text="This view contains sample summaries and is available only when VITE_APP_MODE=demo is explicitly selected. No accounting figures are presented as backend records." /></div>
 
   const finish = async () => {
     if (!ready) return

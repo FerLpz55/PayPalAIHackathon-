@@ -6,6 +6,7 @@ import LoadingState from '../components/ui/LoadingState.jsx'
 import PageHeading from '../components/ui/PageHeading.jsx'
 import OrdersTable from '../components/orders/OrdersTable.jsx'
 import { formatMoney } from '../utils/format.js'
+import { isConnectedMode } from '../services/apiClient.js'
 
 function QuotesPage({ orders, quote, loading, go }) {
   const quoteOrders = orders.filter((order) => order.status === 'quote_sent' || order.status === 'pending')
@@ -13,13 +14,15 @@ function QuotesPage({ orders, quote, loading, go }) {
   return (
     <div className="page-content">
       <PageHeading title="Quotes" description="Review estimates and keep customers informed." action={<Button icon="plus" onClick={() => go('customer/new')}>Create quote</Button>} />
-      <DemoNotice text="Quotes and example totals are local demo data. They are not AI-generated, workshop-approved, or payable." />
+      {isConnectedMode
+        ? <p className="demo-notice" role="status"><span className="demo-notice-label">REAL</span><span>Quote and order details on this screen are loaded from the backend. Runtime availability is not guaranteed.</span></p>
+        : <DemoNotice text="Quotes and example totals are local demo data. They are not AI-generated, workshop-approved, or payable." />}
       {loading ? <LoadingState /> : (
         <>
           {quote && (
             <section className="panel quote-list-feature">
               <div>
-                <span className="eyebrow">Latest demo quote · {quote.id}</span>
+                <span className="eyebrow">Latest {isConnectedMode ? 'backend' : 'demo'} quote · {quote.id}</span>
                 <h2>{quote.project}</h2>
                 <p>{quote.customer} · Created just now · Estimate for workshop review</p>
               </div>

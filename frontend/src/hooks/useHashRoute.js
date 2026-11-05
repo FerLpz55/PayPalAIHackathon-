@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 
-const readHash = () => window.location.hash.replace('#/', '') || 'dashboard'
+const readHash = () => window.location.hash.replace('#/', '').split('?')[0] || 'dashboard'
 
 export function useHashRoute(onChange) {
   const [route, setRoute] = useState(readHash)
