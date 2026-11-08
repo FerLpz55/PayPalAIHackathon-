@@ -79,3 +79,14 @@ pnpm run test && pnpm run lint && pnpm run build
 ## Gestión de issues
 
 Nunca cerrar una issue que dependa de servicios/credenciales externas (PostgreSQL en Supabase, IA real o PayPal Sandbox) si solo se probó con mocks. Dejarla abierta y comentar qué quedó listo en `main` y qué prueba en vivo falta.
+
+## Flujo de ramas, Pull Requests e higiene en Git
+
+1. **Aceptación de PRs que ya tuvieron commits intermedios**:
+   - Usar `--merge` (evitar `--squash` y `--rebase`) para no generar SHAs divergentes en commits que ya fueron sincronizados o referenciados en otras ramas de trabajo.
+2. **Registro de ancestros tras refactors estructurales**:
+   - Cuando se integra código de una rama externa que fue adaptado manualmente tras una reestructuración de directorios (evitando conflictos falsos de git), enlazar la historia registrando el commit original como padre (`git merge -s ours <rama>`) para que GitHub cierre la PR limpiamente sin mostrar estado `CONFLICTING`.
+3. **Limpieza de ramas obsoletas**:
+   - Conservar como ramas permanentes y activas únicamente `main`, `refactor` y las ramas de feature en desarrollo activo acordadas en el equipo (p. ej. `feat/asistente-contable`). Eliminar ramas remotas de features cerradas y ya fusionadas (`feat/issue-*`).
+4. **Guardias de modo en Frontend (`isDemoMode`, `isConnectedMode`, `isConfigurationMissing`)**:
+   - Toda integración en `frontend/` (páginas, adaptadores y componentes) debe contemplar explícitamente los 3 estados: `demo` (con `mockApi`), `real`/`connected` (con `fetch` y propagación de errores) y `unconfigured` (mostrando estado vacío sin filtrar datos mock). Nunca hacer fallback silencioso a mocks ante errores o configuración ausente.
