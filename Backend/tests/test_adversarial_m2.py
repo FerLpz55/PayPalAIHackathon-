@@ -624,7 +624,7 @@ def test_multi_origin_cors_preflight_and_headers():
         cors_origins=[
             "http://localhost:5173",
             "https://tallerclaro.com",
-            "https://admin.coolify.internal",
+            "https://admin.tallerclaro.internal",
         ]
     )
     uow = FakeUnitOfWork()
@@ -635,7 +635,7 @@ def test_multi_origin_cors_preflight_and_headers():
     allowed_origins = [
         "http://localhost:5173",
         "https://tallerclaro.com",
-        "https://admin.coolify.internal",
+        "https://admin.tallerclaro.internal",
     ]
 
     for origin in allowed_origins:
