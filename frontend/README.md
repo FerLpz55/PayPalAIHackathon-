@@ -6,8 +6,8 @@ Responsive React frontend for TallerClaro. DEMO uses local sample data; REAL mod
 
 | Classification | Current frontend features |
 | --- | --- |
-| **REAL (source integrated; runtime unverified)** | Quote request/review, order list/detail, PayPal payment create, status lookup, capture, and verified return handling when `VITE_API_BASE_URL` points to a working backend. |
-| **DEMO (explicit opt-in)** | Customer request, sample quote, simulated payment, tracking, dashboard, order updates, receipt-name entries, and accounting summaries. Select with `VITE_APP_MODE=demo`; no PayPal charge is made. |
+| **REAL (source integrated; runtime unverified)** | Quote request/review, order list/detail, PayPal payment create, status lookup, capture, verified return handling, and AI bookkeeping assistant when `VITE_API_BASE_URL` points to a working backend. |
+| **DEMO (explicit opt-in)** | Customer request, sample quote, simulated payment, tracking, dashboard, order updates, receipt-name entries, interactive demo AI bookkeeping assistant, and accounting summaries. Select with `VITE_APP_MODE=demo`; no PayPal charge is made. |
 | **UNCONFIGURED** | If no API URL is set and DEMO was not explicitly selected, sample data is hidden and the app explains how to configure a mode. |
 | **PARTIAL** | Voice-to-text can use the browser Web Speech API where available. It only transcribes text into the request form; it does not call an AI quote service. |
 | **NOT IMPLEMENTED** | Receipt upload and accounting reports backed by server data. |
@@ -67,7 +67,7 @@ The app uses hash routes so the current screen can be opened directly without a 
 | `#/orders` | Searchable order list and status filter |
 | `#/quotes` | Latest estimate and quotes awaiting approval |
 | `#/receipts` | Local receipt-name entries and illustrative spending summary |
-| `#/accounting` | Illustrative monthly income and expenses |
+| `#/accounting` | Illustrative monthly income and expenses + AI bookkeeping assistant |
 | `#/customer/new` | Customer project request |
 | `#/customer/quote` | Quote review, approval, and PayPal deposit checkout (sample data in DEMO) |
 | `#/customer/tracking` | Order progress, receipt entries, and balance payment (sample data in DEMO) |
@@ -98,15 +98,16 @@ src/
     ui/                   Reusable building blocks (Button, Icon, Status, DataLine, ...)
     layout/               Sidebar, Topbar, CustomerHeader, Toast
     orders/               OrdersTable, ReceiptList
-    customer/             RequestForm, HowItWorks
+    customer/             RequestForm, HowItWorks, PayPalCheckout
+    accounting/           AccountingAssistant
   pages/                  One file per workshop screen
-    customer/             Customer screens (request, quote review, tracking)
-  hooks/                  useDemoData, useHashRoute, useQuoteRequest, useSpeechInput
+    customer/             Customer screens (request, quote review, tracking, payment return)
+  hooks/                  useDemoData, useHashRoute, useQuoteRequest, useSpeechInput, useAccountingAssistant
     __tests__/            Vitest suites for quote title derivation
   services/
     apiClient.js          Facade preserving the public service interface
     http.js               Fetch transport, mode detection, and ApiError
-    adapters.js           API-to-UI normalization for quotes and orders
+    adapters.js           API-to-UI normalization for quotes, orders, and accounting
     sessionStore.js       sessionStorage for tokens and payment recovery
     mockApi.js            Replaceable local demo service
     __tests__/            Vitest suites for adapters and session storage

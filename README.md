@@ -235,7 +235,7 @@ cd ../Backend
 
 Backend tests use in-memory fakes and do not require PostgreSQL, AI, or PayPal. Frontend tests run in Node with Vitest. There is no CI workflow; verification is local.
 
-On 2026-11-04, the backend suite `.venv/bin/pytest Backend` passed all 295 tests
+On 2026-11-08, the backend suite `.venv/bin/pytest Backend` passed all 296 tests
 with one `pytest-asyncio` deprecation warning under Python 3.14. Frontend checks
 verified 21 Vitest tests, ESLint clean passing, and a successful Vite production build.
 This does not verify deployed cloud services or concurrent SQL captures.
