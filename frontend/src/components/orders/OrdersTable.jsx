@@ -11,7 +11,7 @@ function OrdersTable({ orders, go, emptyTitle = 'No orders yet', emptyText = 'Cr
     <>
     <div className="table-scroll" role="region" aria-label="Orders table" tabIndex={0}>
       <table>
-        <caption className="sr-only">Demo workshop orders with customer, total, status, and order details.</caption>
+        <caption className="sr-only">Workshop orders with customer, total, status, and order details.</caption>
         <thead>
           <tr><th scope="col">Order</th><th scope="col">Client</th><th scope="col">Total</th><th scope="col">Status</th><th scope="col">Details</th></tr>
         </thead>
@@ -40,7 +40,7 @@ function OrdersTable({ orders, go, emptyTitle = 'No orders yet', emptyText = 'Cr
           </div>
           <dl className="mobile-order-meta">
             <div><dt>Customer</dt><dd>{order.customer}</dd></div>
-            <div><dt>Demo total</dt><dd>{formatMoney(order.amount)}</dd></div>
+            <div><dt>Order total</dt><dd>{formatMoney(order.amount)}</dd></div>
           </dl>
           <button type="button" className="mobile-order-action" onClick={() => go(`order/${order.id}`)}>View order details</button>
         </li>
