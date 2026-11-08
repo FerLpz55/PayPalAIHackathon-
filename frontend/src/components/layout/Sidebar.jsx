@@ -70,12 +70,12 @@ function Sidebar({ active, open, onClose, go, triggerRef }) {
             <span><strong>{isDemoMode ? 'Madera Norte' : 'Workshop account'}</strong><small>{isDemoMode ? 'Carpentry studio' : isConnectedMode ? 'REAL mode' : 'Backend not configured'}</small></span>
           </div>
         </div>
-        {isDemoMode && <div className="sidebar-bottom">
+        <div className="sidebar-bottom">
           <h3>Need a hand?</h3>
-          <p>Try the local quote request demonstration.</p>
-          <button className="button button-subtle full" onClick={() => go('customer/new')}>Ask TallerClaro</button>
-          <div className="demo-pill"><span /> Demo workspace</div>
-        </div>}
+          <p>Ask the AI assistant about your money.</p>
+          <button className="button button-subtle full" onClick={() => go('accounting')}>Ask TallerClaro</button>
+          {isDemoMode && <div className="demo-pill"><span /> Demo workspace</div>}
+        </div>
       </aside>
     </>
   )

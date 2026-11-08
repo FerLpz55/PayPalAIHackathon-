@@ -15,6 +15,7 @@ from tallerclaro.application.dtos import (
     QuoteProposalResult,
 )
 from tallerclaro.application.interfaces import AIService, PaymentProcessor, UnitOfWork
+from tallerclaro.domain.accounting import WorkshopFinancialSummary
 from tallerclaro.domain.entities import (
     Carpenter,
     CarpenterId,
@@ -317,6 +318,7 @@ class FakeDependenciesContainer:
         self.uow = FakeUnitOfWork()
         self.ai = FakeAIService()
         self.payment = FakePaymentProcessor(success=True)
+        self.accounting = FakeAccountingAssistant(self.uow)
 
 
 class FakeAIService:
@@ -380,3 +382,19 @@ class FakePaymentProcessor:
             currency=intent.currency,
             paid_at=datetime.now(timezone.utc).isoformat(),
         )
+
+
+class FakeAccountingAssistant:
+    """Asistente contable determinista que registra lo que recibe."""
+
+    def __init__(self, uow: FakeUnitOfWork | None = None, answer: str = "Your workshop is doing fine.") -> None:
+        self._uow = uow
+        self._answer = answer
+        self.calls: list[tuple[WorkshopFinancialSummary, str]] = []
+        self.open_transactions_at_call: list[int] = []
+
+    def explain(self, summary: WorkshopFinancialSummary, question: str) -> str:
+        self.calls.append((summary, question))
+        if self._uow is not None:
+            self.open_transactions_at_call.append(len(self._uow._frames))
+        return self._answer

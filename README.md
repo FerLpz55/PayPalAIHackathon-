@@ -4,8 +4,8 @@ TallerClaro is a PayPal AI Hackathon project for carpentry quotes, customer paym
 
 ## Current project status
 
-- **Frontend (`frontend/`)**: Workshop and customer screens with an explicit split between local **DEMO** mode (`mockApi` + `localStorage`) and **REAL** mode (`fetch` to the FastAPI backend). Includes a Vitest suite, ESLint, a production build, and a Vercel configuration.
-- **Backend (`Backend/`)**: Domain entities and monetary rules (`Decimal`, USD, 50 % deposit, status transitions), use cases, PostgreSQL repositories, OpenAI-compatible AI quote generation, PayPal Sandbox processing, workshop Basic Auth, and customer link tokens. Application abstractions live in `application/interfaces.py`; implementations live in `infrastructure/ai/service.py`, `infrastructure/payment/` (processor facade plus separate HTTP transport and response parsing), `infrastructure/security/`, and `infrastructure/db/`. Monetary rules and payment eligibility live in the domain; capture reservations use a dedicated protocol exposed by the unit of work.
+- **Frontend (`frontend/`)**: Workshop and customer screens with an explicit split between local **DEMO** mode (`mockApi` + `localStorage`) and **REAL** mode (`fetch` to the FastAPI backend). Includes a Vitest suite, ESLint, a production build, an interactive AI bookkeeping assistant (`AccountingAssistant`), and a Vercel configuration.
+- **Backend (`Backend/`)**: Domain entities and monetary rules (`Decimal`, USD, 50 % deposit, status transitions), use cases (including AI bookkeeping assistant for workshop totals), PostgreSQL repositories, OpenAI-compatible AI quote generation and accounting assistant, PayPal Sandbox processing, workshop Basic Auth, and customer link tokens. Application abstractions live in `application/interfaces.py`; implementations live in `infrastructure/ai/` (`service.py` and `accounting_service.py`), `infrastructure/payment/` (processor facade plus separate HTTP transport and response parsing), `infrastructure/security/`, and `infrastructure/db/`. Monetary rules and payment eligibility live in the domain; capture reservations use a dedicated protocol exposed by the unit of work.
 - **Database (`database/`)**: PostgreSQL schema in the dedicated `tallerclaro` schema, numbered migrations, and a self-contained, idempotent demo seed.
 - **Pending live verification**: Supabase `DATABASE_URL`, real AI credentials, and a complete PayPal Sandbox round trip. Unit and API tests use in-memory fakes; passing them does not prove that external services are configured or reachable.
 - **Current payment limits**: Capture reservations and retry recovery are implemented in source. Concurrent captures against PostgreSQL, provider idempotency, and operational recovery remain unverified; there is no background reconciliation or manual resolution tool.
@@ -23,6 +23,7 @@ FastAPI layered monolith (Backend/src/tallerclaro/)
                               ▲
   infrastructure/db/repositories.py
   infrastructure/ai/service.py
+  infrastructure/ai/accounting_service.py
   infrastructure/payment/paypal_processor.py
   infrastructure/payment/paypal_transport.py
   infrastructure/payment/paypal_parsing.py
@@ -186,10 +187,12 @@ AI and PayPal default to `none`; without credentials the services return `SERVIC
 | `POST` | `/api/orders/{id}/payments` | Create a PayPal Sandbox order for deposit or balance (`X-Customer-Token`) |
 | `POST` | `/api/payments/{id}/capture` | Capture and verify a PayPal payment (`X-Customer-Token`) |
 | `GET` | `/api/payments/{id}` | Retrieve payment attempt status (`X-Customer-Token`) |
+| `GET` | `/api/accounting/summary` | Retrieve aggregated workshop financial totals (workshop) |
+| `POST` | `/api/accounting/assistant` | Ask AI bookkeeping questions based on verified totals (workshop) |
 
 ### Authorization
 
-- **Workshop**: HTTP Basic Auth via `require_workshop_credentials` for order listing/updates and quote generation.
+- **Workshop**: HTTP Basic Auth via `require_workshop_credentials` for order listing/updates, quote generation, and accounting endpoints (`/api/accounting/*`).
 - **Customer**: `X-Customer-Token` (or `Authorization: Bearer`) for payment creation, capture, and status lookup.
 - Quote reads, approvals, rejections, and order detail accept a customer token or workshop Basic Auth depending on the route.
 
@@ -232,12 +235,10 @@ cd ../Backend
 
 Backend tests use in-memory fakes and do not require PostgreSQL, AI, or PayPal. Frontend tests run in Node with Vitest. There is no CI workflow; verification is local.
 
-On 2026-11-04, the backend command `python -m pytest -q` passed 206 tests with
-one `pytest-asyncio` deprecation warning under Python 3.14. It ran outside the
-agent sandbox because TestClient blocked inside it; plugin involvement was not
-established. This does not verify deployed services or concurrent SQL captures.
-Frontend commands above are available checks, not a claim of a fresh successful
-run during this documentation update.
+On 2026-11-04, the backend suite `.venv/bin/pytest Backend` passed all 295 tests
+with one `pytest-asyncio` deprecation warning under Python 3.14. Frontend checks
+verified 21 Vitest tests, ESLint clean passing, and a successful Vite production build.
+This does not verify deployed cloud services or concurrent SQL captures.
 
 ## Repository layout
 

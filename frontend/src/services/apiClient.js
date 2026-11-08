@@ -9,6 +9,7 @@ import {
 import {
   adaptQuoteResponse,
   adaptOrderResponse,
+  adaptAccountingSummary,
   parseNumericId,
 } from './adapters.js'
 import {
@@ -332,6 +333,51 @@ export const apiClient = {
   async recordDemoCompletionNote(orderId) {
     if (!isDemoMode) throw new Error('Demo data is available only when VITE_APP_MODE=demo is explicitly selected.')
     return mockApi.recordDemoCompletionNote(orderId)
+  },
+
+  async getFinancialSummary() {
+    if (isDemoMode) {
+      const orders = await mockApi.listOrders()
+      const collected = orders.reduce((sum, order) => sum + Number(order.paid || 0), 0)
+      const contracted = orders.reduce((sum, order) => sum + Number(order.amount || 0), 0)
+      const pending = orders
+        .filter((order) => order.status !== 'delivered')
+        .reduce((sum, order) => sum + Math.max(0, Number(order.amount || 0) - Number(order.paid || 0)), 0)
+      const awaitingDeposit = orders.filter((order) => !Number(order.paid)).length
+      return {
+        currency: 'USD',
+        ordersCount: orders.length,
+        activeOrdersCount: orders.length,
+        deliveredOrdersCount: orders.filter((order) => order.status === 'delivered').length,
+        awaitingDeposit,
+        ordersWithBalanceDue: orders.filter((order) => Number(order.paid) > 0 && Math.max(0, Number(order.amount || 0) - Number(order.paid || 0)) > 0).length,
+        totalContracted: contracted,
+        collectedTotal: collected,
+        collectedDeposits: collected,
+        collectedBalances: 0,
+        pendingToCollect: pending,
+        averageOrderValue: orders.length ? contracted / orders.length : 0,
+      }
+    }
+    const data = await apiRequest('/api/accounting/summary', { isWorkshopRoute: true })
+    return adaptAccountingSummary(data)
+  },
+
+  async askAccountingAssistant(question) {
+    if (isDemoMode) {
+      return mockApi.askAccountingAssistant(question)
+    }
+    const data = await apiRequest('/api/accounting/assistant', {
+      method: 'POST',
+      isWorkshopRoute: true,
+      body: JSON.stringify({ question }),
+    })
+    return {
+      question: data?.question ?? question,
+      answer: data?.answer ?? '',
+      summary: adaptAccountingSummary(data?.summary),
+      isDemo: false,
+    }
   },
 
   async addReceipt(orderId, file) {

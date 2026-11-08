@@ -98,3 +98,14 @@ export function adaptOrderResponse(order) {
     payments: Array.isArray(order.payments) ? order.payments : [],
   }
 }
+
+export function adaptAccountingSummary(summary = {}) {
+  return {
+    currency: summary.currency || 'USD',
+    ordersCount: Number(summary.orders_count ?? summary.ordersCount ?? 0),
+    awaitingDeposit: Number(summary.orders_awaiting_deposit ?? summary.awaitingDeposit ?? 0),
+    totalContracted: Number(summary.total_contracted ?? summary.totalContracted ?? 0),
+    collectedTotal: Number(summary.collected_total ?? summary.collectedTotal ?? 0),
+    pendingToCollect: Number(summary.pending_to_collect ?? summary.pendingToCollect ?? 0),
+  }
+}

@@ -10,6 +10,7 @@ import inspect
 import pytest
 
 from tallerclaro.application.interfaces import (
+    AccountingAssistant,
     AIService,
     CaptureReservationRepository,
     CarpenterRepository,
@@ -29,9 +30,11 @@ from tallerclaro.infrastructure.db.repositories import (
     PostgresQuoteRepository,
 )
 from tallerclaro.infrastructure.security.token_service import CustomerTokenService
+from tallerclaro.infrastructure.ai.accounting_service import OpenAIAccountingAssistant, UnconfiguredAccountingAssistant
 from tallerclaro.infrastructure.ai.service import OpenAIAIService, UnconfiguredAIService
 from tallerclaro.infrastructure.payment.paypal_processor import PayPalPaymentProcessor, UnconfiguredPaymentProcessor
 from tests.fakes import (
+    FakeAccountingAssistant,
     FakeAIService,
     FakeCaptureReservationRepository,
     FakeCarpenterRepository,
@@ -79,6 +82,9 @@ def _parameters(target: object, method: str) -> list[str]:
         (PaymentProcessor, FakePaymentProcessor),
         (PaymentProcessor, PayPalPaymentProcessor),
         (PaymentProcessor, UnconfiguredPaymentProcessor),
+        (AccountingAssistant, FakeAccountingAssistant),
+        (AccountingAssistant, OpenAIAccountingAssistant),
+        (AccountingAssistant, UnconfiguredAccountingAssistant),
     ],
 )
 def test_implementation_matches_protocol_method_signatures(protocol, implementation):
@@ -103,3 +109,11 @@ def test_unconfigured_implementations_never_simulate_success():
     with pytest.raises(DomainError) as payment_error:
         UnconfiguredPaymentProcessor().create_order("10.00", "USD")
     assert payment_error.value.code == "SERVICE_UNAVAILABLE"
+
+    from tallerclaro.domain.accounting import summarize_workshop_finances
+    from tallerclaro.infrastructure.ai.accounting_service import UnconfiguredAccountingAssistant
+
+    summary = summarize_workshop_finances([], {})
+    with pytest.raises(DomainError) as accounting_error:
+        UnconfiguredAccountingAssistant().explain(summary, "How are my finances?")
+    assert accounting_error.value.code == "SERVICE_UNAVAILABLE"

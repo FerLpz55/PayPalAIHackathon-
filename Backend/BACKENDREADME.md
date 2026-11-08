@@ -6,12 +6,13 @@ Monolito FastAPI organizado por capas para cotizaciones, pedidos y pagos de Tall
 
 - Arquitectura por capas: `domain`, `application`, `infrastructure`, `presentation`, `bootstrap`.
 - Entidades de dominio con `Decimal`, estados validados y reglas de negocio.
-- Casos de uso para cotizaciones, pedidos y pagos.
-- Repositorios PostgreSQL, servicios de IA y procesador de PayPal desacoplados mediante interfaces de aplicación; el procesador PayPal delega transporte HTTP y parseo de respuestas en colaboradores independientes.
+- Casos de uso para cotizaciones, pedidos, pagos y asistente contable.
+- Repositorios PostgreSQL, servicios de IA (cotizaciones y asistente contable) y procesador de PayPal desacoplados mediante interfaces de aplicación; el procesador PayPal delega transporte HTTP y parseo de respuestas en colaboradores independientes.
+- Asistente contable con IA: resume totales verificados en dominio (sin datos personales de clientes) y explica las cifras en lenguaje simple fuera de las transacciones SQL.
 - Reserva de captura separada del contrato general de pedidos mediante un protocolo dedicado expuesto por el Unit of Work.
 - Cálculo de importes y elegibilidad de pagos centralizados en el dominio; los casos de uso solo cargan datos, autorizan, coordinan y persisten.
 - Endpoints HTTP documentados en OpenAPI bajo `/api`.
-- Pruebas unitarias, de aplicación y de API con dobles de memoria.
+- Pruebas unitarias, de aplicación y de API con dobles de memoria (295 pruebas aprobadas).
 
 **Pendiente de conexión real:**
 
@@ -100,11 +101,9 @@ Las pruebas usan dobles en memoria y no requieren PostgreSQL ni PayPal.
 Su configuración se aísla del `.env` local y de las variables de credenciales
 del proceso para evitar conexiones accidentales a servicios reales.
 
-Verificación local del 2026-11-04: `python -m pytest -q` produjo 269 pruebas
+Verificación local del 2026-11-04: `Backend/.venv/bin/pytest Backend` produjo 295 pruebas
 aprobadas y una advertencia de deprecación de `pytest-asyncio` con Python 3.14.
-TestClient se bloqueó dentro del sandbox del agente y la suite se ejecutó fuera
-de él; no se demostró que los plugins fueran la causa. No se validaron servicios
-reales ni capturas simultáneas contra PostgreSQL.
+No se validaron servicios reales ni capturas simultáneas contra PostgreSQL.
 
 ## Estructura
 
@@ -119,6 +118,7 @@ Backend/
     domain/
       entities.py
       value_objects.py
+      accounting.py
       exceptions.py
     application/
       interfaces.py
@@ -128,6 +128,7 @@ Backend/
         quotes.py
         orders.py
         payments.py
+        accounting.py
     infrastructure/
       db/
         connection.py
@@ -135,6 +136,7 @@ Backend/
         repositories.py
       ai/
         service.py
+        accounting_service.py
       payment/
         paypal_processor.py
         paypal_transport.py
@@ -148,11 +150,13 @@ Backend/
         quotes.py
         orders.py
         payments.py
+        accounting.py
       schemas/
         health.py
         quotes.py
         orders.py
         payments.py
+        accounting.py
         common.py
       dependencies.py
       exception_handlers.py
@@ -160,6 +164,7 @@ Backend/
     domain/
     application/
     api/
+    unit/
     fakes.py
 ```
 
@@ -181,11 +186,13 @@ Prefijo: `/api`
 | POST | `/orders/{id}/payments` | Crear intento de pago PayPal |
 | POST | `/payments/{id}/capture` | Capturar pago en PayPal |
 | GET | `/payments/{id}` | Consultar intento de pago |
+| GET | `/accounting/summary` | Resumen financiero del taller |
+| POST | `/accounting/assistant` | Preguntar al asistente contable |
 
 ### Autorización
 
 - Sin autenticación: `GET /api/health` y `POST /api/quotes`; esta última devuelve el token del cliente.
-- Taller: `GET /api/orders`, `PATCH /api/orders/{id}` y `POST /api/quotes/{id}/generate` requieren Basic Auth; el servidor verifica la contraseña contra `TALLERCLARO_WORKSHOP_PASSWORD_HASH`.
+- Taller: `GET /api/orders`, `PATCH /api/orders/{id}`, `POST /api/quotes/{id}/generate`, `GET /api/accounting/summary` y `POST /api/accounting/assistant` requieren Basic Auth; el servidor verifica la contraseña contra `TALLERCLARO_WORKSHOP_PASSWORD_HASH`.
 - Cliente: crear, consultar y capturar pagos requieren `X-Customer-Token` o `Authorization: Bearer`.
 - Lectura, aprobación y rechazo de cotizaciones, y detalle de pedido, aceptan token del cliente o Basic del taller mediante `PrincipalDep`, con validación de pertenencia en aplicación.
 
@@ -262,7 +269,7 @@ concurrencia real siguen pendientes de validación en Sandbox/PostgreSQL.
 - `bootstrap` y `main.py`: configuración, composición mediante factorías registrables y arranque.
 - Los protocolos de repositorios, servicios, pagos y reserva de captura describen precondiciones, resultados, errores y semántica transaccional; los dobles de `tests/fakes.py` respetan las mismas firmas y la misma semántica de commit/rollback.
 
-## Matriz de aceptación local S.O.L.I.D.
+## Matriz de aceptación local S.O.L.I.D
 
 Esta matriz documenta los criterios de la especificación SDD del refactor. Las
 firmas son comprobaciones auxiliares; el comportamiento se verifica con los
@@ -274,9 +281,12 @@ no certifican constraints, ejecución SQL ni concurrencia real de PostgreSQL.
 | S1 | `Order` centraliza pagado, saldo, importe solicitado y elegibilidad; aplicación coordina | [Reglas monetarias](tests/domain/test_payment_rules.py), [captura](tests/application/test_capture_contract.py) |
 | S2 | PayPal separa fachada, transporte y parsers puros | [Parsing](tests/unit/test_paypal_parsing.py), [fallos de transporte](tests/unit/test_paypal_transport_errors.py) |
 | S3 | `workshop_auth.py` concentra bcrypt para arranque y autenticación | [Autenticación](tests/unit/test_workshop_auth_hash.py), [arranque](tests/unit/test_database_startup.py) |
+| S4 | `WorkshopFinancialSummary` agrega importes en dominio y `AccountingFactsFormatter` formatea texto sin I/O | [Resumen financiero](tests/domain/test_financial_summary.py), [asistente contable](tests/unit/test_accounting_service.py) |
 | O1 | Registros de factorías de IA y pagos con dependencias inyectadas | [Extensión de factorías](tests/unit/test_factory_registration.py) |
+| O2 | Registro de factorías de asistente contable (`build_accounting_assistant`) | [Servicio contable](tests/unit/test_accounting_service.py) |
 | L1 | Errores de transporte normalizados; repositorios del UoW se resuelven solo en contexto; tokens con reloj y vencimiento | [UoW](tests/unit/test_unit_of_work_contract.py), [tokens](tests/unit/test_customer_token_contract.py), [repositorios](tests/unit/test_repository_contracts.py), [HTTP 502](tests/api/test_payments.py) |
 | I1 | `CaptureReservationRepository` separado de pedidos; contratos sin lookup de pago no consumido | [Reservas](tests/unit/test_capture_reservation_contract.py), [firmas auxiliares](tests/unit/test_protocol_conformance.py) |
+| I2 | `AccountingAssistant` segregado de `AIService` para explicaciones de finanzas | [Firmas de protocolo](tests/unit/test_protocol_conformance.py) |
 | D1 | Dominio y aplicación independientes de frameworks, configuración e infraestructura | [Dependencias de capas](tests/unit/test_architecture_dependencies.py) |
 
 Resolver repositorios mediante un UoW, así como hacer commit o rollback, exige

@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { adaptQuoteResponse, adaptOrderResponse, parseNumericId, extractMeasurements } from '../adapters.js'
+import {
+  adaptQuoteResponse,
+  adaptOrderResponse,
+  adaptAccountingSummary,
+  parseNumericId,
+  extractMeasurements,
+} from '../adapters.js'
 
 describe('parseNumericId', () => {
   it('parses numeric strings and numbers', () => {
@@ -77,5 +83,32 @@ describe('adaptOrderResponse', () => {
     expect(adapted.quoteId).toBe(12)
     expect(adapted.deposit).toBe(450)
     expect(adapted.remainingBalance).toBe(450)
+  })
+})
+
+describe('adaptAccountingSummary', () => {
+  it('normalizes financial summary fields with defaults', () => {
+    const summary = adaptAccountingSummary({
+      currency: 'USD',
+      orders_count: 5,
+      orders_awaiting_deposit: 2,
+      total_contracted: 3500.5,
+      collected_total: 1750.25,
+      pending_to_collect: 1750.25,
+    })
+
+    expect(summary.currency).toBe('USD')
+    expect(summary.ordersCount).toBe(5)
+    expect(summary.awaitingDeposit).toBe(2)
+    expect(summary.totalContracted).toBe(3500.5)
+    expect(summary.collectedTotal).toBe(1750.25)
+    expect(summary.pendingToCollect).toBe(1750.25)
+  })
+
+  it('handles empty input gracefully', () => {
+    const summary = adaptAccountingSummary()
+    expect(summary.currency).toBe('USD')
+    expect(summary.ordersCount).toBe(0)
+    expect(summary.totalContracted).toBe(0)
   })
 })

@@ -95,5 +95,6 @@ def test_application_interfaces_only_depend_on_domain_and_dtos():
     internal = {module for module in modules if module.startswith("tallerclaro.")}
     assert internal <= {
         "tallerclaro.application.dtos",
+        "tallerclaro.domain.accounting",
         "tallerclaro.domain.entities",
     }

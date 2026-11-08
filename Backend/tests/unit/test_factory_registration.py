@@ -6,6 +6,12 @@ from pathlib import Path
 
 from tallerclaro.application.dtos import QuoteProposalResult
 from tallerclaro.bootstrap.settings import Settings
+from tallerclaro.domain.accounting import WorkshopFinancialSummary, summarize_workshop_finances
+from tallerclaro.infrastructure.ai.accounting_service import (
+    _ASSISTANT_FACTORIES,
+    build_accounting_assistant,
+    register_accounting_assistant,
+)
 from tallerclaro.infrastructure.ai.service import (
     _AI_FACTORIES,
     build_ai_service,
@@ -62,12 +68,29 @@ def test_application_has_no_provider_configuration_branches():
     assert offenders == []
 
 
+def test_registering_accounting_assistant_requires_no_use_case_change():
+    class TestAssistant:
+        def explain(self, summary: WorkshopFinancialSummary, question: str) -> str:
+            return f"Answer for {question}"
+
+    assistant = TestAssistant()
+    provider = "test-assistant-provider"
+    try:
+        register_accounting_assistant(provider, lambda settings: assistant)
+        assert build_accounting_assistant(Settings(ai_provider=provider)) is assistant
+    finally:
+        _ASSISTANT_FACTORIES.pop(provider, None)
+
+
 def test_composition_uses_registries_for_providers():
     """La composición se realiza mediante factorías registradas, no con isinstance."""
     payment_source = (SRC_ROOT / "infrastructure" / "payment" / "paypal_processor.py").read_text()
     ai_source = (SRC_ROOT / "infrastructure" / "ai" / "service.py").read_text()
+    accounting_source = (SRC_ROOT / "infrastructure" / "ai" / "accounting_service.py").read_text()
 
     assert "_PAYMENT_PROCESSOR_FACTORIES" in payment_source
     assert "register_payment_processor" in payment_source
     assert "_AI_FACTORIES" in ai_source
     assert "register_ai_provider" in ai_source
+    assert "_ASSISTANT_FACTORIES" in accounting_source
+    assert "register_accounting_assistant" in accounting_source

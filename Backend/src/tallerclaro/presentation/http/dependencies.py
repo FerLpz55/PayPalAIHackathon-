@@ -13,7 +13,12 @@ from fastapi import Depends, Header, HTTPException, Request, status
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 
 from tallerclaro.application.dtos import AccessPrincipal
-from tallerclaro.application.interfaces import AIService, PaymentProcessor, UnitOfWork
+from tallerclaro.application.interfaces import (
+    AccountingAssistant,
+    AIService,
+    PaymentProcessor,
+    UnitOfWork,
+)
 from tallerclaro.application.use_cases import VerifyCustomerToken
 from tallerclaro.bootstrap.settings import Settings
 from tallerclaro.domain.entities import CarpenterId
@@ -39,10 +44,15 @@ def get_payment_processor(request: Request) -> PaymentProcessor:
     return request.app.state.payment_processor
 
 
+def get_accounting_assistant(request: Request) -> AccountingAssistant:
+    return request.app.state.accounting_assistant
+
+
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 UnitOfWorkDep = Annotated[UnitOfWork, Depends(get_unit_of_work)]
 AIServiceDep = Annotated[AIService, Depends(get_ai_service)]
 PaymentProcessorDep = Annotated[PaymentProcessor, Depends(get_payment_processor)]
+AccountingAssistantDep = Annotated[AccountingAssistant, Depends(get_accounting_assistant)]
 
 
 # --- Funciones auxiliares de autenticación (Single Responsibility Principle) ---

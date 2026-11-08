@@ -90,6 +90,29 @@ export const mockApi = {
     persist()
     return delay(order)
   },
+  async askAccountingAssistant(question) {
+    const orders = state.orders
+    const collected = orders.reduce((sum, order) => sum + Number(order.paid || 0), 0)
+    const contracted = orders.reduce((sum, order) => sum + Number(order.amount || 0), 0)
+    const pending = orders
+      .filter((order) => order.status !== 'delivered')
+      .reduce((sum, order) => sum + Math.max(0, Number(order.amount || 0) - Number(order.paid || 0)), 0)
+    const awaitingDeposit = orders.filter((order) => !Number(order.paid)).length
+    const summary = {
+      currency: 'USD',
+      ordersCount: orders.length,
+      awaitingDeposit,
+      totalContracted: contracted,
+      collectedTotal: collected,
+      pendingToCollect: pending,
+    }
+    const usd = (value) => `$${Math.round(value).toLocaleString('en-US')}`
+    const spanish = /[¿áéíóúñ]|\b(cu[aá]nto|gan[eé]|cobr|debe|pedido)/i.test(question)
+    const answer = spanish
+      ? `Respuesta de demostración: en tus ${orders.length} pedidos de ejemplo ya cobraste ${usd(collected)} y te falta cobrar ${usd(pending)}. ${awaitingDeposit} pedidos aún esperan su anticipo. Como los gastos de materiales no se registran, no puedo calcular tu ganancia.`
+      : `Demo answer: across your ${orders.length} sample orders you have collected ${usd(collected)} and still have ${usd(pending)} to collect. ${awaitingDeposit} orders are still waiting for their deposit. Material costs are not recorded, so I cannot calculate profit.`
+    return delay({ question, answer, summary, isDemo: true })
+  },
   async addReceipt(id, file) {
     const order = state.orders.find((item) => item.id === id)
     if (!order) throw new Error('This order could not be found.')
