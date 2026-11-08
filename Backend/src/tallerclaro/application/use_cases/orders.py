@@ -16,6 +16,7 @@ from tallerclaro.application.exceptions import (
     ValidationDomainError,
 )
 from tallerclaro.application.interfaces import UnitOfWork
+from tallerclaro.application.use_cases.authorization import authorize_workshop_or_customer
 from tallerclaro.domain.entities import (
     ORDER_STATUS_DELIVERED,
     ORDER_STATUS_PAID,
@@ -50,29 +51,28 @@ class GetOrder:
             if order is None:
                 raise NotFoundError("Order", order_id)
 
-            if principal is not None:
-                if principal.is_workshop:
-                    if principal.carpenter_id is not None and order.carpenter_id != principal.carpenter_id:
-                        raise ForbiddenError("Not authorized to access this order")
-                elif principal.is_customer:
-                    if principal.quote_id != order.quote_id:
-                        raise ForbiddenError("Not authorized to access this order")
-                else:
-                    raise ForbiddenError("Invalid principal")
-
-            payments = self._uow.payments.list_by_order(order.id)
-            quote = self._uow.quotes.get_by_id(order.quote_id)
-            customer = self._uow.customers.get_by_id(quote.customer_id) if quote else None
-
-            return OrderDetailResult(
-                order=order,
-                payments=payments,
-                customer_name=customer.name if customer else None,
-                customer_email=customer.email if customer else None,
-                project_request=quote.request if quote else None,
-                paid_amount=order.calculate_paid_amount(payments),
-                remaining_balance=order.calculate_remaining_balance(payments),
+            authorize_workshop_or_customer(
+                principal,
+                carpenter_id=order.carpenter_id,
+                quote_id=order.quote_id,
+                resource_name="order",
             )
+            return self._build_order_detail(order)
+
+    def _build_order_detail(self, order: Order) -> OrderDetailResult:
+        payments = self._uow.payments.list_by_order(order.id)
+        quote = self._uow.quotes.get_by_id(order.quote_id)
+        customer = self._uow.customers.get_by_id(quote.customer_id) if quote else None
+
+        return OrderDetailResult(
+            order=order,
+            payments=payments,
+            customer_name=customer.name if customer else None,
+            customer_email=customer.email if customer else None,
+            project_request=quote.request if quote else None,
+            paid_amount=order.calculate_paid_amount(payments),
+            remaining_balance=order.calculate_remaining_balance(payments),
+        )
 
 
 class UpdateOrder:
@@ -85,28 +85,39 @@ class UpdateOrder:
         carpenter_id: CarpenterId | UpdateOrderInput | None = None,
         input: UpdateOrderInput | None = None,
     ) -> Order:
-        if isinstance(carpenter_id, UpdateOrderInput) and input is None:
-            input = carpenter_id
-            carpenter_id = None
-        if input is None:
-            input = UpdateOrderInput()
+        resolved_carpenter_id, update_input = self._resolve_update_arguments(carpenter_id, input)
 
         with self._uow:
             order = self._uow.orders.get_by_id(order_id)
             if order is None:
                 raise NotFoundError("Order", order_id)
-            if carpenter_id is not None and order.carpenter_id != carpenter_id:
+            if resolved_carpenter_id is not None and order.carpenter_id != resolved_carpenter_id:
                 raise ForbiddenError("Not authorized to update this order")
-            if input.status is not None:
-                if input.status == ORDER_STATUS_DELIVERED:
-                    payments = self._uow.payments.list_by_order(order_id)
-                    if not order.is_fully_paid(payments):
-                        raise ConflictError("Cannot deliver order without full payment verified")
-                order.update_status(input.status, input.estimated_delivery_date)
-            elif input.estimated_delivery_date is not None:
-                order.estimated_delivery_date = input.estimated_delivery_date
+
+            self._apply_updates(order, update_input)
             order = self._uow.orders.save(order)
             self._uow.commit()
             return order
 
+    def _apply_updates(self, order: Order, update_input: UpdateOrderInput) -> None:
+        if update_input.status is not None:
+            if update_input.status == ORDER_STATUS_DELIVERED:
+                self._ensure_order_can_be_delivered(order)
+            order.update_status(update_input.status, update_input.estimated_delivery_date)
+        elif update_input.estimated_delivery_date is not None:
+            order.estimated_delivery_date = update_input.estimated_delivery_date
 
+    def _ensure_order_can_be_delivered(self, order: Order) -> None:
+        payments = self._uow.payments.list_by_order(order.id)
+        if not order.is_fully_paid(payments):
+            raise ConflictError("Cannot deliver order without full payment verified")
+
+    @staticmethod
+    def _resolve_update_arguments(
+        carpenter_id: CarpenterId | UpdateOrderInput | None,
+        input: UpdateOrderInput | None,
+    ) -> tuple[CarpenterId | None, UpdateOrderInput]:
+        """Normaliza los argumentos aceptando tanto `(order_id, UpdateOrderInput)` como `(order_id, carpenter_id, UpdateOrderInput)`."""
+        if isinstance(carpenter_id, UpdateOrderInput) and input is None:
+            return None, carpenter_id
+        return carpenter_id, (input if input is not None else UpdateOrderInput())

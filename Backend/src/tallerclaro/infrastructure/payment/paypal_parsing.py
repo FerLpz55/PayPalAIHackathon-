@@ -32,22 +32,24 @@ class PayPalOrderParser:
                 message="PayPal create order response is missing order id",
             )
 
-        approval_url = None
-        links = data.get("links")
-        if isinstance(links, list):
-            for link in links:
-                if isinstance(link, dict) and link.get("rel") == "approve":
-                    href = link.get("href")
-                    approval_url = str(href) if href else None
-                    break
-
         return PaymentIntent(
             payment_id=0,
             paypal_order_id=paypal_order_id,
             amount=Decimal(amount),
             currency=currency,
-            approval_url=approval_url,
+            approval_url=PayPalOrderParser._extract_approval_url(data),
         )
+
+    @staticmethod
+    def _extract_approval_url(data: dict) -> str | None:
+        links = data.get("links")
+        if not isinstance(links, list):
+            return None
+        for link in links:
+            if isinstance(link, dict) and link.get("rel") == "approve":
+                href = link.get("href")
+                return str(href) if href else None
+        return None
 
 
 class PayPalCaptureParser:
@@ -61,6 +63,24 @@ class PayPalCaptureParser:
                 message="Malformed PayPal capture payload",
             )
 
+        returned_order_id = PayPalCaptureParser._require_completed_order_id(
+            data, expected_order_id
+        )
+        capture, capture_id = PayPalCaptureParser._extract_completed_capture(data)
+        parsed_amount, currency_code = PayPalCaptureParser._extract_capture_amount(capture)
+
+        return CapturedPayment(
+            payment_id=0,
+            status="completed",
+            paypal_order_id=returned_order_id,
+            paypal_capture_id=capture_id,
+            amount=parsed_amount,
+            currency=currency_code,
+            paid_at=PayPalCaptureParser._parse_paid_at(capture),
+        )
+
+    @staticmethod
+    def _require_completed_order_id(data: dict, expected_order_id: str) -> str:
         if data.get("status") != "COMPLETED":
             raise DomainError(
                 code="PAYMENT_FAILED",
@@ -78,15 +98,21 @@ class PayPalCaptureParser:
                 code="PAYMENT_PROVIDER_ERROR",
                 message="PayPal capture order id mismatch",
             )
+        return returned_order_id
 
+    @staticmethod
+    def _extract_completed_capture(data: dict) -> tuple[dict, str]:
         purchase_units = data.get("purchase_units")
         if not isinstance(purchase_units, list) or not purchase_units:
             raise DomainError(
                 code="PAYMENT_PROVIDER_ERROR",
                 message="PayPal capture response is missing purchase_units",
             )
+
         first_unit = purchase_units[0] if isinstance(purchase_units[0], dict) else {}
-        payments_obj = first_unit.get("payments") if isinstance(first_unit.get("payments"), dict) else {}
+        payments_obj = (
+            first_unit.get("payments") if isinstance(first_unit.get("payments"), dict) else {}
+        )
         captures = payments_obj.get("captures")
         if not isinstance(captures, list) or not captures or not isinstance(captures[0], dict):
             raise DomainError(
@@ -108,13 +134,17 @@ class PayPalCaptureParser:
                 code="PAYMENT_PROVIDER_ERROR",
                 message="PayPal capture response is missing capture id",
             )
+        return capture, capture_id
 
+    @staticmethod
+    def _extract_capture_amount(capture: dict) -> tuple[Decimal, str]:
         amount_obj = capture.get("amount")
         if not isinstance(amount_obj, dict):
             raise DomainError(
                 code="PAYMENT_PROVIDER_ERROR",
                 message="PayPal capture response is missing amount",
             )
+
         raw_value = amount_obj.get("value")
         currency_code = str(amount_obj.get("currency_code") or "").strip()
         if raw_value is None or not currency_code:
@@ -130,15 +160,7 @@ class PayPalCaptureParser:
                 message="PayPal capture amount is not a valid decimal",
             ) from exc
 
-        return CapturedPayment(
-            payment_id=0,
-            status="completed",
-            paypal_order_id=returned_order_id,
-            paypal_capture_id=capture_id,
-            amount=parsed_amount,
-            currency=currency_code,
-            paid_at=PayPalCaptureParser._parse_paid_at(capture),
-        )
+        return parsed_amount, currency_code
 
     @staticmethod
     def _parse_paid_at(capture: dict) -> str:

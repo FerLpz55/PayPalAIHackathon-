@@ -4,14 +4,25 @@ from decimal import Decimal
 from unittest.mock import MagicMock
 import pytest
 
+from tallerclaro.application.dtos import AccessPrincipal
+from tallerclaro.application.exceptions import ForbiddenError
 from tallerclaro.application.interfaces import (
     AIService,
     PaymentProcessor,
     QuoteRepository,
     UnitOfWork,
 )
+from tallerclaro.application.use_cases.authorization import authorize_workshop_or_customer
 from tallerclaro.bootstrap.settings import Settings
-from tallerclaro.domain.entities import CustomerId, Money, Quote, QuoteId
+from tallerclaro.domain.entities import (
+    ORDER_STATUS_TRANSITIONS,
+    QUOTE_EDITABLE_STATUSES,
+    CarpenterId,
+    CustomerId,
+    Money,
+    Quote,
+    QuoteId,
+)
 from tallerclaro.domain.exceptions import DomainError
 from tallerclaro.infrastructure.ai.service import (
     AIProposalParser,
@@ -66,6 +77,39 @@ def test_srp_auth_extraction_and_verification_helpers():
     assert _parse_basic_auth_header("Basic dGFsbGVyOnNlY3JldC1wYXNzd29yZA==") == ("taller", "secret-password")
     assert _parse_basic_auth_header("Bearer token123") is None
     assert _parse_basic_auth_header("Basic not_base_64!!!") is None
+
+
+def test_srp_resource_authorization_helper_validates_workshop_and_customer():
+    """authorize_workshop_or_customer centralizes ownership checks for quotes and orders."""
+    workshop_owner = AccessPrincipal(kind="workshop", carpenter_id=CarpenterId(1))
+    other_workshop = AccessPrincipal(kind="workshop", carpenter_id=CarpenterId(2))
+    customer_owner = AccessPrincipal(kind="customer", customer_id=CustomerId(5), quote_id=QuoteId(10))
+    other_customer = AccessPrincipal(kind="customer", customer_id=CustomerId(5), quote_id=QuoteId(99))
+
+    authorize_workshop_or_customer(
+        workshop_owner, carpenter_id=CarpenterId(1), quote_id=QuoteId(10), resource_name="quote"
+    )
+    authorize_workshop_or_customer(
+        customer_owner, carpenter_id=CarpenterId(1), quote_id=QuoteId(10), resource_name="order"
+    )
+
+    with pytest.raises(ForbiddenError, match="Not authorized to access this quote"):
+        authorize_workshop_or_customer(
+            other_workshop, carpenter_id=CarpenterId(1), quote_id=QuoteId(10), resource_name="quote"
+        )
+
+    with pytest.raises(ForbiddenError, match="Not authorized to access this order"):
+        authorize_workshop_or_customer(
+            other_customer, carpenter_id=CarpenterId(1), quote_id=QuoteId(10), resource_name="order"
+        )
+
+
+def test_domain_symbolic_constants_expose_editable_and_transition_rules():
+    """Domain state rules are declared as immutable symbolic constants."""
+    assert "draft" in QUOTE_EDITABLE_STATUSES
+    assert "approved" not in QUOTE_EDITABLE_STATUSES
+    assert ORDER_STATUS_TRANSITIONS["in_progress"] == frozenset({"delivered"})
+    assert ORDER_STATUS_TRANSITIONS["delivered"] == frozenset()
 
 
 # ==============================================================================

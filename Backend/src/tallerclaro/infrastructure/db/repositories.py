@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from decimal import Decimal
 import dataclasses
+from datetime import datetime, timezone
 
 import psycopg
 
@@ -32,6 +31,18 @@ from tallerclaro.domain.entities import (
     QuoteId,
     QuoteLineItem,
     QuoteLineItemId,
+)
+
+_ORDER_SELECT_COLUMNS = (
+    "id_pedido, id_cotizacion, id_carpintero, codigo, monto_total, "
+    "monto_anticipo, moneda, estado, fecha_creacion, ultima_actualizacion, "
+    "fecha_entrega_estimada"
+)
+
+_PAYMENT_SELECT_COLUMNS = (
+    "id_pago, id_pedido, tipo, monto, moneda, estado, "
+    "paypal_order_id, paypal_capture_id, fecha_creacion, "
+    "ultima_actualizacion, fecha_pago"
 )
 
 
@@ -65,9 +76,11 @@ class PostgresCustomerRepository:
             ).fetchone()
         if row is None:
             raise RuntimeError("Failed to save customer")
-        customer.id = CustomerId(row[0])
-        customer.created_at = row[1]
-        customer.updated_at = row[2]
+
+        raw_id, created_at, updated_at = row
+        customer.id = CustomerId(raw_id)
+        customer.created_at = created_at
+        customer.updated_at = updated_at
         return customer
 
     def get_by_id(self, customer_id: CustomerId) -> Customer | None:
@@ -81,13 +94,15 @@ class PostgresCustomerRepository:
         ).fetchone()
         if row is None:
             return None
+
+        raw_id, name, email, phone, created_at, updated_at = row
         return Customer(
-            id=CustomerId(row[0]),
-            name=row[1],
-            email=row[2],
-            phone=row[3],
-            created_at=row[4],
-            updated_at=row[5],
+            id=CustomerId(raw_id),
+            name=name,
+            email=email,
+            phone=phone,
+            created_at=created_at,
+            updated_at=updated_at,
         )
 
 
@@ -106,23 +121,58 @@ class PostgresCarpenterRepository:
         ).fetchone()
         if row is None:
             return None
+
+        raw_id, name, workshop_name, email, phone, created_at = row
         return Carpenter(
-            id=CarpenterId(row[0]),
-            name=row[1],
-            workshop_name=row[2],
-            email=row[3],
-            phone=row[4],
-            created_at=row[5],
+            id=CarpenterId(raw_id),
+            name=name,
+            workshop_name=workshop_name,
+            email=email,
+            phone=phone,
+            created_at=created_at,
         )
 
 
 class PostgresQuoteRepository:
+    """Persistencia de cotizaciones y sus partidas.
+
+    El rol ``tallerclaro_app`` no tiene privilegio ``DELETE`` en PostgreSQL:
+    al actualizar las partidas de una cotización se reutilizan los registros
+    existentes y los sobrantes se desactivan con ``UPDATE ... SET activo = false``.
+    """
+
     def __init__(self, conn: psycopg.Connection) -> None:
         self._conn = conn
 
     def save(self, quote: Quote) -> Quote:
+        self._save_quote_header(quote)
+        existing_ids = self._list_existing_line_item_ids(quote.id)
+        unused_ids = self._sync_line_items(quote.id, quote.line_items, existing_ids)
+        self._deactivate_unused_line_items(quote.id, unused_ids)
+        return quote
+
+    def get_by_id(self, quote_id: QuoteId) -> Quote | None:
+        row = self._conn.execute(
+            """
+            SELECT id_cotizacion, id_cliente, id_carpintero, solicitud, descripcion,
+                   monto_total, estado, moneda, fecha_creacion, ultima_actualizacion,
+                   supuestos, informacion_faltante
+            FROM tallerclaro.cotizacion
+            WHERE id_cotizacion = %s
+            """,
+            (quote_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        quote = self._row_to_quote(row)
+        quote.line_items = self._load_line_items(quote_id)
+        return quote
+
+    def _save_quote_header(self, quote: Quote) -> None:
         assumptions = list(quote.assumptions or [])
         missing_info = list(quote.missing_info or [])
+        total_amount = quote.total.amount if quote.total is not None else None
+
         if quote.id is None:
             row = self._conn.execute(
                 """
@@ -137,7 +187,7 @@ class PostgresQuoteRepository:
                     quote.carpenter_id,
                     quote.request,
                     quote.description,
-                    quote.total.amount if quote.total is not None else None,
+                    total_amount,
                     quote.status,
                     quote.currency,
                     assumptions,
@@ -159,7 +209,7 @@ class PostgresQuoteRepository:
                     quote.carpenter_id,
                     quote.request,
                     quote.description,
-                    quote.total.amount if quote.total is not None else None,
+                    total_amount,
                     quote.status,
                     quote.currency,
                     assumptions,
@@ -169,11 +219,13 @@ class PostgresQuoteRepository:
             ).fetchone()
         if row is None:
             raise RuntimeError("Failed to save quote")
-        quote.id = QuoteId(row[0])
-        quote.created_at = row[1]
-        quote.updated_at = row[2]
 
-        # Persistir partidas sin churn de DELETE
+        raw_id, created_at, updated_at = row
+        quote.id = QuoteId(raw_id)
+        quote.created_at = created_at
+        quote.updated_at = updated_at
+
+    def _list_existing_line_item_ids(self, quote_id: QuoteId) -> list[int]:
         existing_rows = self._conn.execute(
             """
             SELECT id_detalle
@@ -181,120 +233,123 @@ class PostgresQuoteRepository:
             WHERE id_cotizacion = %s
             ORDER BY id_detalle
             """,
-            (quote.id,),
+            (quote_id,),
         ).fetchall()
-        existing_ids = [row[0] for row in existing_rows]
+        return [row[0] for row in existing_rows]
 
-        for item in quote.line_items:
-            if item.id is not None and item.id in existing_ids:
-                self._conn.execute(
-                    """
-                    UPDATE tallerclaro.detalle_cotizacion
-                    SET tipo = %s, descripcion = %s, unidad = %s, cantidad = %s,
-                        precio_unitario = %s, activo = true
-                    WHERE id_detalle = %s AND id_cotizacion = %s
-                    """,
-                    (
-                        item.type,
-                        item.description,
-                        item.unit,
-                        item.quantity,
-                        item.unit_price.amount,
-                        item.id,
-                        quote.id,
-                    ),
-                )
-                existing_ids.remove(item.id)
-            elif existing_ids:
-                target_id = existing_ids.pop(0)
-                self._conn.execute(
-                    """
-                    UPDATE tallerclaro.detalle_cotizacion
-                    SET tipo = %s, descripcion = %s, unidad = %s, cantidad = %s,
-                        precio_unitario = %s, activo = true
-                    WHERE id_detalle = %s AND id_cotizacion = %s
-                    """,
-                    (
-                        item.type,
-                        item.description,
-                        item.unit,
-                        item.quantity,
-                        item.unit_price.amount,
-                        target_id,
-                        quote.id,
-                    ),
-                )
-                try:
-                    item.id = QuoteLineItemId(target_id)
-                except (dataclasses.FrozenInstanceError, AttributeError):
-                    object.__setattr__(item, "id", QuoteLineItemId(target_id))
+    def _sync_line_items(
+        self,
+        quote_id: QuoteId,
+        line_items: list[QuoteLineItem],
+        existing_ids: list[int],
+    ) -> list[int]:
+        remaining_ids = list(existing_ids)
+        for item in line_items:
+            if item.id is not None and item.id in remaining_ids:
+                self._update_line_item(quote_id, item.id, item)
+                remaining_ids.remove(item.id)
+            elif remaining_ids:
+                reused_id = remaining_ids.pop(0)
+                self._update_line_item(quote_id, reused_id, item)
+                self._assign_line_item_id(item, reused_id)
             else:
-                item_row = self._conn.execute(
-                    """
-                    INSERT INTO tallerclaro.detalle_cotizacion
-                        (id_cotizacion, tipo, descripcion, unidad, cantidad, precio_unitario, activo)
-                    VALUES (%s, %s, %s, %s, %s, %s, true)
-                    RETURNING id_detalle
-                    """,
-                    (
-                        quote.id,
-                        item.type,
-                        item.description,
-                        item.unit,
-                        item.quantity,
-                        item.unit_price.amount,
-                    ),
-                ).fetchone()
-                if item_row is not None:
-                    try:
-                        item.id = QuoteLineItemId(item_row[0])
-                    except (dataclasses.FrozenInstanceError, AttributeError):
-                        object.__setattr__(item, "id", QuoteLineItemId(item_row[0]))
+                self._insert_line_item(quote_id, item)
+        return remaining_ids
 
-        for leftover_id in existing_ids:
+    def _update_line_item(
+        self, quote_id: QuoteId, detail_id: int, item: QuoteLineItem
+    ) -> None:
+        self._conn.execute(
+            """
+            UPDATE tallerclaro.detalle_cotizacion
+            SET tipo = %s, descripcion = %s, unidad = %s, cantidad = %s,
+                precio_unitario = %s, activo = true
+            WHERE id_detalle = %s AND id_cotizacion = %s
+            """,
+            (
+                item.type,
+                item.description,
+                item.unit,
+                item.quantity,
+                item.unit_price.amount,
+                detail_id,
+                quote_id,
+            ),
+        )
+
+    def _insert_line_item(self, quote_id: QuoteId, item: QuoteLineItem) -> None:
+        item_row = self._conn.execute(
+            """
+            INSERT INTO tallerclaro.detalle_cotizacion
+                (id_cotizacion, tipo, descripcion, unidad, cantidad, precio_unitario, activo)
+            VALUES (%s, %s, %s, %s, %s, %s, true)
+            RETURNING id_detalle
+            """,
+            (
+                quote_id,
+                item.type,
+                item.description,
+                item.unit,
+                item.quantity,
+                item.unit_price.amount,
+            ),
+        ).fetchone()
+        if item_row is not None:
+            self._assign_line_item_id(item, item_row[0])
+
+    def _deactivate_unused_line_items(
+        self, quote_id: QuoteId, unused_ids: list[int]
+    ) -> None:
+        for leftover_id in unused_ids:
             self._conn.execute(
                 """
                 UPDATE tallerclaro.detalle_cotizacion
                 SET activo = false
                 WHERE id_detalle = %s AND id_cotizacion = %s
                 """,
-                (leftover_id, quote.id),
+                (leftover_id, quote_id),
             )
-        return quote
 
-    def get_by_id(self, quote_id: QuoteId) -> Quote | None:
-        row = self._conn.execute(
-            """
-            SELECT id_cotizacion, id_cliente, id_carpintero, solicitud, descripcion,
-                   monto_total, estado, moneda, fecha_creacion, ultima_actualizacion,
-                   supuestos, informacion_faltante
-            FROM tallerclaro.cotizacion
-            WHERE id_cotizacion = %s
-            """,
-            (quote_id,),
-        ).fetchone()
-        if row is None:
-            return None
-        quote = self._row_to_quote(row)
-        quote.line_items = self._load_line_items(quote_id)
-        return quote
+    @staticmethod
+    def _assign_line_item_id(item: QuoteLineItem, raw_id: int) -> None:
+        line_item_id = QuoteLineItemId(raw_id)
+        try:
+            item.id = line_item_id
+        except (dataclasses.FrozenInstanceError, AttributeError):
+            object.__setattr__(item, "id", line_item_id)
 
     def _row_to_quote(self, row: tuple) -> Quote:
-        assumptions = list(row[10] or []) if len(row) > 10 and row[10] is not None else []
-        missing_info = list(row[11] or []) if len(row) > 11 and row[11] is not None else []
+        (
+            raw_id,
+            customer_id,
+            carpenter_id,
+            request,
+            description,
+            total_amount,
+            status,
+            currency,
+            created_at,
+            updated_at,
+            *extra_columns,
+        ) = row
+        raw_assumptions = extra_columns[0] if len(extra_columns) > 0 else None
+        raw_missing_info = extra_columns[1] if len(extra_columns) > 1 else None
+        assumptions = list(raw_assumptions or []) if raw_assumptions is not None else []
+        missing_info = list(raw_missing_info or []) if raw_missing_info is not None else []
+
         return Quote(
-            id=QuoteId(row[0]),
-            customer_id=CustomerId(row[1]),
-            carpenter_id=CarpenterId(row[2]),
-            request=row[3],
-            description=row[4],
-            total=Money(row[5]) if row[5] is not None else None,
-            status=row[6],
-            currency=row[7],
+            id=QuoteId(raw_id),
+            customer_id=CustomerId(customer_id),
+            carpenter_id=CarpenterId(carpenter_id),
+            request=request,
+            description=description,
+            total=Money(total_amount) if total_amount is not None else None,
+            status=status,
+            currency=currency,
             assumptions=assumptions,
             missing_info=missing_info,
-            created_at=row[8],
-            updated_at=row[9],
+            created_at=created_at,
+            updated_at=updated_at,
         )
 
     def _load_line_items(self, quote_id: QuoteId) -> list[QuoteLineItem]:
@@ -307,17 +362,20 @@ class PostgresQuoteRepository:
             """,
             (quote_id,),
         ).fetchall()
-        return [
-            QuoteLineItem(
-                id=QuoteLineItemId(row[0]),
-                type=LineItemType(row[1]),
-                description=row[2],
-                unit=row[3],
-                quantity=row[4],
-                unit_price=Money(row[5]),
+        items: list[QuoteLineItem] = []
+        for row in rows:
+            raw_id, item_type, description, unit, quantity, unit_price = row
+            items.append(
+                QuoteLineItem(
+                    id=QuoteLineItemId(raw_id),
+                    type=LineItemType(item_type),
+                    description=description,
+                    unit=unit,
+                    quantity=quantity,
+                    unit_price=Money(unit_price),
+                )
             )
-            for row in rows
-        ]
+        return items
 
 
 class PostgresCaptureReservationRepository:
@@ -393,17 +451,17 @@ class PostgresOrderRepository:
             ).fetchone()
         if row is None:
             raise RuntimeError("Failed to save order")
-        order.id = OrderId(row[0])
-        order.created_at = row[1]
-        order.updated_at = row[2]
+
+        raw_id, created_at, updated_at = row
+        order.id = OrderId(raw_id)
+        order.created_at = created_at
+        order.updated_at = updated_at
         return order
 
     def get_by_id(self, order_id: OrderId) -> Order | None:
         row = self._conn.execute(
-            """
-            SELECT id_pedido, id_cotizacion, id_carpintero, codigo, monto_total,
-                   monto_anticipo, moneda, estado, fecha_creacion, ultima_actualizacion,
-                   fecha_entrega_estimada
+            f"""
+            SELECT {_ORDER_SELECT_COLUMNS}
             FROM tallerclaro.pedido
             WHERE id_pedido = %s
             """,
@@ -415,10 +473,8 @@ class PostgresOrderRepository:
 
     def get_by_quote_id(self, quote_id: QuoteId) -> Order | None:
         row = self._conn.execute(
-            """
-            SELECT id_pedido, id_cotizacion, id_carpintero, codigo, monto_total,
-                   monto_anticipo, moneda, estado, fecha_creacion, ultima_actualizacion,
-                   fecha_entrega_estimada
+            f"""
+            SELECT {_ORDER_SELECT_COLUMNS}
             FROM tallerclaro.pedido
             WHERE id_cotizacion = %s
             """,
@@ -432,10 +488,8 @@ class PostgresOrderRepository:
         self, carpenter_id: CarpenterId, limit: int, offset: int
     ) -> list[Order]:
         rows = self._conn.execute(
-            """
-            SELECT id_pedido, id_cotizacion, id_carpintero, codigo, monto_total,
-                   monto_anticipo, moneda, estado, fecha_creacion, ultima_actualizacion,
-                   fecha_entrega_estimada
+            f"""
+            SELECT {_ORDER_SELECT_COLUMNS}
             FROM tallerclaro.pedido
             WHERE id_carpintero = %s
             ORDER BY fecha_creacion DESC
@@ -457,18 +511,31 @@ class PostgresOrderRepository:
         return row[0] if row is not None else 0
 
     def _row_to_order(self, row: tuple) -> Order:
+        (
+            raw_id,
+            quote_id,
+            carpenter_id,
+            code,
+            total_amount,
+            deposit_amount,
+            currency,
+            status,
+            created_at,
+            updated_at,
+            estimated_delivery_date,
+        ) = row
         return Order(
-            id=OrderId(row[0]),
-            quote_id=QuoteId(row[1]),
-            carpenter_id=CarpenterId(row[2]),
-            code=row[3],
-            total=Money(row[4]),
-            deposit_amount=Money(row[5]),
-            currency=row[6],
-            status=row[7],
-            created_at=row[8],
-            updated_at=row[9],
-            estimated_delivery_date=row[10],
+            id=OrderId(raw_id),
+            quote_id=QuoteId(quote_id),
+            carpenter_id=CarpenterId(carpenter_id),
+            code=code,
+            total=Money(total_amount),
+            deposit_amount=Money(deposit_amount),
+            currency=currency,
+            status=status,
+            created_at=created_at,
+            updated_at=updated_at,
+            estimated_delivery_date=estimated_delivery_date,
         )
 
 
@@ -520,17 +587,17 @@ class PostgresPaymentRepository:
             ).fetchone()
         if row is None:
             raise RuntimeError("Failed to save payment")
-        payment.id = PaymentId(row[0])
-        payment.created_at = row[1]
-        payment.updated_at = row[2]
+
+        raw_id, created_at, updated_at = row
+        payment.id = PaymentId(raw_id)
+        payment.created_at = created_at
+        payment.updated_at = updated_at
         return payment
 
     def get_by_id(self, payment_id: PaymentId) -> Payment | None:
         row = self._conn.execute(
-            """
-            SELECT id_pago, id_pedido, tipo, monto, moneda, estado,
-                   paypal_order_id, paypal_capture_id, fecha_creacion,
-                   ultima_actualizacion, fecha_pago
+            f"""
+            SELECT {_PAYMENT_SELECT_COLUMNS}
             FROM tallerclaro.pago
             WHERE id_pago = %s
             """,
@@ -542,10 +609,8 @@ class PostgresPaymentRepository:
 
     def list_by_order(self, order_id: OrderId) -> list[Payment]:
         rows = self._conn.execute(
-            """
-            SELECT id_pago, id_pedido, tipo, monto, moneda, estado,
-                   paypal_order_id, paypal_capture_id, fecha_creacion,
-                   ultima_actualizacion, fecha_pago
+            f"""
+            SELECT {_PAYMENT_SELECT_COLUMNS}
             FROM tallerclaro.pago
             WHERE id_pedido = %s
             ORDER BY fecha_creacion
@@ -555,16 +620,29 @@ class PostgresPaymentRepository:
         return [self._row_to_payment(row) for row in rows]
 
     def _row_to_payment(self, row: tuple) -> Payment:
+        (
+            raw_id,
+            order_id,
+            payment_type,
+            amount,
+            currency,
+            status,
+            paypal_order_id,
+            paypal_capture_id,
+            created_at,
+            updated_at,
+            paid_at,
+        ) = row
         return Payment(
-            id=PaymentId(row[0]),
-            order_id=OrderId(row[1]),
-            type=PaymentType(row[2]),
-            amount=Money(row[3]),
-            currency=row[4],
-            status=PaymentStatus(row[5]),
-            paypal_order_id=row[6],
-            paypal_capture_id=row[7],
-            created_at=row[8],
-            updated_at=row[9],
-            paid_at=row[10],
+            id=PaymentId(raw_id),
+            order_id=OrderId(order_id),
+            type=PaymentType(payment_type),
+            amount=Money(amount),
+            currency=currency,
+            status=PaymentStatus(status),
+            paypal_order_id=paypal_order_id,
+            paypal_capture_id=paypal_capture_id,
+            created_at=created_at,
+            updated_at=updated_at,
+            paid_at=paid_at,
         )

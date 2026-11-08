@@ -12,7 +12,7 @@ Monolito FastAPI organizado por capas para cotizaciones, pedidos y pagos de Tall
 - Reserva de captura separada del contrato general de pedidos mediante un protocolo dedicado expuesto por el Unit of Work.
 - Cálculo de importes y elegibilidad de pagos centralizados en el dominio; los casos de uso solo cargan datos, autorizan, coordinan y persisten.
 - Endpoints HTTP documentados en OpenAPI bajo `/api`.
-- Pruebas unitarias, de aplicación y de API con dobles de memoria (296 pruebas aprobadas).
+- Pruebas unitarias, de aplicación y de API con dobles de memoria (298 pruebas aprobadas).
 
 **Pendiente de conexión real:**
 
@@ -101,7 +101,7 @@ Las pruebas usan dobles en memoria y no requieren PostgreSQL ni PayPal.
 Su configuración se aísla del `.env` local y de las variables de credenciales
 del proceso para evitar conexiones accidentales a servicios reales.
 
-Verificación local del 2026-11-08: `Backend/.venv/bin/pytest Backend` produjo 296 pruebas
+Verificación local del 2026-11-08: `Backend/.venv/bin/pytest Backend` produjo 298 pruebas
 aprobadas y una advertencia de deprecación de `pytest-asyncio` con Python 3.14.
 No se validaron servicios reales ni capturas simultáneas contra PostgreSQL.
 
@@ -125,6 +125,7 @@ Backend/
       dtos.py
       exceptions.py
       use_cases/
+        authorization.py
         quotes.py
         orders.py
         payments.py
@@ -160,6 +161,7 @@ Backend/
         common.py
       dependencies.py
       exception_handlers.py
+      mappers.py
   tests/
     domain/
     application/

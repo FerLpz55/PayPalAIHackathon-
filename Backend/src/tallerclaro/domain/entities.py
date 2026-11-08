@@ -24,11 +24,26 @@ QUOTE_STATUS_APPROVED = "approved"
 QUOTE_STATUS_REJECTED = "rejected"
 QuoteStatus = str
 
+QUOTE_EDITABLE_STATUSES: frozenset[QuoteStatus] = frozenset(
+    {
+        QUOTE_STATUS_DRAFT,
+        QUOTE_STATUS_NEEDS_INFORMATION,
+        QUOTE_STATUS_PENDING_REVIEW,
+    }
+)
+
 ORDER_STATUS_PENDING = "pending"
 ORDER_STATUS_PAID = "paid"
 ORDER_STATUS_IN_PROGRESS = "in_progress"
 ORDER_STATUS_DELIVERED = "delivered"
 OrderStatus = str
+
+ORDER_STATUS_TRANSITIONS: dict[OrderStatus, frozenset[OrderStatus]] = {
+    ORDER_STATUS_PENDING: frozenset({ORDER_STATUS_PAID, ORDER_STATUS_IN_PROGRESS}),
+    ORDER_STATUS_PAID: frozenset({ORDER_STATUS_IN_PROGRESS}),
+    ORDER_STATUS_IN_PROGRESS: frozenset({ORDER_STATUS_DELIVERED}),
+    ORDER_STATUS_DELIVERED: frozenset(),
+}
 
 PAYMENT_TYPE_DEPOSIT = "deposit"
 PAYMENT_TYPE_BALANCE = "balance"
@@ -128,18 +143,15 @@ class Quote:
         self.missing_info = list(missing_info)
         self.assumptions = []
 
-
     def submit_for_review(self) -> None:
         if self.total is None or not self.total.is_positive():
             raise ValidationDomainError("Quote must have a positive total before review")
         if not self.line_items:
             raise ValidationDomainError("Quote must have line items before review")
-        if self.status not in {QUOTE_STATUS_DRAFT, QUOTE_STATUS_NEEDS_INFORMATION, QUOTE_STATUS_PENDING_REVIEW}:
+        if self.status not in QUOTE_EDITABLE_STATUSES:
             raise ConflictError(f"Cannot submit quote from status {self.status}")
         self.status = QUOTE_STATUS_PENDING_REVIEW
         self.missing_info = []
-
-
 
     def approve(self) -> None:
         if self.status != QUOTE_STATUS_PENDING_REVIEW:
@@ -173,14 +185,8 @@ class Order:
             raise ValidationDomainError("Deposit cannot exceed total")
 
     def update_status(self, new_status: OrderStatus, estimated_delivery_date: date | None = None) -> None:
-        valid_transitions: dict[OrderStatus, set[OrderStatus]] = {
-            ORDER_STATUS_PENDING: {ORDER_STATUS_PAID, ORDER_STATUS_IN_PROGRESS},
-            ORDER_STATUS_PAID: {ORDER_STATUS_IN_PROGRESS},
-            ORDER_STATUS_IN_PROGRESS: {ORDER_STATUS_DELIVERED},
-            ORDER_STATUS_DELIVERED: set(),
-        }
-        allowed = valid_transitions.get(self.status, set())
-        if new_status not in allowed:
+        allowed_next_statuses = ORDER_STATUS_TRANSITIONS.get(self.status, frozenset())
+        if new_status not in allowed_next_statuses:
             raise ConflictError(f"Cannot transition order from {self.status} to {new_status}")
         self.status = new_status
         if estimated_delivery_date is not None:
@@ -245,21 +251,22 @@ class Order:
         como pagado todavía. Lanza ``ConflictError`` si el anticipo ya se pagó o
         si el importe supera el saldo restante tras otros pagos completados.
         """
-        completed_others = [
-            p
-            for p in payments
-            if p.status == PAYMENT_STATUS_COMPLETED and p.id != payment.id
+        completed_other_payments = [
+            existing
+            for existing in payments
+            if existing.status == PAYMENT_STATUS_COMPLETED and existing.id != payment.id
         ]
-        if payment.type == PAYMENT_TYPE_DEPOSIT and any(
-            p.type == PAYMENT_TYPE_DEPOSIT for p in completed_others
-        ):
+        deposit_already_captured = any(
+            existing.type == PAYMENT_TYPE_DEPOSIT for existing in completed_other_payments
+        )
+        if payment.type == PAYMENT_TYPE_DEPOSIT and deposit_already_captured:
             raise ConflictError("Deposit already paid")
 
-        already_paid = sum((p.amount.amount for p in completed_others), Decimal("0"))
-        remaining = Money(self.total.amount - already_paid)
-        if payment.amount > remaining:
+        already_paid = sum((existing.amount.amount for existing in completed_other_payments), Decimal("0"))
+        remaining_balance = Money(self.total.amount - already_paid)
+        if payment.amount > remaining_balance:
             raise ConflictError(
-                f"Payment amount {payment.amount.amount} exceeds remaining balance: {remaining.amount}"
+                f"Payment amount {payment.amount.amount} exceeds remaining balance: {remaining_balance.amount}"
             )
 
 

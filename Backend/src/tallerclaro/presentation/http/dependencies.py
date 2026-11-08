@@ -57,6 +57,7 @@ AccountingAssistantDep = Annotated[AccountingAssistant, Depends(get_accounting_a
 
 # --- Funciones auxiliares de autenticación (Single Responsibility Principle) ---
 
+
 def _verify_workshop_credentials(username: str, password: str, settings: Settings) -> bool:
     """Resuelve credenciales HTTP; la verificación criptográfica vive en infraestructura."""
     return verify_workshop_credentials(username, password, settings)
@@ -84,28 +85,51 @@ def _parse_basic_auth_header(auth_header: str) -> tuple[str, str] | None:
         return None
 
 
+def _unauthorized(detail: str, *, basic_challenge: bool = True) -> HTTPException:
+    headers = {"WWW-Authenticate": "Basic"} if basic_challenge else None
+    return HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail=detail,
+        headers=headers,
+    )
+
+
+def _authenticate_workshop(username: str, password: str, settings: Settings) -> AccessPrincipal:
+    if not _verify_workshop_credentials(username, password, settings):
+        raise _unauthorized("Invalid workshop credentials")
+    return AccessPrincipal(
+        kind="workshop",
+        carpenter_id=CarpenterId(settings.workshop_carpenter_id),
+    )
+
+
+def _authenticate_customer_token(token: str, uow: UnitOfWork) -> AccessPrincipal:
+    principal = VerifyCustomerToken(uow).execute(token)
+    if principal is None:
+        raise _unauthorized("Invalid or expired customer token", basic_challenge=False)
+    return principal
+
+
+def _read_raw_basic_credentials(request: Request) -> tuple[str, str] | None:
+    raw_auth = request.headers.get("authorization", "")
+    parsed_basic = _parse_basic_auth_header(raw_auth)
+    if parsed_basic is not None:
+        return parsed_basic
+    if raw_auth.lower().startswith("basic "):
+        raise _unauthorized("Invalid workshop credentials")
+    return None
+
+
 # --- Dependencias públicas de autorización ---
+
 
 def require_workshop_credentials(
     credentials: HTTPBasicCredentials | None = Depends(security),
     settings: Settings = Depends(get_settings),
 ) -> AccessPrincipal:
     if credentials is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Workshop credentials required",
-            headers={"WWW-Authenticate": "Basic"},
-        )
-    if not _verify_workshop_credentials(credentials.username, credentials.password, settings):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid workshop credentials",
-            headers={"WWW-Authenticate": "Basic"},
-        )
-    return AccessPrincipal(
-        kind="workshop",
-        carpenter_id=CarpenterId(settings.workshop_carpenter_id),
-    )
+        raise _unauthorized("Workshop credentials required")
+    return _authenticate_workshop(credentials.username, credentials.password, settings)
 
 
 def require_customer_token(
@@ -116,18 +140,8 @@ def require_customer_token(
 ) -> AccessPrincipal:
     token = _extract_customer_token(request, x_customer_token)
     if not token:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Customer token required",
-        )
-
-    principal = VerifyCustomerToken(uow).execute(token)
-    if principal is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired customer token",
-        )
-    return principal
+        raise _unauthorized("Customer token required", basic_challenge=False)
+    return _authenticate_customer_token(token, uow)
 
 
 def require_quote_or_workshop_principal(
@@ -136,57 +150,19 @@ def require_quote_or_workshop_principal(
     uow: UnitOfWork = Depends(get_unit_of_work),
     settings: Settings = Depends(get_settings),
 ) -> AccessPrincipal:
-    # 1. Probar Customer Token
     token = _extract_customer_token(request)
     if token:
-        principal = VerifyCustomerToken(uow).execute(token)
-        if principal is None:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid or expired customer token",
-            )
-        return principal
+        return _authenticate_customer_token(token, uow)
 
-    # 2. Probar credenciales del taller (HTTPBasicCredentials)
     if credentials is not None:
-        if not _verify_workshop_credentials(credentials.username, credentials.password, settings):
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid workshop credentials",
-                headers={"WWW-Authenticate": "Basic"},
-            )
-        return AccessPrincipal(
-            kind="workshop",
-            carpenter_id=CarpenterId(settings.workshop_carpenter_id),
-        )
+        return _authenticate_workshop(credentials.username, credentials.password, settings)
 
-    # 3. Probar Authorization header directo en caso de que HTTPBasic no se haya poblado
-    raw_auth = request.headers.get("authorization", "")
-    parsed_basic = _parse_basic_auth_header(raw_auth)
-    if parsed_basic is not None:
-        username, password = parsed_basic
-        if not _verify_workshop_credentials(username, password, settings):
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid workshop credentials",
-                headers={"WWW-Authenticate": "Basic"},
-            )
-        return AccessPrincipal(
-            kind="workshop",
-            carpenter_id=CarpenterId(settings.workshop_carpenter_id),
-        )
-    elif raw_auth.lower().startswith("basic "):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid workshop credentials",
-            headers={"WWW-Authenticate": "Basic"},
-        )
+    raw_basic = _read_raw_basic_credentials(request)
+    if raw_basic is not None:
+        username, password = raw_basic
+        return _authenticate_workshop(username, password, settings)
 
-    raise HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Authentication required",
-        headers={"WWW-Authenticate": "Basic"},
-    )
+    raise _unauthorized("Authentication required")
 
 
 WorkshopCarpenterDep = Annotated[AccessPrincipal, Depends(require_workshop_credentials)]

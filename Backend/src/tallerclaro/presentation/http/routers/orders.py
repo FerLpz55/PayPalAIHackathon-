@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Query
 
 from tallerclaro.application.dtos import AccessPrincipal, UpdateOrderInput
 from tallerclaro.application.use_cases import GetOrder, ListOrders, UpdateOrder
@@ -11,35 +11,25 @@ from tallerclaro.presentation.http.dependencies import (
     PrincipalDep,
     UnitOfWorkDep,
     WorkshopCarpenterDep,
-    get_unit_of_work,
-    require_quote_or_workshop_principal,
-    require_workshop_credentials,
+)
+from tallerclaro.presentation.http.mappers import (
+    to_order_detail_response as _to_order_detail_response,
+    to_order_response as _to_order_response,
 )
 from tallerclaro.presentation.http.schemas.orders import (
     OrderDetailResponse,
     OrderListResponse,
     OrderResponse,
-    PaymentSummary,
     UpdateOrderRequest,
 )
 
 router = APIRouter(prefix="/api", tags=["orders"])
 
 
-def _to_order_response(order) -> OrderResponse:
-    return OrderResponse(
-        id=str(order.id),
-        quote_id=str(order.quote_id),
-        code=order.code,
-        total=float(order.total.amount),
-        deposit_amount=float(order.deposit_amount.amount),
-        balance_amount=float(order.balance_amount.amount),
-        currency=order.currency,
-        status=order.status,
-        estimated_delivery_date=order.estimated_delivery_date,
-        created_at=order.created_at.isoformat() if order.created_at else None,
-        updated_at=order.updated_at.isoformat() if order.updated_at else None,
-    )
+def _resolve_carpenter_id(principal: AccessPrincipal | int) -> CarpenterId:
+    if isinstance(principal, AccessPrincipal) and principal.carpenter_id is not None:
+        return principal.carpenter_id
+    return CarpenterId(principal)
 
 
 @router.get("/orders")
@@ -49,15 +39,10 @@ def list_orders(
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
 ) -> OrderListResponse:
-    carpenter_id = (
-        principal.carpenter_id
-        if isinstance(principal, AccessPrincipal) and principal.carpenter_id is not None
-        else CarpenterId(principal)
-    )
-    use_case = ListOrders(uow)
-    orders, total = use_case.execute(carpenter_id, limit, offset)
+    carpenter_id = _resolve_carpenter_id(principal)
+    orders, total = ListOrders(uow).execute(carpenter_id, limit, offset)
     return OrderListResponse(
-        orders=[_to_order_response(o) for o in orders],
+        orders=[_to_order_response(order) for order in orders],
         total=total,
         limit=limit,
         offset=offset,
@@ -70,38 +55,8 @@ def get_order(
     principal: PrincipalDep,
     uow: UnitOfWorkDep,
 ) -> OrderDetailResponse:
-    use_case = GetOrder(uow)
-    detail = use_case.execute(OrderId(order_id), principal)
-    order = detail.order
-    payments = detail.payments
-    return OrderDetailResponse(
-        id=str(order.id),
-        quote_id=str(order.quote_id),
-        code=order.code,
-        total=float(order.total.amount),
-        deposit_amount=float(order.deposit_amount.amount),
-        balance_amount=float(order.balance_amount.amount),
-        currency=order.currency,
-        status=order.status,
-        estimated_delivery_date=order.estimated_delivery_date,
-        created_at=order.created_at.isoformat() if order.created_at else None,
-        updated_at=order.updated_at.isoformat() if order.updated_at else None,
-        payments=[
-            PaymentSummary(
-                id=str(p.id),
-                type=p.type,
-                amount=float(p.amount.amount),
-                status=p.status,
-                paypal_order_id=p.paypal_order_id,
-            )
-            for p in payments
-        ],
-        paid_amount=float(detail.paid_amount.amount),
-        remaining_balance=float(detail.remaining_balance.amount),
-        customer_name=detail.customer_name,
-        customer_email=detail.customer_email,
-        project_request=detail.project_request,
-    )
+    detail = GetOrder(uow).execute(OrderId(order_id), principal)
+    return _to_order_detail_response(detail)
 
 
 @router.patch("/orders/{order_id}")
@@ -111,13 +66,8 @@ def update_order(
     principal: WorkshopCarpenterDep,
     uow: UnitOfWorkDep,
 ) -> OrderResponse:
-    carpenter_id = (
-        principal.carpenter_id
-        if isinstance(principal, AccessPrincipal) and principal.carpenter_id is not None
-        else CarpenterId(principal)
-    )
-    use_case = UpdateOrder(uow)
-    order = use_case.execute(
+    carpenter_id = _resolve_carpenter_id(principal)
+    order = UpdateOrder(uow).execute(
         OrderId(order_id),
         carpenter_id,
         UpdateOrderInput(

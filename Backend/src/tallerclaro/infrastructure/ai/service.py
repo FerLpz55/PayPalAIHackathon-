@@ -17,6 +17,18 @@ from tallerclaro.application.interfaces import AIService
 from tallerclaro.bootstrap.settings import Settings
 from tallerclaro.domain.exceptions import DomainError
 
+SYSTEM_PROMPT = (
+    "You are a carpentry estimator for TallerClaro. The shop only accepts USD. "
+    "Respond in JSON with this exact structure:\n"
+    '{"needs_information": bool, "missing_info": [string], "description": string, '
+    '"items": [{"type": "material"|"labor"|"other", "description": string, '
+    '"unit": string, "quantity": number, "unit_price": number}], '
+    '"assumptions": [string]}.\n'
+    "If the request lacks enough detail, set needs_information=true and list missing_info. "
+    "Otherwise provide line items and a clear description. "
+    "Prices are in USD. Do not include totals; the server calculates them."
+)
+
 
 class UnconfiguredAIService:
     """Implementación por defecto cuando el servicio de IA no está configurado."""
@@ -80,9 +92,7 @@ class AIProposalParser:
                 message="Line items cannot be empty",
             )
 
-        items: list[QuoteLineItemInput] = []
-        for raw in raw_items:
-            items.append(AIProposalParser._parse_item(raw))
+        items = [AIProposalParser._parse_item(raw) for raw in raw_items]
 
         raw_assumptions = data.get("assumptions")
         if isinstance(raw_assumptions, list):
@@ -124,27 +134,18 @@ class AIProposalParser:
         if not isinstance(unit, str) or not unit.strip():
             unit = "unit"
 
-        raw_qty = raw.get("quantity")
-        try:
-            quantity = Decimal(str(raw_qty))
-            if quantity.is_nan() or quantity.is_infinite() or quantity <= 0:
-                raise ValueError
-        except Exception:
-            raise DomainError(
-                code="AI_RESPONSE_INVALID",
-                message=f"Line item quantity must be a positive decimal: {raw_qty}",
-            )
-
-        raw_price = raw.get("unit_price")
-        try:
-            unit_price = Decimal(str(raw_price))
-            if unit_price.is_nan() or unit_price.is_infinite() or unit_price < 0:
-                raise ValueError
-        except Exception:
-            raise DomainError(
-                code="AI_RESPONSE_INVALID",
-                message=f"Line item unit_price must be a non-negative decimal: {raw_price}",
-            )
+        quantity = AIProposalParser._parse_decimal_field(
+            raw.get("quantity"),
+            error_message=f"Line item quantity must be a positive decimal: {raw.get('quantity')}",
+            allow_zero=False,
+        )
+        unit_price = AIProposalParser._parse_decimal_field(
+            raw.get("unit_price"),
+            error_message=(
+                f"Line item unit_price must be a non-negative decimal: {raw.get('unit_price')}"
+            ),
+            allow_zero=True,
+        )
 
         return QuoteLineItemInput(
             type=item_type,
@@ -153,6 +154,22 @@ class AIProposalParser:
             quantity=quantity,
             unit_price=unit_price,
         )
+
+    @staticmethod
+    def _parse_decimal_field(
+        raw_value: object, *, error_message: str, allow_zero: bool
+    ) -> Decimal:
+        try:
+            parsed = Decimal(str(raw_value))
+            is_out_of_bounds = parsed < 0 if allow_zero else parsed <= 0
+            if parsed.is_nan() or parsed.is_infinite() or is_out_of_bounds:
+                raise ValueError
+            return parsed
+        except Exception:
+            raise DomainError(
+                code="AI_RESPONSE_INVALID",
+                message=error_message,
+            ) from None
 
 
 class OpenAIAIService:
@@ -176,6 +193,10 @@ class OpenAIAIService:
             raise DomainError(code="SERVICE_UNAVAILABLE", message="AI API key is missing")
 
         prompt = self._build_prompt(request)
+        content = self._request_completion(prompt)
+        return self._parse_proposal(content)
+
+    def _request_completion(self, prompt: dict[str, str]) -> str:
         try:
             response = self._client.post(
                 f"{self._base_url}/chat/completions",
@@ -194,31 +215,18 @@ class OpenAIAIService:
             )
             response.raise_for_status()
             payload = response.json()
-            content = payload["choices"][0]["message"]["content"]
+            return payload["choices"][0]["message"]["content"]
         except DomainError:
             raise
         except Exception:
             raise DomainError(code="SERVICE_UNAVAILABLE", message="AI service unavailable") from None
-
-        return self._parser.parse(content)
 
     def _parse_proposal(self, content: str) -> QuoteProposalResult:
         """Delega el parseo de la propuesta al parser especializado (Single Responsibility)."""
         return self._parser.parse(content)
 
     def _build_prompt(self, request: str) -> dict[str, str]:
-        system = (
-            "You are a carpentry estimator for TallerClaro. The shop only accepts USD. "
-            "Respond in JSON with this exact structure:\n"
-            '{"needs_information": bool, "missing_info": [string], "description": string, '
-            '"items": [{"type": "material"|"labor"|"other", "description": string, '
-            '"unit": string, "quantity": number, "unit_price": number}], '
-            '"assumptions": [string]}.\n'
-            "If the request lacks enough detail, set needs_information=true and list missing_info. "
-            "Otherwise provide line items and a clear description. "
-            "Prices are in USD. Do not include totals; the server calculates them."
-        )
-        return {"system": system, "user": request}
+        return {"system": SYSTEM_PROMPT, "user": request}
 
 
 # Registro extensible de proveedores (Open/Closed Principle)
