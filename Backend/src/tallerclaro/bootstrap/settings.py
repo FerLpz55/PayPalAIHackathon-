@@ -1,11 +1,27 @@
 """Configuración del servidor."""
 
+from pathlib import Path
+
 from pydantic import Field, PostgresDsn, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# Directorio Backend/, independiente del directorio de trabajo.
+_BACKEND_DIR = Path(__file__).resolve().parents[3]
+
+# Se cargan ambos archivos. Los archivos posteriores en la tupla tienen
+# prioridad, así que .env.example aporta los valores por defecto y .env los
+# sobreescribe con las credenciales reales (por ejemplo, la URL de Supabase).
+_ENV_EXAMPLE_FILE = _BACKEND_DIR / ".env.example"
+_ENV_FILE = _BACKEND_DIR / ".env"
+
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="TALLERCLARO_", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_prefix="TALLERCLARO_",
+        env_file=(_ENV_EXAMPLE_FILE, _ENV_FILE),
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
 
     app_name: str = "TallerClaro API"
 
