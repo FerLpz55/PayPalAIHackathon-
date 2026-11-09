@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 
 import psycopg
 
+from tallerclaro.application.dtos import WebhookEvent
 from tallerclaro.application.interfaces import (
     CarpenterRepository,
     CustomerRepository,
@@ -638,6 +639,34 @@ class PostgresPaymentRepository:
         ).fetchall()
         return [self._row_to_payment(row) for row in rows]
 
+    def get_by_paypal_order_id(self, paypal_order_id: str) -> Payment | None:
+        row = self._conn.execute(
+            f"""
+            SELECT {_PAYMENT_SELECT_COLUMNS}
+            FROM tallerclaro.pago
+            WHERE paypal_order_id = %s
+            """,
+            (paypal_order_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return self._row_to_payment(row)
+
+    def list_stale_pending(self, updated_before: datetime, limit: int) -> list[Payment]:
+        rows = self._conn.execute(
+            f"""
+            SELECT {_PAYMENT_SELECT_COLUMNS}
+            FROM tallerclaro.pago
+            WHERE estado = 'pending'
+              AND paypal_order_id IS NOT NULL
+              AND ultima_actualizacion < %s
+            ORDER BY ultima_actualizacion
+            LIMIT %s
+            """,
+            (updated_before, limit),
+        ).fetchall()
+        return [self._row_to_payment(row) for row in rows]
+
     def get_pending_by_order_and_type(
         self, order_id: OrderId, payment_type: PaymentType
     ) -> Payment | None:
@@ -687,4 +716,51 @@ class PostgresPaymentRepository:
             idempotency_key=idempotency_key,
             request_fingerprint=request_fingerprint,
             approval_url=approval_url,
+        )
+
+
+class PostgresPayPalEventRepository:
+    """Registro idempotente de eventos de webhook.
+
+    ``register`` usa ``ON CONFLICT DO NOTHING`` para que dos entregas del mismo
+    evento no se procesen dos veces; ``mark_processed`` solo actualiza la fila.
+    """
+
+    def __init__(self, conn: psycopg.Connection) -> None:
+        self._conn = conn
+
+    def claim(self, event: WebhookEvent) -> str:
+        inserted = self._conn.execute(
+            """
+            INSERT INTO tallerclaro.evento_paypal (id_evento, tipo, estado)
+            VALUES (%s, %s, 'received')
+            ON CONFLICT (id_evento) DO NOTHING
+            RETURNING id_evento
+            """,
+            (event.id, event.type),
+        ).fetchone()
+        if inserted is not None:
+            return "new"
+
+        retried = self._conn.execute(
+            """
+            UPDATE tallerclaro.evento_paypal
+            SET estado = 'received', resultado = NULL, procesado_en = NULL
+            WHERE id_evento = %s AND estado = 'failed'
+            RETURNING id_evento
+            """,
+            (event.id,),
+        ).fetchone()
+        return "retry" if retried is not None else "duplicate"
+
+    def mark_processed(
+        self, event_id: str, outcome: str, detail: str | None = None
+    ) -> None:
+        self._conn.execute(
+            """
+            UPDATE tallerclaro.evento_paypal
+            SET estado = %s, resultado = %s, procesado_en = now()
+            WHERE id_evento = %s
+            """,
+            (outcome, detail, event_id),
         )

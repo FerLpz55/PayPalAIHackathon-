@@ -20,6 +20,7 @@ from tallerclaro.application.dtos import (
     PaymentIntent,
     ProviderOrder,
     QuoteProposalResult,
+    WebhookEvent,
 )
 from tallerclaro.domain.accounting import WorkshopFinancialSummary
 from tallerclaro.domain.entities import (
@@ -135,6 +136,18 @@ class PaymentRepository(Protocol):
 
     def list_by_order(self, order_id: OrderId) -> list[Payment]:
         """Devuelve todos los intentos del pedido, incluidos los no completados."""
+        ...
+
+    def get_by_paypal_order_id(self, paypal_order_id: str) -> Payment | None:
+        """Busca un intento por el ID de orden de PayPal; ``None`` si no existe."""
+        ...
+
+    def list_stale_pending(self, updated_before: datetime, limit: int) -> list[Payment]:
+        """Intentos ``pending`` con orden del proveedor y sin actividad reciente.
+
+        Se usan para conciliación en segundo plano; el orden es del más antiguo
+        al más reciente y ``limit`` acota el lote.
+        """
         ...
 
     def get_pending_by_order_and_type(
@@ -267,6 +280,10 @@ class UnitOfWork(Protocol):
     def rate_limits(self) -> RateLimiter:
         ...
 
+    @property
+    def paypal_events(self) -> PayPalEventRepository:
+        ...
+
     def commit(self) -> None:
         """Confirma la transacción activa; los cambios pasan a ser visibles."""
         ...
@@ -306,6 +323,36 @@ class AccountingAssistant(Protocol):
     """
 
     def explain(self, summary: WorkshopFinancialSummary, question: str) -> str:
+        ...
+
+
+class PayPalEventRepository(Protocol):
+    """Registro idempotente de eventos de webhook de PayPal.
+
+    ``claim`` reserva el evento de forma atómica y devuelve ``"new"`` la primera
+    vez, ``"retry"`` si la entrega anterior falló (el evento queda reclamado de
+    nuevo) y ``"duplicate"`` si ya se procesó o se está procesando. Gracias a
+    ello una reentrega de PayPal no duplica la conciliación ni un fallo
+    transitorio bloquea el reintento.
+    """
+
+    def claim(self, event: WebhookEvent) -> str:
+        ...
+
+    def mark_processed(self, event_id: str, outcome: str, detail: str | None = None) -> None:
+        ...
+
+
+class WebhookVerifier(Protocol):
+    """Verifica la autenticidad de un webhook de PayPal.
+
+    Recibe las cabeceras y el cuerpo crudo ya decodificado. Devuelve el evento
+    normalizado solo si PayPal confirma la firma; en cualquier otro caso lanza
+    ``DomainError`` (``UNAUTHORIZED``/``SERVICE_UNAVAILABLE``) y el evento no se
+    registra ni se procesa.
+    """
+
+    def verify(self, headers: dict[str, str], body: bytes) -> WebhookEvent:
         ...
 
 

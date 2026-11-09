@@ -1,5 +1,5 @@
 """Resultados de repositorios y mapeo SQL local. No ejecuta PostgreSQL."""
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from unittest.mock import MagicMock
 
@@ -181,3 +181,39 @@ def test_payment_save_read_and_order_listing(kind):
         assert conn.calls[-1][1] == (7,)
         assert 'WHERE id_pedido = %s' in conn.calls[-1][0]
         assert conn.responses == []
+
+
+@pytest.mark.parametrize('kind', ['fake', 'postgres'])
+def test_payment_lookup_by_paypal_order_and_stale_pending(kind):
+    stale_at = NOW - timedelta(minutes=10)
+    payment = Payment(None, 7, 'deposit', Money('100'), 'USD', 'pending',
+                      'PP-1', None, None, stale_at, None)
+    if kind == 'fake':
+        repo = FakePaymentRepository()
+        saved = repo.save(payment)
+        saved.updated_at = stale_at
+        found = repo.get_by_paypal_order_id('PP-1')
+        assert found is not None and found.paypal_order_id == 'PP-1'
+        assert repo.get_by_paypal_order_id('PP-UNKNOWN') is None
+        assert [p.id for p in repo.list_stale_pending(NOW, 10)] == [saved.id]
+        assert repo.list_stale_pending(NOW - timedelta(minutes=30), 10) == []
+        return
+
+    row = payment_row(payment)
+    lookup_conn = ScriptedConnection(row, None)
+    lookup_repo = PostgresPaymentRepository(lookup_conn)
+    found = lookup_repo.get_by_paypal_order_id('PP-1')
+    assert found is not None and found.paypal_order_id == 'PP-1'
+    assert lookup_repo.get_by_paypal_order_id('PP-UNKNOWN') is None
+    assert 'WHERE paypal_order_id = %s' in lookup_conn.calls[0][0]
+    assert lookup_conn.calls[0][1] == ('PP-1',)
+    assert lookup_conn.responses == []
+
+    stale_conn = ScriptedConnection([row], [])
+    stale_repo = PostgresPaymentRepository(stale_conn)
+    listed = stale_repo.list_stale_pending(NOW, 10)
+    stale_repo.list_stale_pending(NOW - timedelta(minutes=30), 10)
+    assert [p.id for p in listed] == [payment.id]
+    assert "estado = 'pending'" in stale_conn.calls[0][0]
+    assert stale_conn.calls[0][1] == (NOW, 10)
+    assert stale_conn.responses == []

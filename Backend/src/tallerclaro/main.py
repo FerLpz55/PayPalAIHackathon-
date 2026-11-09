@@ -1,5 +1,6 @@
 """Aplicación FastAPI de TallerClaro."""
 
+import asyncio
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -11,7 +12,12 @@ from tallerclaro.infrastructure.ai.accounting_service import build_accounting_as
 from tallerclaro.infrastructure.ai.service import build_ai_service
 from tallerclaro.infrastructure.db.connection import Database
 from tallerclaro.infrastructure.db.unit_of_work import PostgresUnitOfWork
+from tallerclaro.application.use_cases import ReconcileStalePayments
 from tallerclaro.infrastructure.payment.paypal_processor import build_payment_processor
+from tallerclaro.infrastructure.payment.paypal_webhook import build_webhook_verifier
+from tallerclaro.infrastructure.payment.reconciliation_worker import (
+    PaymentReconciliationWorker,
+)
 from tallerclaro.infrastructure.security.session_service import credential_fingerprint
 from tallerclaro.infrastructure.security.workshop_auth import ensure_workshop_auth_configured
 from tallerclaro.presentation.http.exception_handlers import register as register_exception_handlers
@@ -72,8 +78,41 @@ async def lifespan(app: FastAPI):
         app.state.accounting_assistant = build_accounting_assistant(settings)
     if getattr(app.state, "payment_processor", None) is None:
         app.state.payment_processor = build_payment_processor(settings)
-    yield
-    database.close()
+    if getattr(app.state, "webhook_verifier", None) is None:
+        app.state.webhook_verifier = build_webhook_verifier(settings)
+
+    reconciliation_task = _start_reconciliation(settings, app)
+    try:
+        yield
+    finally:
+        if reconciliation_task is not None:
+            reconciliation_task.cancel()
+            try:
+                await reconciliation_task
+            except asyncio.CancelledError:
+                pass
+        database.close()
+
+
+def _start_reconciliation(settings: Settings, app: FastAPI) -> asyncio.Task | None:
+    """Arranca el bucle solo con PayPal configurado y la conciliación habilitada."""
+    if not settings.payment_reconciliation_enabled:
+        return None
+    if (settings.paypal_mode or "").lower().strip() not in {"sandbox", "live"}:
+        return None
+    uow_factory = app.state.uow_factory
+    if not callable(uow_factory):
+        return None
+    worker = PaymentReconciliationWorker(
+        ReconcileStalePayments(
+            uow_factory,
+            app.state.payment_processor,
+            min_age_seconds=settings.payment_reconciliation_min_age_seconds,
+            batch_size=settings.payment_reconciliation_batch_size,
+        ),
+        interval_seconds=settings.payment_reconciliation_interval_seconds,
+    )
+    return asyncio.create_task(worker.run())
 
 
 def create_app(

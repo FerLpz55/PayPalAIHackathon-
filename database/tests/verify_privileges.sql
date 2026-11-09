@@ -7,7 +7,8 @@
 --   * que el esquema y las tablas existen;
 --   * que el rol de aplicación no puede borrar filas;
 --   * si la migración 003 ya está aplicada;
---   * si hay intentos de pago pendientes duplicados que bloqueen la migración de idempotencia.
+--   * si hay intentos de pago pendientes duplicados que bloqueen la migración de idempotencia;
+--   * si las columnas de idempotencia (007) y la tabla de webhooks (008) existen.
 
 \echo '== Rol efectivo y versión =='
 SELECT current_user AS effective_role,
@@ -47,3 +48,19 @@ WHERE estado = 'pending'
 GROUP BY id_pedido, tipo
 HAVING count(*) > 1
 ORDER BY id_pedido, tipo;
+
+\echo '== Migración 007: columnas de idempotencia de pago =='
+SELECT column_name
+FROM information_schema.columns
+WHERE table_schema = 'tallerclaro'
+  AND table_name = 'pago'
+  AND column_name IN ('clave_idempotencia', 'huella_solicitud', 'paypal_approval_url')
+ORDER BY column_name;
+
+\echo '== Migración 008: tabla de eventos de webhook =='
+SELECT EXISTS (
+    SELECT 1
+    FROM information_schema.tables
+    WHERE table_schema = 'tallerclaro'
+      AND table_name = 'evento_paypal'
+) AS has_paypal_event_table;

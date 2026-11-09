@@ -357,6 +357,33 @@ CREATE INDEX IF NOT EXISTS ix_limite_consumo_expiracion
     ON tallerclaro.limite_consumo (expira_en);
 
 -- ---------------------------------------------------------------------------
+-- Migracion 008: registro idempotente de eventos de webhook de PayPal
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS tallerclaro.evento_paypal (
+    id_evento       text NOT NULL,
+    tipo            text NOT NULL,
+    estado          text NOT NULL DEFAULT 'received',
+    resultado       text,
+    recibido_en     timestamptz NOT NULL DEFAULT now(),
+    procesado_en    timestamptz,
+
+    CONSTRAINT pk_evento_paypal PRIMARY KEY (id_evento),
+    CONSTRAINT ck_evento_paypal_id_no_vacio CHECK (btrim(id_evento) <> ''),
+    CONSTRAINT ck_evento_paypal_tipo_no_vacio CHECK (btrim(tipo) <> ''),
+    CONSTRAINT ck_evento_paypal_estado CHECK (
+        estado IN ('received', 'processed', 'ignored', 'failed')
+    )
+);
+
+COMMENT ON TABLE tallerclaro.evento_paypal IS
+    'Eventos de webhook de PayPal recibidos, para deduplicacion y auditoria.';
+COMMENT ON COLUMN tallerclaro.evento_paypal.estado IS
+    'received | processed | ignored | failed.';
+
+CREATE INDEX IF NOT EXISTS ix_evento_paypal_tipo_recibido
+    ON tallerclaro.evento_paypal (tipo, recibido_en DESC);
+
+-- ---------------------------------------------------------------------------
 -- Migracion 002: informacion adicional y partidas activas
 -- ---------------------------------------------------------------------------
 ALTER TABLE tallerclaro.cotizacion
@@ -408,7 +435,8 @@ BEGIN
             tallerclaro.pago,
             tallerclaro.cliente_token,
             tallerclaro.sesion_taller,
-            tallerclaro.limite_consumo
+            tallerclaro.limite_consumo,
+            tallerclaro.evento_paypal
         TO tallerclaro_app;
 
         -- Obtener el nombre real de cada secuencia identity, incluso si fue renombrada.

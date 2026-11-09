@@ -125,6 +125,17 @@ def test_release_rejects_live_payments_by_default():
         )
 
 
+def test_release_rejects_paypal_without_webhook_id():
+    with pytest.raises(ValidationError, match="PAYPAL_WEBHOOK_ID"):
+        _release_settings(
+            paypal_mode="sandbox",
+            paypal_client_id="client",
+            paypal_client_secret="secret",
+            paypal_return_url="https://example.org/return",
+            paypal_cancel_url="https://example.org/cancel",
+        )
+
+
 def test_release_accepts_complete_sandbox_configuration():
     settings = _release_settings(
         paypal_mode="sandbox",
@@ -132,6 +143,7 @@ def test_release_accepts_complete_sandbox_configuration():
         paypal_client_secret="secret",
         paypal_return_url="https://example.org/#/return",
         paypal_cancel_url="https://example.org/#/cancel",
+        paypal_webhook_id="WEBHOOK-1",
     )
     assert settings.is_release
     assert settings.paypal_api_base == "https://api.sandbox.paypal.com"

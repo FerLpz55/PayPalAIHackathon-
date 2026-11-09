@@ -15,6 +15,7 @@ from tallerclaro.application.dtos import (
     ProviderOrder,
     QuoteLineItemInput,
     QuoteProposalResult,
+    WebhookEvent,
 )
 from tallerclaro.application.interfaces import AIService, PaymentProcessor, UnitOfWork
 from tallerclaro.domain.accounting import WorkshopFinancialSummary
@@ -180,6 +181,24 @@ class FakePaymentRepository:
     def list_by_order(self, order_id: OrderId) -> list[Payment]:
         return [p for p in self._store.values() if p.order_id == order_id]
 
+    def get_by_paypal_order_id(self, paypal_order_id: str) -> Payment | None:
+        for payment in self._store.values():
+            if payment.paypal_order_id == paypal_order_id:
+                return payment
+        return None
+
+    def list_stale_pending(self, updated_before: datetime, limit: int) -> list[Payment]:
+        stale = [
+            payment
+            for payment in self._store.values()
+            if payment.status == "pending"
+            and payment.paypal_order_id is not None
+            and (payment.updated_at or datetime.min.replace(tzinfo=timezone.utc))
+            < updated_before
+        ]
+        stale.sort(key=lambda payment: payment.updated_at or datetime.min.replace(tzinfo=timezone.utc))
+        return stale[:limit]
+
     def get_pending_by_order_and_type(
         self, order_id: OrderId, payment_type: PaymentType
     ) -> Payment | None:
@@ -198,6 +217,37 @@ class FakePaymentRepository:
             reverse=True,
         )
         return pending[0]
+
+
+class FakePayPalEventRepository:
+    """Deduplicación de eventos con la misma semántica que PostgreSQL."""
+
+    def __init__(self) -> None:
+        self._states: dict[str, str] = {}
+        self._details: dict[str, str | None] = {}
+
+    def claim(self, event: WebhookEvent) -> str:
+        state = self._states.get(event.id)
+        if state is None:
+            self._states[event.id] = "received"
+            return "new"
+        if state == "failed":
+            self._states[event.id] = "received"
+            self._details.pop(event.id, None)
+            return "retry"
+        return "duplicate"
+
+    def mark_processed(
+        self, event_id: str, outcome: str, detail: str | None = None
+    ) -> None:
+        self._states[event_id] = outcome
+        self._details[event_id] = detail
+
+    def state(self, event_id: str) -> str | None:
+        return self._states.get(event_id)
+
+    def detail(self, event_id: str) -> str | None:
+        return self._details.get(event_id)
 
 
 class FakeCustomerTokenRepository:
@@ -354,6 +404,7 @@ class FakeUnitOfWork:
         self._payments = FakePaymentRepository()
         self._tokens = tokens if tokens is not None else FakeCustomerTokenRepository()
         self._rate_limits = FakeRateLimiter()
+        self._paypal_events = FakePayPalEventRepository()
         self._sessions = (
             sessions
             if sessions is not None
@@ -417,6 +468,11 @@ class FakeUnitOfWork:
         self._active_frame()
         return self._capture_reservations
 
+    @property
+    def paypal_events(self):
+        self._active_frame()
+        return self._paypal_events
+
     def _take_snapshot(self) -> dict:
         return {
             "customers_store": copy.deepcopy(self._customers._store),
@@ -434,6 +490,8 @@ class FakeUnitOfWork:
             "tokens_dict": copy.deepcopy({key: value for key, value in self._tokens.__dict__.items() if key != '_clock'}),
             "sessions_store": copy.deepcopy(self._sessions._sessions),
             "rate_limits": copy.deepcopy(self._rate_limits._counters),
+            "paypal_events": copy.deepcopy(self._paypal_events._states),
+            "paypal_event_details": copy.deepcopy(self._paypal_events._details),
         }
 
     def _restore_snapshot(self, snap: dict) -> None:
@@ -451,6 +509,8 @@ class FakeUnitOfWork:
         self._payments._next_id = snap["payments_next_id"]
         self._sessions._sessions = copy.deepcopy(snap["sessions_store"])
         self._rate_limits._counters = copy.deepcopy(snap["rate_limits"])
+        self._paypal_events._states = copy.deepcopy(snap["paypal_events"])
+        self._paypal_events._details = copy.deepcopy(snap["paypal_event_details"])
         clock = self._tokens.__dict__.get('_clock')
         self._tokens.__dict__.clear()
         self._tokens.__dict__.update(copy.deepcopy(snap["tokens_dict"]))
@@ -500,6 +560,31 @@ class FakeUnitOfWork:
         return result
 
 
+class FakeWebhookVerifier:
+    """Verificador determinista: devuelve eventos encolados y registra llamadas."""
+
+    def __init__(self) -> None:
+        self.events: list[WebhookEvent] = []
+        self.calls: list[tuple[dict[str, str], bytes]] = []
+        self.error: Exception | None = None
+
+    def queue(self, event: WebhookEvent) -> None:
+        self.events.append(event)
+
+    def verify(self, headers: dict[str, str], body: bytes) -> WebhookEvent:
+        from tallerclaro.domain.exceptions import DomainError
+
+        self.calls.append((dict(headers), body))
+        if self.error is not None:
+            raise self.error
+        if not self.events:
+            raise DomainError(
+                code="UNAUTHORIZED",
+                message="No verified event queued",
+            )
+        return self.events.pop(0)
+
+
 class FakeDependenciesContainer:
     """Contenedor de dependencias de prueba."""
 
@@ -508,6 +593,7 @@ class FakeDependenciesContainer:
         self.ai = FakeAIService()
         self.payment = FakePaymentProcessor(success=True)
         self.accounting = FakeAccountingAssistant(self.uow)
+        self.webhook = FakeWebhookVerifier()
 
 
 class FakeAIService:

@@ -298,6 +298,31 @@ COMMENT ON TABLE tallerclaro.limite_consumo IS
     'Contadores atómicos por clave y ventana para limitar abuso.';
 
 -- ---------------------------------------------------------------------------
+-- 7d. evento_paypal (Migracion 008)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS tallerclaro.evento_paypal (
+    id_evento       text NOT NULL,
+    tipo            text NOT NULL,
+    estado          text NOT NULL DEFAULT 'received',
+    resultado       text,
+    recibido_en     timestamptz NOT NULL DEFAULT now(),
+    procesado_en    timestamptz,
+
+    CONSTRAINT pk_evento_paypal PRIMARY KEY (id_evento),
+    CONSTRAINT ck_evento_paypal_id_no_vacio CHECK (btrim(id_evento) <> ''),
+    CONSTRAINT ck_evento_paypal_tipo_no_vacio CHECK (btrim(tipo) <> ''),
+    CONSTRAINT ck_evento_paypal_estado CHECK (
+        estado IN ('received', 'processed', 'ignored', 'failed')
+    )
+);
+
+COMMENT ON TABLE tallerclaro.evento_paypal IS
+    'Eventos de webhook de PayPal recibidos, para deduplicacion y auditoria.';
+
+CREATE INDEX IF NOT EXISTS ix_evento_paypal_tipo_recibido
+    ON tallerclaro.evento_paypal (tipo, recibido_en DESC);
+
+-- ---------------------------------------------------------------------------
 -- 8. Campos adicionales de cotizacion y detalle (Migracion 002)
 -- ---------------------------------------------------------------------------
 ALTER TABLE tallerclaro.cotizacion
@@ -399,7 +424,8 @@ BEGIN
             tallerclaro.pago,
             tallerclaro.cliente_token,
             tallerclaro.sesion_taller,
-            tallerclaro.limite_consumo
+            tallerclaro.limite_consumo,
+            tallerclaro.evento_paypal
         TO tallerclaro_app;
 
         FOR tabla, columna IN

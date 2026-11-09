@@ -12,7 +12,7 @@ Monolito FastAPI organizado por capas para cotizaciones, pedidos y pagos de Tall
 - Reserva de captura separada del contrato general de pedidos mediante un protocolo dedicado expuesto por el Unit of Work.
 - Cálculo de importes y elegibilidad de pagos centralizados en el dominio; los casos de uso solo cargan datos, autorizan, coordinan y persisten.
 - Endpoints HTTP documentados en OpenAPI bajo `/api`.
-- Pruebas unitarias, de aplicación y de API con dobles de memoria (435 pruebas aprobadas).
+- Pruebas unitarias, de aplicación y de API con dobles de memoria (467 pruebas aprobadas).
 
 **Pendiente de conexión real:**
 
@@ -116,7 +116,7 @@ Las pruebas usan dobles en memoria y no requieren PostgreSQL ni PayPal.
 Su configuración se aísla del `.env` local y de las variables de credenciales
 del proceso para evitar conexiones accidentales a servicios reales.
 
-Verificación local del 2026-11-09: `Backend/.venv/bin/pytest Backend` produjo 435 pruebas
+Verificación local del 2026-11-09: `Backend/.venv/bin/pytest Backend` produjo 467 pruebas
 aprobadas y una advertencia de deprecación de `pytest-asyncio` con Python 3.14.
 No se validaron servicios reales ni capturas simultáneas contra PostgreSQL.
 
@@ -210,12 +210,13 @@ Prefijo: `/api`
 | POST | `/payments/{id}/sync` | Conciliar con PayPal: captura solo si está `APPROVED` |
 | POST | `/payments/{id}/cancel` | Cancelar un intento pendiente sin liberar reservas inciertas |
 | GET | `/payments/{id}` | Consultar intento de pago |
+| POST | `/payments/webhook/paypal` | Webhook de PayPal verificado por firma |
 | GET | `/accounting/summary` | Resumen financiero del taller |
 | POST | `/accounting/assistant` | Preguntar al asistente contable |
 
 ### Autorización
 
-- Sin autenticación: `GET /api/health` y `POST /api/quotes`; esta última devuelve el token del cliente.
+- Sin autenticación: `GET /api/health`, `POST /api/quotes` (devuelve el token del cliente) y `POST /api/payments/webhook/paypal`, que se autentica con la firma de PayPal.
 - Taller: `POST /api/auth/login`, `GET /api/auth/session` y `POST /api/auth/logout`, además de `GET /api/orders`, `PATCH/DELETE /api/orders/{id}`, `POST /api/quotes/{id}/customer-access`, `GET /api/accounting/summary` y `POST /api/accounting/assistant`.
 - El login verifica las credenciales contra `TALLERCLARO_WORKSHOP_PASSWORD_HASH` y emite una sesión opaca de 256 bits. Solo se guarda su SHA-256 en `tallerclaro.sesion_taller`; caduca a los 30 minutos de inactividad o 8 horas absolutas, es revocable y rota en cada login. Cambiar el hash bcrypt invalida las sesiones (huella de credenciales).
 - Cookies: `__Host-tallerclaro_session` (`HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/`, sin `Domain`) y `__Host-tallerclaro_csrf` (legible por el JS del mismo origen). Las peticiones autenticadas por cookie que cambian estado exigen `X-CSRF-Token` igual al valor de la cookie CSRF y un `Origin` permitido.
@@ -240,17 +241,18 @@ secreto de tokens de ejemplo y configura `TALLERCLARO_CORS_ORIGINS` para el fron
 
 `TALLERCLARO_ENVIRONMENT` acepta `development`, `test` y `release`. En `release`
 el arranque rechaza secretos de plantilla, CORS con comodines o sin HTTPS,
-PayPal incompleto, Live sin `TALLERCLARO_ALLOW_LIVE_PAYMENTS=true` y un rol de
-base de datos superusuario o con `DELETE`.
+PayPal incompleto (incluido `TALLERCLARO_PAYPAL_WEBHOOK_ID`), Live sin
+`TALLERCLARO_ALLOW_LIVE_PAYMENTS=true` y un rol de base de datos superusuario o
+con `DELETE`.
 
 No incluir secretos en el código ni en variables `VITE_*`.
 
 ## PostgreSQL
 
 El esquema fuente de verdad está en [`database/schema.sql`](../database/schema.sql).
-Incluye 001–002, la columna de reserva de 003 y las tablas de 005–006 al crear
-tablas nuevas. Las columnas de idempotencia de pago y sus índices únicos
-requieren la migración 007. En bases existentes, `CREATE TABLE IF NOT EXISTS`
+Incluye 001–002, la columna de reserva de 003, las tablas de 005–006 y
+`evento_paypal` de 008 al crear tablas nuevas. Las columnas de idempotencia de
+pago y sus índices únicos requieren la migración 007. En bases existentes, `CREATE TABLE IF NOT EXISTS`
 no añade columnas: aplica cada migración por separado antes del despliegue, con
 autorización explícita. No hay runner automático; consulta
 [`database/README.md`](../database/README.md).
@@ -322,8 +324,28 @@ Un fallo de conexión, timeout o protocolo HTTP se normaliza a
 `PAYMENT_PROVIDER_ERROR` (HTTP 502), sin exponer secretos ni excepciones HTTPX.
 Los errores mantienen la reserva. La recuperación local se probó con dobles, y
 la idempotencia del proveedor y la concurrencia real siguen pendientes de
-validación en Sandbox/PostgreSQL. No hay webhook ni conciliación en segundo
-plano en esta fase.
+validación en Sandbox/PostgreSQL.
+
+**Webhook.** `POST /api/payments/webhook/paypal` recibe el evento sin token de
+cliente y exige `TALLERCLARO_PAYPAL_WEBHOOK_ID`. El backend llama a
+`/v1/notifications/verify-webhook-signature` de PayPal antes de tocar la base:
+sin `verification_status=SUCCESS` responde `401` y no registra nada. Los eventos
+se deduplican en `tallerclaro.evento_paypal` con `ON CONFLICT DO NOTHING`; una
+reentrega procesada responde `200 {"status": "duplicate"}` y un fallo queda como
+`failed` para que la siguiente entrega lo reintente. Solo los eventos
+`CHECKOUT.ORDER.*` y `PAYMENT.CAPTURE.*` provocan conciliación; reembolsos y
+disputas se registran como `ignored`. La conciliación vuelve a consultar a PayPal:
+nunca se acredita un pago usando solo el cuerpo del webhook.
+
+**Conciliación en segundo plano.** Con `TALLERCLARO_PAYPAL_MODE=sandbox|live` y
+`TALLERCLARO_PAYMENT_RECONCILIATION_ENABLED=true`, el `lifespan` inicia un bucle
+que consulta los intentos `pending` con orden de PayPal sin actividad durante
+`TALLERCLARO_PAYMENT_RECONCILIATION_MIN_AGE_SECONDS` (por lotes de
+`TALLERCLARO_PAYMENT_RECONCILIATION_BATCH_SIZE`, cada
+`TALLERCLARO_PAYMENT_RECONCILIATION_INTERVAL_SECONDS`) y los reconcilia con la
+misma lógica de `sync`. Cada pago usa su propia unidad de trabajo y un fallo no
+detiene el lote ni libera una reserva incierta. La tarea se cancela al apagar la
+aplicación.
 
 **Estado financiero y bloqueo.** El pedido expone `financial_status` derivado de
 los pagos completados: `unpaid`, `deposit_paid` o `paid`. No se puede cancelar

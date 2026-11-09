@@ -27,6 +27,7 @@ EXPECTED_OPERATIONS = {
     ("post", "/api/payments/{payment_id}/capture"),
     ("post", "/api/payments/{payment_id}/sync"),
     ("post", "/api/payments/{payment_id}/cancel"),
+    ("post", "/api/payments/webhook/paypal"),
 }
 
 

@@ -107,6 +107,20 @@ class PayPalHttpTransport:
         )
         return self._to_response(response)
 
+    def verify_webhook_signature(
+        self, verification: dict, access_token: str
+    ) -> PayPalResponse:
+        response = self._send(
+            "post",
+            f"{self._base_url}/v1/notifications/verify-webhook-signature",
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/json",
+            },
+            json=verification,
+        )
+        return self._to_response(response)
+
     def access_token(self) -> str:
         if not self._client_id or not self._client_secret:
             raise DomainError(code="SERVICE_UNAVAILABLE", message="PayPal credentials missing")

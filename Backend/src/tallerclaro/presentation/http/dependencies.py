@@ -20,6 +20,7 @@ from tallerclaro.application.interfaces import (
     PaymentProcessor,
     PriceLookupService,
     UnitOfWork,
+    WebhookVerifier,
 )
 from tallerclaro.application.use_cases import ResolveWorkshopSession, VerifyCustomerToken
 from tallerclaro.bootstrap.settings import Settings
@@ -50,6 +51,15 @@ def get_payment_processor(request: Request) -> PaymentProcessor:
     return request.app.state.payment_processor
 
 
+def get_webhook_verifier(request: Request) -> WebhookVerifier:
+    verifier = getattr(request.app.state, "webhook_verifier", None)
+    if verifier is None:
+        from tallerclaro.infrastructure.payment.paypal_webhook import build_webhook_verifier
+        verifier = build_webhook_verifier(request.app.state.settings)
+        request.app.state.webhook_verifier = verifier
+    return verifier
+
+
 def get_accounting_assistant(request: Request) -> AccountingAssistant:
     return request.app.state.accounting_assistant
 
@@ -67,6 +77,7 @@ SettingsDep = Annotated[Settings, Depends(get_settings)]
 UnitOfWorkDep = Annotated[UnitOfWork, Depends(get_unit_of_work)]
 AIServiceDep = Annotated[AIService, Depends(get_ai_service)]
 PaymentProcessorDep = Annotated[PaymentProcessor, Depends(get_payment_processor)]
+WebhookVerifierDep = Annotated[WebhookVerifier, Depends(get_webhook_verifier)]
 AccountingAssistantDep = Annotated[AccountingAssistant, Depends(get_accounting_assistant)]
 PriceLookupServiceDep = Annotated[PriceLookupService, Depends(get_price_lookup_service)]
 

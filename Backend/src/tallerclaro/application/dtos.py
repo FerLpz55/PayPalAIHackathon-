@@ -181,6 +181,21 @@ class ProviderOrder:
 
 
 @dataclass(frozen=True)
+class WebhookEvent:
+    """Evento de PayPal ya verificado y reducido a lo que el backend necesita.
+
+    No transporta el cuerpo crudo: solo el identificador para deduplicar, el
+    tipo, la orden afectada y la captura si el evento la incluye.
+    """
+
+    id: str
+    type: str
+    paypal_order_id: str | None = None
+    capture: CapturedPayment | None = None
+    summary: str = ""
+
+
+@dataclass(frozen=True)
 class AccountingAnswer:
     question: str
     answer: str

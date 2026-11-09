@@ -10,6 +10,7 @@ import psycopg
 
 from tallerclaro.application.interfaces import (
     CustomerTokenRepository,
+    PayPalEventRepository,
     RateLimiter,
     SqlPhase,
     UnitOfWork,
@@ -22,6 +23,7 @@ from tallerclaro.infrastructure.db.repositories import (
     PostgresCustomerRepository,
     PostgresOrderRepository,
     PostgresPaymentRepository,
+    PostgresPayPalEventRepository,
     PostgresQuoteRepository,
 )
 from tallerclaro.infrastructure.security.rate_limiter import PostgresRateLimiter
@@ -41,6 +43,7 @@ class _TransactionFrame:
     tokens: CustomerTokenRepository
     sessions: WorkshopSessionRepository
     rate_limits: RateLimiter
+    paypal_events: PayPalEventRepository
     committed: bool = False
 
 
@@ -99,6 +102,7 @@ class PostgresUnitOfWork:
                 absolute_hours=self._session_absolute_hours,
             ),
             rate_limits=PostgresRateLimiter(conn),
+            paypal_events=PostgresPayPalEventRepository(conn),
             committed=False,
         )
         self._frames.append(frame)
@@ -156,6 +160,10 @@ class PostgresUnitOfWork:
     @property
     def rate_limits(self) -> RateLimiter:
         return self._active_frame().rate_limits
+
+    @property
+    def paypal_events(self) -> PayPalEventRepository:
+        return self._active_frame().paypal_events
 
     def get_connection(self):
         """Expone la conexión activa."""

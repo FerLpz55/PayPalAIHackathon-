@@ -7,6 +7,10 @@ from tallerclaro.application.use_cases.authorization import (
     StartWorkshopSession,
 )
 from tallerclaro.application.use_cases.orders import GetOrder, ListOrders, UpdateOrder
+from tallerclaro.application.use_cases.payment_reconciliation import (
+    HandlePayPalWebhook,
+    ReconcileStalePayments,
+)
 from tallerclaro.application.use_cases.payments import (
     CancelPayment,
     CapturePayment,
@@ -47,4 +51,6 @@ __all__ = [
     "GetPayment",
     "SyncPayment",
     "CancelPayment",
+    "HandlePayPalWebhook",
+    "ReconcileStalePayments",
 ]

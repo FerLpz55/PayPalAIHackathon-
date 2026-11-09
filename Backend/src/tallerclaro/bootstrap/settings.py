@@ -87,6 +87,12 @@ class Settings(BaseSettings):
     # Este release solo se aprueba para Sandbox; Live exige habilitación explícita.
     allow_live_payments: bool = False
 
+    # Conciliación en segundo plano de intentos de pago sin resolver.
+    payment_reconciliation_enabled: bool = True
+    payment_reconciliation_interval_seconds: int = Field(default=300, ge=1)
+    payment_reconciliation_min_age_seconds: int = Field(default=300, ge=0)
+    payment_reconciliation_batch_size: int = Field(default=20, ge=1, le=200)
+
     # Acceso de demo del taller
     workshop_username: str = "taller"
     workshop_carpenter_id: int = 1
@@ -173,6 +179,10 @@ class Settings(BaseSettings):
                 problems.append("TALLERCLARO_PAYPAL_RETURN_URL must be an absolute https URL")
             if not _is_public_https_url(self.paypal_cancel_url):
                 problems.append("TALLERCLARO_PAYPAL_CANCEL_URL must be an absolute https URL")
+            if _looks_like_placeholder(self.paypal_webhook_id):
+                problems.append(
+                    "TALLERCLARO_PAYPAL_WEBHOOK_ID is required to verify PayPal webhooks"
+                )
             if self.paypal_mode == "live" and not self.allow_live_payments:
                 problems.append(
                     "PayPal live mode is outside this release; set TALLERCLARO_ALLOW_LIVE_PAYMENTS=true explicitly"

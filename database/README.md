@@ -29,6 +29,7 @@ database/
     005_add_workshop_sessions.sql
     006_add_rate_limits.sql
     007_add_payment_idempotency.sql
+    008_add_paypal_webhook_events.sql
 ```
 
 `schema.sql` incorpora 001–002, la columna de 003 y las tablas de 005–006 al
@@ -37,7 +38,8 @@ añade columnas: aplica 003 por separado. Las tablas `sesion_taller` y
 `limite_consumo` deben crearse con las migraciones 005 y 006. Las columnas de
 idempotencia de pago (`clave_idempotencia`, `huella_solicitud`,
 `paypal_approval_url`) y los índices únicos requieren la migración 007; antes de
-crearlos, normaliza los intentos pendientes duplicados por pedido y tipo. El
+crearlos, normaliza los intentos pendientes duplicados por pedido y tipo. La
+tabla `evento_paypal` (webhooks deduplicados) requiere la migración 008. El
 esquema no sustituye futuras migraciones ni comprueba automáticamente todas las
 diferencias de una base modificada manualmente.
 
@@ -53,8 +55,9 @@ diferencias de una base modificada manualmente.
 - Seis tablas de negocio (`cliente`, `carpintero`, `cotizacion`,
   `detalle_cotizacion`, `pedido`, `pago`), `cliente_token`,
   `sesion_taller` (sesiones opacas del taller, migración 005),
-  `limite_consumo` (contadores de abuso, migración 006) y las columnas de
-  idempotencia de `pago` (migración 007).
+  `limite_consumo` (contadores de abuso, migración 006), las columnas de
+  idempotencia de `pago` (migración 007) y `evento_paypal` (webhooks,
+  migración 008).
 - Convenciones: columnas en español, `snake_case`, PK `bigint GENERATED ALWAYS AS
   IDENTITY`, importes `numeric(14,2)`, cantidades `numeric(12,3)`, moneda `USD`,
   fechas `timestamptz`, estados como `text` con `CHECK`, nombres calificados.
