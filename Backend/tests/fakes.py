@@ -12,6 +12,7 @@ from tallerclaro.application.dtos import (
     CapturedPayment,
     MarketPriceReference,
     PaymentIntent,
+    ProviderOrder,
     QuoteLineItemInput,
     QuoteProposalResult,
 )
@@ -27,6 +28,7 @@ from tallerclaro.domain.entities import (
     OrderId,
     Payment,
     PaymentId,
+    PaymentType,
     Quote,
     QuoteId,
     QuoteLineItem,
@@ -112,6 +114,9 @@ class FakeCaptureReservationRepository:
         if self._captures.get(order_id) == payment_id:
             self._captures.pop(order_id)
 
+    def active_payment_id(self, order_id: OrderId) -> PaymentId | None:
+        return self._captures.get(order_id)
+
 
 class FakeOrderRepository:
     def __init__(self) -> None:
@@ -174,6 +179,25 @@ class FakePaymentRepository:
 
     def list_by_order(self, order_id: OrderId) -> list[Payment]:
         return [p for p in self._store.values() if p.order_id == order_id]
+
+    def get_pending_by_order_and_type(
+        self, order_id: OrderId, payment_type: PaymentType
+    ) -> Payment | None:
+        pending = [
+            payment
+            for payment in self._store.values()
+            if payment.order_id == order_id
+            and payment.type == payment_type
+            and payment.status == "pending"
+        ]
+        if not pending:
+            return None
+        pending.sort(
+            key=lambda payment: payment.created_at
+            or datetime.min.replace(tzinfo=timezone.utc),
+            reverse=True,
+        )
+        return pending[0]
 
 
 class FakeCustomerTokenRepository:
@@ -513,9 +537,20 @@ class FakePaymentProcessor:
     def __init__(self, success: bool = True) -> None:
         self._success = success
         self._orders: dict[str, PaymentIntent] = {}
+        self._request_ids: dict[str, PaymentIntent] = {}
+        self._statuses: dict[str, str] = {}
+        self._captures: dict[str, CapturedPayment] = {}
         self._counter = 0
+        self.create_calls: list[str | None] = []
+        self.capture_calls: list[str] = []
 
-    def create_order(self, amount: str, currency: str) -> PaymentIntent:
+    def create_order(
+        self, amount: str, currency: str, request_id: str | None = None
+    ) -> PaymentIntent:
+        self.create_calls.append(request_id)
+        if request_id is not None and request_id in self._request_ids:
+            # PayPal devuelve la misma orden para el mismo PayPal-Request-Id.
+            return self._request_ids[request_id]
         self._counter += 1
         paypal_order_id = f"PAYPAL-{self._counter}"
         intent = PaymentIntent(
@@ -526,9 +561,13 @@ class FakePaymentProcessor:
             approval_url=f"https://sandbox.paypal.com/checkoutnow?token={paypal_order_id}",
         )
         self._orders[paypal_order_id] = intent
+        self._statuses[paypal_order_id] = "CREATED"
+        if request_id is not None:
+            self._request_ids[request_id] = intent
         return intent
 
     def capture_order(self, paypal_order_id: str) -> CapturedPayment:
+        self.capture_calls.append(paypal_order_id)
         if paypal_order_id not in self._orders:
             from tallerclaro.domain.exceptions import DomainError
 
@@ -537,8 +576,11 @@ class FakePaymentProcessor:
             from tallerclaro.domain.exceptions import DomainError
 
             raise DomainError(code="PAYMENT_FAILED", message="Capture failed")
+        existing = self._captures.get(paypal_order_id)
+        if existing is not None:
+            return existing
         intent = self._orders[paypal_order_id]
-        return CapturedPayment(
+        captured = CapturedPayment(
             payment_id=PaymentId(0),
             status="completed",
             paypal_order_id=paypal_order_id,
@@ -547,6 +589,42 @@ class FakePaymentProcessor:
             currency=intent.currency,
             paid_at=datetime.now(timezone.utc).isoformat(),
         )
+        self._captures[paypal_order_id] = captured
+        self._statuses[paypal_order_id] = "COMPLETED"
+        return captured
+
+    def get_order(self, paypal_order_id: str) -> ProviderOrder:
+        if paypal_order_id not in self._orders:
+            from tallerclaro.domain.exceptions import DomainError
+
+            raise DomainError(code="PAYMENT_NOT_FOUND", message="Order not found")
+        status = self._statuses.get(paypal_order_id, "CREATED")
+        return ProviderOrder(
+            paypal_order_id=paypal_order_id,
+            status=status,
+            approval_url=self._orders[paypal_order_id].approval_url,
+            capture=self._captures.get(paypal_order_id) if status == "COMPLETED" else None,
+        )
+
+    def set_order_status(self, paypal_order_id: str, status: str) -> None:
+        """Fija el estado que devolverá ``get_order`` (para pruebas de sync)."""
+        self._statuses[paypal_order_id] = status
+
+    def mark_completed_externally(self, paypal_order_id: str) -> CapturedPayment:
+        """Simula una captura completada fuera del backend (webhook o panel)."""
+        intent = self._orders[paypal_order_id]
+        captured = CapturedPayment(
+            payment_id=PaymentId(0),
+            status="completed",
+            paypal_order_id=paypal_order_id,
+            paypal_capture_id=f"CAPTURE-{paypal_order_id}",
+            amount=intent.amount,
+            currency=intent.currency,
+            paid_at=datetime.now(timezone.utc).isoformat(),
+        )
+        self._captures[paypal_order_id] = captured
+        self._statuses[paypal_order_id] = "COMPLETED"
+        return captured
 
 
 class FakeAccountingAssistant:

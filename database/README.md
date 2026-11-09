@@ -28,13 +28,18 @@ database/
     004_add_cancelled_order_status.sql
     005_add_workshop_sessions.sql
     006_add_rate_limits.sql
+    007_add_payment_idempotency.sql
 ```
 
 `schema.sql` incorpora 001–002, la columna de 003 y las tablas de 005–006 al
 crear tablas nuevas. Sobre una base existente, `CREATE TABLE IF NOT EXISTS` no
-añade esa columna: aplica 003 por separado. Las tablas `sesion_taller` y
-`limite_consumo` deben crearse con las migraciones 005 y 006. El esquema no sustituye futuras migraciones ni comprueba
-automáticamente todas las diferencias de una base modificada manualmente.
+añade columnas: aplica 003 por separado. Las tablas `sesion_taller` y
+`limite_consumo` deben crearse con las migraciones 005 y 006. Las columnas de
+idempotencia de pago (`clave_idempotencia`, `huella_solicitud`,
+`paypal_approval_url`) y los índices únicos requieren la migración 007; antes de
+crearlos, normaliza los intentos pendientes duplicados por pedido y tipo. El
+esquema no sustituye futuras migraciones ni comprueba automáticamente todas las
+diferencias de una base modificada manualmente.
 
 ## Requisitos
 
@@ -47,8 +52,9 @@ automáticamente todas las diferencias de una base modificada manualmente.
 - Esquema dedicado: `tallerclaro` (aislado de `public` y de PostgREST / Data API).
 - Seis tablas de negocio (`cliente`, `carpintero`, `cotizacion`,
   `detalle_cotizacion`, `pedido`, `pago`), `cliente_token`,
-  `sesion_taller` (sesiones opacas del taller, migración 005) y
-  `limite_consumo` (contadores de abuso, migración 006).
+  `sesion_taller` (sesiones opacas del taller, migración 005),
+  `limite_consumo` (contadores de abuso, migración 006) y las columnas de
+  idempotencia de `pago` (migración 007).
 - Convenciones: columnas en español, `snake_case`, PK `bigint GENERATED ALWAYS AS
   IDENTITY`, importes `numeric(14,2)`, cantidades `numeric(12,3)`, moneda `USD`,
   fechas `timestamptz`, estados como `text` con `CHECK`, nombres calificados.

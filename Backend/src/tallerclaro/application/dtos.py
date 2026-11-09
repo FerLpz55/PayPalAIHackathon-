@@ -166,6 +166,21 @@ class CapturedPayment:
 
 
 @dataclass(frozen=True)
+class ProviderOrder:
+    """Estado actual de una orden en PayPal tal como lo devuelve ``GET``.
+
+    ``status`` usa los valores de PayPal (``CREATED``, ``APPROVED``,
+    ``COMPLETED``, ``VOIDED``...). ``capture`` solo viene informado cuando la
+    orden ya está ``COMPLETED`` y el cuerpo incluye la captura completada.
+    """
+
+    paypal_order_id: str
+    status: str
+    approval_url: str | None = None
+    capture: CapturedPayment | None = None
+
+
+@dataclass(frozen=True)
 class AccountingAnswer:
     question: str
     answer: str

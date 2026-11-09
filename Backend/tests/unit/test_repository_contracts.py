@@ -159,7 +159,8 @@ def test_order_save_lookup_workshop_filter_and_pagination(kind):
 def payment_row(payment):
     return (payment.id, payment.order_id, payment.type, payment.amount.amount, payment.currency,
             payment.status, payment.paypal_order_id, payment.paypal_capture_id,
-            payment.created_at or NOW, payment.updated_at or NOW, payment.paid_at)
+            payment.created_at or NOW, payment.updated_at or NOW, payment.paid_at,
+            payment.idempotency_key, payment.request_fingerprint, payment.approval_url)
 
 
 @pytest.mark.parametrize('kind', ['fake', 'postgres'])
@@ -176,7 +177,7 @@ def test_payment_save_read_and_order_listing(kind):
     assert (read.amount, read.currency, read.paypal_order_id, read.paypal_capture_id, read.paid_at) == (Money('100'), 'USD', 'PP-1', 'CAP-1', NOW)
     assert [p.id for p in repo.list_by_order(7)] == [saved.id]
     if kind == 'postgres':
-        assert conn.calls[0][1] == (7, 'deposit', Decimal('100'), 'USD', 'completed', 'PP-1', 'CAP-1', NOW)
+        assert conn.calls[0][1] == (7, 'deposit', Decimal('100'), 'USD', 'completed', 'PP-1', 'CAP-1', NOW, None, None, None)
         assert conn.calls[-1][1] == (7,)
         assert 'WHERE id_pedido = %s' in conn.calls[-1][0]
         assert conn.responses == []

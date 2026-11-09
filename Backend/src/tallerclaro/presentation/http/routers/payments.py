@@ -5,7 +5,13 @@ from __future__ import annotations
 from fastapi import APIRouter
 
 from tallerclaro.application.dtos import AccessPrincipal
-from tallerclaro.application.use_cases import CapturePayment, CreateOrderPayment, GetPayment
+from tallerclaro.application.use_cases import (
+    CancelPayment,
+    CapturePayment,
+    CreateOrderPayment,
+    GetPayment,
+    SyncPayment,
+)
 from tallerclaro.domain.entities import OrderId, PaymentId
 from tallerclaro.presentation.http.dependencies import (
     CustomerTokenDep,
@@ -85,6 +91,42 @@ def get_payment(
 ) -> PaymentResponse:
     authorized_quote_id = _extract_quote_id(token_data)
     payment = GetPayment(uow).execute(
+        PaymentId(payment_id),
+        authorized_quote_id=authorized_quote_id,
+    )
+    return _to_payment_response(payment)
+
+
+@router.post("/payments/{payment_id}/sync")
+def sync_payment(
+    payment_id: int,
+    token_data: CustomerTokenDep,
+    uow: UnitOfWorkDep,
+    payment_processor: PaymentProcessorDep,
+) -> PaymentResponse:
+    """Reconcilia con PayPal: no captura salvo que la orden esté aprobada.
+
+    Si PayPal ya completó la orden, persiste la captura existente; si está
+    aprobada, la captura; si fue anulada, cancela el intento local. Un fallo de
+    transporte deja el intento y la reserva intactos para reintentar.
+    """
+    authorized_quote_id = _extract_quote_id(token_data)
+    payment = SyncPayment(uow, payment_processor).execute(
+        PaymentId(payment_id),
+        authorized_quote_id=authorized_quote_id,
+    )
+    return _to_payment_response(payment)
+
+
+@router.post("/payments/{payment_id}/cancel")
+def cancel_payment(
+    payment_id: int,
+    token_data: CustomerTokenDep,
+    uow: UnitOfWorkDep,
+) -> PaymentResponse:
+    """Cancela un intento pendiente; rechaza si hay una captura en curso."""
+    authorized_quote_id = _extract_quote_id(token_data)
+    payment = CancelPayment(uow).execute(
         PaymentId(payment_id),
         authorized_quote_id=authorized_quote_id,
     )

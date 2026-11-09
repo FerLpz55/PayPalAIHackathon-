@@ -82,6 +82,8 @@ class Settings(BaseSettings):
     paypal_return_url: str | None = None
     paypal_cancel_url: str | None = None
     paypal_webhook_id: str | None = None
+    # Marca mostrada en la pantalla de aprobación de PayPal.
+    paypal_brand_name: str = "TallerClaro"
     # Este release solo se aprueba para Sandbox; Live exige habilitación explícita.
     allow_live_payments: bool = False
 

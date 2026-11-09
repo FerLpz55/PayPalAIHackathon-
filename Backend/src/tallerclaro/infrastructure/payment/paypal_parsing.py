@@ -10,7 +10,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 
-from tallerclaro.application.dtos import CapturedPayment, PaymentIntent
+from tallerclaro.application.dtos import CapturedPayment, PaymentIntent, ProviderOrder
 from tallerclaro.domain.exceptions import DomainError
 
 
@@ -50,6 +50,53 @@ class PayPalOrderParser:
                 href = link.get("href")
                 return str(href) if href else None
         return None
+
+
+class PayPalOrderStatusParser:
+    """Convierte la respuesta de ``GET /v2/checkout/orders/{id}`` en ``ProviderOrder``.
+
+    No captura ni escribe: solo informa el estado actual. Si la orden ya está
+    ``COMPLETED``, extrae la captura completada para que el caso de uso pueda
+    persistirla sin volver a capturar.
+    """
+
+    @staticmethod
+    def parse(data: object, expected_order_id: str) -> ProviderOrder:
+        if not isinstance(data, dict):
+            raise DomainError(
+                code="PAYMENT_PROVIDER_ERROR",
+                message="Malformed PayPal get order payload",
+            )
+
+        returned_order_id = str(data.get("id") or "").strip()
+        if not returned_order_id:
+            raise DomainError(
+                code="PAYMENT_PROVIDER_ERROR",
+                message="PayPal get order response is missing order id",
+            )
+        if returned_order_id != expected_order_id:
+            raise DomainError(
+                code="PAYMENT_PROVIDER_ERROR",
+                message="PayPal get order id mismatch",
+            )
+
+        status = str(data.get("status") or "").strip().upper()
+        if not status:
+            raise DomainError(
+                code="PAYMENT_PROVIDER_ERROR",
+                message="PayPal get order response is missing status",
+            )
+
+        capture = None
+        if status == "COMPLETED":
+            capture = PayPalCaptureParser.parse(data, expected_order_id)
+
+        return ProviderOrder(
+            paypal_order_id=returned_order_id,
+            status=status,
+            approval_url=PayPalOrderParser._extract_approval_url(data),
+            capture=capture,
+        )
 
 
 class PayPalCaptureParser:

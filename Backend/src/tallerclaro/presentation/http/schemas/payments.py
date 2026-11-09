@@ -26,6 +26,7 @@ class PaymentResponse(BaseModel):
     status: str
     paypal_order_id: str | None
     paypal_capture_id: str | None
+    approval_url: str | None = None
     created_at: str | None = None
     paid_at: str | None = None
 

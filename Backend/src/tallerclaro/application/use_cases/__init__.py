@@ -7,7 +7,13 @@ from tallerclaro.application.use_cases.authorization import (
     StartWorkshopSession,
 )
 from tallerclaro.application.use_cases.orders import GetOrder, ListOrders, UpdateOrder
-from tallerclaro.application.use_cases.payments import CapturePayment, CreateOrderPayment, GetPayment
+from tallerclaro.application.use_cases.payments import (
+    CancelPayment,
+    CapturePayment,
+    CreateOrderPayment,
+    GetPayment,
+    SyncPayment,
+)
 from tallerclaro.application.use_cases.quotes import (
     ApproveQuote,
     CreateQuote,
@@ -39,4 +45,6 @@ __all__ = [
     "CreateOrderPayment",
     "CapturePayment",
     "GetPayment",
+    "SyncPayment",
+    "CancelPayment",
 ]

@@ -100,8 +100,8 @@ def test_create_payment_rejects_amount_change_during_provider_call():
         uow.commit()
 
     class ChangingProcessor(FakePaymentProcessor):
-        def create_order(self, amount, currency):
-            intent = super().create_order(amount, currency)
+        def create_order(self, amount, currency, request_id=None):
+            intent = super().create_order(amount, currency, request_id)
             with uow:
                 changed = uow.orders.get_by_id(order.id)
                 changed.deposit_amount = Money("90")
@@ -380,7 +380,7 @@ def test_external_ai_and_paypal_calls_occur_outside_db_transactions():
     order = ApproveQuote(uow).execute(created.quote.id)
 
     class AssertingOutsideTxPayPal:
-        def create_order(self, amount: str, currency: str) -> PaymentIntent:
+        def create_order(self, amount: str, currency: str, request_id: str | None = None) -> PaymentIntent:
             assert uow.active_depth == 0, "PayPal create_order called inside open DB transaction!"
             return PaymentIntent(
                 payment_id=0,
@@ -432,7 +432,7 @@ def test_capture_payment_rejects_mismatched_amount_and_currency():
             self._currency = currency
             self._order_id = order_id
 
-        def create_order(self, amount: str, currency: str) -> PaymentIntent:
+        def create_order(self, amount: str, currency: str, request_id: str | None = None) -> PaymentIntent:
             return PaymentIntent(
                 payment_id=0,
                 paypal_order_id="PP-1",
@@ -505,8 +505,8 @@ def test_generate_quote_proposal_enforces_workshop_authorization():
         )
 
 
-def test_capture_payment_rejects_overpayment_and_duplicate_deposit_intents():
-    """Verify capturing stale/duplicate pending intents cannot exceed remaining order balance."""
+def test_capture_payment_rejects_overpayment_and_stale_balance_intents():
+    """Verify stale pending balance intents cannot exceed the remaining order balance."""
     uow = FakeUnitOfWork()
     with uow:
         uow.carpenters.seed(Carpenter(id=CarpenterId(1), name="José", workshop_name="Taller", email="j@example.com", phone=None))
@@ -522,20 +522,29 @@ def test_capture_payment_rejects_overpayment_and_duplicate_deposit_intents():
     order = ApproveQuote(uow).execute(created.quote.id)
 
     processor = FakePaymentProcessor(success=True)
-    # Create two pending intents before capturing either:
-    # 1) A deposit intent ($100) and 2) a full balance intent ($200 created while $0 was paid)
+    # El segundo POST de anticipo reutiliza el mismo intento: no hay duplicado.
     deposit_intent = CreateOrderPayment(uow, processor).execute(order.id, "deposit")
-    second_deposit_intent = CreateOrderPayment(uow, processor).execute(order.id, "deposit")
+    replay = CreateOrderPayment(uow, processor).execute(order.id, "deposit")
+    assert replay.payment_id == deposit_intent.payment_id
+
+    # El saldo se crea mientras aún no hay dinero cobrado ($200).
     stale_balance_intent = CreateOrderPayment(uow, processor).execute(order.id, "balance")
 
-    # Capture first deposit ($100 paid, $100 remaining)
+    # Capturar el anticipo deja $100 pendientes.
     CapturePayment(uow, processor).execute(deposit_intent.payment_id)
 
-    # Capturing the second deposit intent must fail
-    with pytest.raises(ConflictError, match="Deposit already paid"):
-        CapturePayment(uow, processor).execute(second_deposit_intent.payment_id)
+    # Recapturar el mismo intento es idempotente y no crea un segundo cobro.
+    captured = CapturePayment(uow, processor).execute(replay.payment_id)
+    assert captured.status == "completed"
+    with uow:
+        deposit_rows = [
+            payment
+            for payment in uow.payments.list_by_order(order.id)
+            if payment.type == "deposit"
+        ]
+        assert len(deposit_rows) == 1
 
-    # Capturing the stale $200 balance intent must fail because remaining balance is now $100
+    # Capturar el saldo obsoleto de $200 debe fallar: solo quedan $100.
     with pytest.raises(ConflictError, match="exceeds remaining balance"):
         CapturePayment(uow, processor).execute(stale_balance_intent.payment_id)
 

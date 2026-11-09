@@ -12,7 +12,7 @@ Monolito FastAPI organizado por capas para cotizaciones, pedidos y pagos de Tall
 - Reserva de captura separada del contrato general de pedidos mediante un protocolo dedicado expuesto por el Unit of Work.
 - Cálculo de importes y elegibilidad de pagos centralizados en el dominio; los casos de uso solo cargan datos, autorizan, coordinan y persisten.
 - Endpoints HTTP documentados en OpenAPI bajo `/api`.
-- Pruebas unitarias, de aplicación y de API con dobles de memoria (400 pruebas aprobadas).
+- Pruebas unitarias, de aplicación y de API con dobles de memoria (435 pruebas aprobadas).
 
 **Pendiente de conexión real:**
 
@@ -116,7 +116,7 @@ Las pruebas usan dobles en memoria y no requieren PostgreSQL ni PayPal.
 Su configuración se aísla del `.env` local y de las variables de credenciales
 del proceso para evitar conexiones accidentales a servicios reales.
 
-Verificación local del 2026-11-09: `Backend/.venv/bin/pytest Backend` produjo 400 pruebas
+Verificación local del 2026-11-09: `Backend/.venv/bin/pytest Backend` produjo 435 pruebas
 aprobadas y una advertencia de deprecación de `pytest-asyncio` con Python 3.14.
 No se validaron servicios reales ni capturas simultáneas contra PostgreSQL.
 
@@ -207,6 +207,8 @@ Prefijo: `/api`
 | PATCH | `/orders/{id}` | Actualizar estado/fecha estimada |
 | POST | `/orders/{id}/payments` | Crear intento de pago PayPal |
 | POST | `/payments/{id}/capture` | Capturar pago en PayPal |
+| POST | `/payments/{id}/sync` | Conciliar con PayPal: captura solo si está `APPROVED` |
+| POST | `/payments/{id}/cancel` | Cancelar un intento pendiente sin liberar reservas inciertas |
 | GET | `/payments/{id}` | Consultar intento de pago |
 | GET | `/accounting/summary` | Resumen financiero del taller |
 | POST | `/accounting/assistant` | Preguntar al asistente contable |
@@ -246,10 +248,12 @@ No incluir secretos en el código ni en variables `VITE_*`.
 ## PostgreSQL
 
 El esquema fuente de verdad está en [`database/schema.sql`](../database/schema.sql).
-Incluye 001–002 y la columna de reserva de 003 al crear tablas nuevas. En bases
-existentes, `CREATE TABLE IF NOT EXISTS` no añade esa columna: aplica la migración
-003 por separado antes del despliegue, con autorización explícita. No hay runner
-automático; consulta [`database/README.md`](../database/README.md).
+Incluye 001–002, la columna de reserva de 003 y las tablas de 005–006 al crear
+tablas nuevas. Las columnas de idempotencia de pago y sus índices únicos
+requieren la migración 007. En bases existentes, `CREATE TABLE IF NOT EXISTS`
+no añade columnas: aplica cada migración por separado antes del despliegue, con
+autorización explícita. No hay runner automático; consulta
+[`database/README.md`](../database/README.md).
 
 Antes de aplicar una migración en el servidor desplegado, verifica de forma de solo lectura:
 
@@ -290,18 +294,41 @@ Define `TALLERCLARO_PAYPAL_RETURN_URL` y `TALLERCLARO_PAYPAL_CANCEL_URL` como
 URL HTTPS del frontend, por ejemplo `https://example.org/#/customer/payment/return`
 y `https://example.org/#/customer/payment/cancel`. Se validan al construir el
 procesador; con PayPal habilitado, una URL ausente o inválida impide el arranque.
+`TALLERCLARO_PAYPAL_BRAND_NAME` fija la marca mostrada en PayPal. El checkout se
+configura con `user_action=PAY_NOW` y `shipping_preference=NO_SHIPPING`.
 
-Antes de capturar se persiste `pedido.captura_en_curso`. Otros pagos del pedido
-quedan bloqueados hasta completar y guardar el intento reservado. El POST de
-captura lleva una clave `PayPal-Request-Id` estable por orden PayPal. Tras una
-respuesta HTTP no exitosa se consulta la orden y se valida una captura completada.
+**Idempotencia de creación.** Antes de llamar a PayPal se guarda el intento
+pendiente con `clave_idempotencia` y `huella_solicitud` (SHA-256 de pedido, tipo,
+importe y moneda). La misma clave se envía como `PayPal-Request-Id`. Un POST
+repetido con el mismo contenido devuelve el mismo intento y la misma orden; un
+cambio de importe responde `409`. Pasada `PAYMENT_IDEMPOTENCY_WINDOW` (15 min),
+el intento debe conciliarse o cancelarse. El índice único parcial
+`(id_pedido, tipo) WHERE estado = 'pending'` impide duplicados en PostgreSQL.
+
+**Captura y conciliación.** Antes de capturar se persiste
+`pedido.captura_en_curso`. Otros pagos del pedido quedan bloqueados hasta
+completar y guardar el intento reservado. El POST de captura lleva una clave
+`PayPal-Request-Id` estable por orden PayPal. Tras una respuesta HTTP no exitosa
+se consulta la orden y se valida una captura completada. `POST /sync` consulta el
+estado real: no captura si la orden sigue `CREATED`; persiste la captura si ya
+está `COMPLETED`; captura solo si está `APPROVED` y el intento local sigue
+`pending`; cancela el intento si está `VOIDED`. Si un intento cancelado o fallido
+aparece como `COMPLETED` en PayPal, `sync` acredita esa captura sin volver a
+capturar. Un fallo de transporte mantiene la reserva porque el resultado es
+incierto. `POST /cancel` es local, rechaza pagos completados y no libera una
+reserva de captura en curso.
+
 Un fallo de conexión, timeout o protocolo HTTP se normaliza a
 `PAYMENT_PROVIDER_ERROR` (HTTP 502), sin exponer secretos ni excepciones HTTPX.
-No dispara una consulta adicional: requiere reintentar el mismo pago;
-no hay conciliación en segundo plano, liberación automática por vencimiento ni
-herramienta de resolución manual. Los errores mantienen la reserva. La
-recuperación local se probó con dobles, y la idempotencia del proveedor y la
-concurrencia real siguen pendientes de validación en Sandbox/PostgreSQL.
+Los errores mantienen la reserva. La recuperación local se probó con dobles, y
+la idempotencia del proveedor y la concurrencia real siguen pendientes de
+validación en Sandbox/PostgreSQL. No hay webhook ni conciliación en segundo
+plano en esta fase.
+
+**Estado financiero y bloqueo.** El pedido expone `financial_status` derivado de
+los pagos completados: `unpaid`, `deposit_paid` o `paid`. No se puede cancelar
+ni borrar un pedido con pagos completados o con una captura en curso; esos casos
+requieren resolución manual (reembolso fuera de este release).
 
 ## Arquitectura
 

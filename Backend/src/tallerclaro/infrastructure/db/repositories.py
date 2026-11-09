@@ -42,7 +42,8 @@ _ORDER_SELECT_COLUMNS = (
 _PAYMENT_SELECT_COLUMNS = (
     "id_pago, id_pedido, tipo, monto, moneda, estado, "
     "paypal_order_id, paypal_capture_id, fecha_creacion, "
-    "ultima_actualizacion, fecha_pago"
+    "ultima_actualizacion, fecha_pago, clave_idempotencia, "
+    "huella_solicitud, paypal_approval_url"
 )
 
 
@@ -401,6 +402,15 @@ class PostgresCaptureReservationRepository:
             (order_id, payment_id),
         )
 
+    def active_payment_id(self, order_id: OrderId) -> PaymentId | None:
+        row = self._conn.execute(
+            "SELECT captura_en_curso FROM tallerclaro.pedido WHERE id_pedido = %s",
+            (order_id,),
+        ).fetchone()
+        if row is None or row[0] is None:
+            return None
+        return PaymentId(row[0])
+
 
 class PostgresOrderRepository:
     def __init__(self, conn: psycopg.Connection) -> None:
@@ -549,8 +559,9 @@ class PostgresPaymentRepository:
                 """
                 INSERT INTO tallerclaro.pago
                     (id_pedido, tipo, monto, moneda, estado,
-                     paypal_order_id, paypal_capture_id, fecha_pago)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                     paypal_order_id, paypal_capture_id, fecha_pago,
+                     clave_idempotencia, huella_solicitud, paypal_approval_url)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING id_pago, fecha_creacion, ultima_actualizacion
                 """,
                 (
@@ -562,6 +573,9 @@ class PostgresPaymentRepository:
                     payment.paypal_order_id,
                     payment.paypal_capture_id,
                     payment.paid_at,
+                    payment.idempotency_key,
+                    payment.request_fingerprint,
+                    payment.approval_url,
                 ),
             ).fetchone()
         else:
@@ -569,7 +583,9 @@ class PostgresPaymentRepository:
                 """
                 UPDATE tallerclaro.pago
                 SET id_pedido = %s, tipo = %s, monto = %s, moneda = %s, estado = %s,
-                    paypal_order_id = %s, paypal_capture_id = %s, fecha_pago = %s
+                    paypal_order_id = %s, paypal_capture_id = %s, fecha_pago = %s,
+                    clave_idempotencia = %s, huella_solicitud = %s,
+                    paypal_approval_url = %s
                 WHERE id_pago = %s
                 RETURNING id_pago, fecha_creacion, ultima_actualizacion
                 """,
@@ -582,6 +598,9 @@ class PostgresPaymentRepository:
                     payment.paypal_order_id,
                     payment.paypal_capture_id,
                     payment.paid_at,
+                    payment.idempotency_key,
+                    payment.request_fingerprint,
+                    payment.approval_url,
                     payment.id,
                 ),
             ).fetchone()
@@ -619,6 +638,23 @@ class PostgresPaymentRepository:
         ).fetchall()
         return [self._row_to_payment(row) for row in rows]
 
+    def get_pending_by_order_and_type(
+        self, order_id: OrderId, payment_type: PaymentType
+    ) -> Payment | None:
+        row = self._conn.execute(
+            f"""
+            SELECT {_PAYMENT_SELECT_COLUMNS}
+            FROM tallerclaro.pago
+            WHERE id_pedido = %s AND tipo = %s AND estado = 'pending'
+            ORDER BY fecha_creacion DESC
+            LIMIT 1
+            """,
+            (order_id, payment_type),
+        ).fetchone()
+        if row is None:
+            return None
+        return self._row_to_payment(row)
+
     def _row_to_payment(self, row: tuple) -> Payment:
         (
             raw_id,
@@ -632,6 +668,9 @@ class PostgresPaymentRepository:
             created_at,
             updated_at,
             paid_at,
+            idempotency_key,
+            request_fingerprint,
+            approval_url,
         ) = row
         return Payment(
             id=PaymentId(raw_id),
@@ -645,4 +684,7 @@ class PostgresPaymentRepository:
             created_at=created_at,
             updated_at=updated_at,
             paid_at=paid_at,
+            idempotency_key=idempotency_key,
+            request_fingerprint=request_fingerprint,
+            approval_url=approval_url,
         )

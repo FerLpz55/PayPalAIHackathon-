@@ -48,15 +48,30 @@ class PayPalHttpTransport:
         return_url: str | None,
         cancel_url: str | None,
         access_token: str,
+        request_id: str | None = None,
+        brand_name: str | None = None,
     ) -> PayPalResponse:
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json",
+            "Prefer": "return=representation",
+        }
+        if request_id:
+            # PayPal deduplica por esta clave: reintentar el mismo intento no
+            # debe crear una segunda orden.
+            headers["PayPal-Request-Id"] = request_id
+        application_context = {
+            "return_url": return_url,
+            "cancel_url": cancel_url,
+            "user_action": "PAY_NOW",
+            "shipping_preference": "NO_SHIPPING",
+        }
+        if brand_name:
+            application_context["brand_name"] = brand_name
         response = self._send(
             "post",
             f"{self._base_url}/v2/checkout/orders",
-            headers={
-                "Authorization": f"Bearer {access_token}",
-                "Content-Type": "application/json",
-                "Prefer": "return=representation",
-            },
+            headers=headers,
             json={
                 "intent": "CAPTURE",
                 "purchase_units": [
@@ -64,10 +79,7 @@ class PayPalHttpTransport:
                         "amount": {"currency_code": currency, "value": amount},
                     }
                 ],
-                "application_context": {
-                    "return_url": return_url,
-                    "cancel_url": cancel_url,
-                },
+                "application_context": application_context,
             },
         )
         return self._to_response(response)

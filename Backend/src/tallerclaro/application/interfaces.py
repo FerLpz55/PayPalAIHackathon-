@@ -18,6 +18,7 @@ from tallerclaro.application.dtos import (
     CapturedPayment,
     MarketPriceReference,
     PaymentIntent,
+    ProviderOrder,
     QuoteProposalResult,
 )
 from tallerclaro.domain.accounting import WorkshopFinancialSummary
@@ -30,6 +31,7 @@ from tallerclaro.domain.entities import (
     OrderId,
     Payment,
     PaymentId,
+    PaymentType,
     Quote,
     QuoteId,
 )
@@ -116,6 +118,10 @@ class CaptureReservationRepository(Protocol):
     def release(self, order_id: OrderId, payment_id: PaymentId) -> None:
         ...
 
+    def active_payment_id(self, order_id: OrderId) -> PaymentId | None:
+        """Pago que posee la reserva activa del pedido, si existe."""
+        ...
+
 
 class PaymentRepository(Protocol):
     """Persistencia de intentos de pago."""
@@ -129,6 +135,16 @@ class PaymentRepository(Protocol):
 
     def list_by_order(self, order_id: OrderId) -> list[Payment]:
         """Devuelve todos los intentos del pedido, incluidos los no completados."""
+        ...
+
+    def get_pending_by_order_and_type(
+        self, order_id: OrderId, payment_type: PaymentType
+    ) -> Payment | None:
+        """Devuelve el intento pendiente del pedido y tipo, si existe.
+
+        El esquema garantiza como máximo uno mediante un índice único parcial
+        sobre ``(id_pedido, tipo) WHERE estado = 'pending'``.
+        """
         ...
 
 
@@ -306,10 +322,14 @@ class PaymentProcessor(Protocol):
     ``PAYMENT_PROVIDER_ERROR``; no se exponen excepciones del cliente HTTP.
     """
 
-    def create_order(self, amount: str, currency: str) -> PaymentIntent:
+    def create_order(self, amount: str, currency: str, request_id: str | None = None) -> PaymentIntent:
         ...
 
     def capture_order(self, paypal_order_id: str) -> CapturedPayment:
+        ...
+
+    def get_order(self, paypal_order_id: str) -> ProviderOrder:
+        """Consulta el estado actual; nunca captura ni cambia datos locales."""
         ...
 
 

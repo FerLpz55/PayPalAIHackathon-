@@ -188,6 +188,9 @@ CREATE TABLE IF NOT EXISTS tallerclaro.pago (
     fecha_creacion          timestamptz NOT NULL DEFAULT now(),
     ultima_actualizacion    timestamptz NOT NULL DEFAULT now(),
     fecha_pago              timestamptz,
+    clave_idempotencia      text,
+    huella_solicitud        text,
+    paypal_approval_url     text,
 
     CONSTRAINT pk_pago PRIMARY KEY (id_pago),
     CONSTRAINT fk_pago_pedido FOREIGN KEY (id_pedido)
@@ -199,6 +202,9 @@ CREATE TABLE IF NOT EXISTS tallerclaro.pago (
     CONSTRAINT ck_pago_estado CHECK (estado IN ('pending', 'completed', 'failed', 'cancelled')),
     CONSTRAINT ck_pago_paypal_order_id_no_vacio CHECK (paypal_order_id IS NULL OR btrim(paypal_order_id) <> ''),
     CONSTRAINT ck_pago_paypal_capture_id_no_vacio CHECK (paypal_capture_id IS NULL OR btrim(paypal_capture_id) <> ''),
+    CONSTRAINT ck_pago_clave_idempotencia_no_vacia CHECK (clave_idempotencia IS NULL OR btrim(clave_idempotencia) <> ''),
+    CONSTRAINT ck_pago_huella_solicitud_no_vacia CHECK (huella_solicitud IS NULL OR btrim(huella_solicitud) <> ''),
+    CONSTRAINT ck_pago_approval_url_no_vacia CHECK (paypal_approval_url IS NULL OR btrim(paypal_approval_url) <> ''),
     CONSTRAINT ck_pago_completed_exige_datos CHECK (
         estado <> 'completed'
         OR (paypal_order_id IS NOT NULL AND paypal_capture_id IS NOT NULL AND fecha_pago IS NOT NULL)
@@ -215,6 +221,9 @@ COMMENT ON TABLE tallerclaro.pago IS 'Intento de pago asociado a un pedido.';
 COMMENT ON COLUMN tallerclaro.pago.estado IS 'pending | completed | failed | cancelled.';
 COMMENT ON COLUMN tallerclaro.pago.paypal_order_id IS 'ID de orden de PayPal; NULL si aun no se obtuvo respuesta.';
 COMMENT ON COLUMN tallerclaro.pago.paypal_capture_id IS 'ID de captura de PayPal; obligatorio solo cuando estado = completed.';
+COMMENT ON COLUMN tallerclaro.pago.clave_idempotencia IS 'Clave enviada como PayPal-Request-Id para deduplicar reintentos.';
+COMMENT ON COLUMN tallerclaro.pago.huella_solicitud IS 'SHA-256 de pedido, tipo, importe y moneda de la solicitud original.';
+COMMENT ON COLUMN tallerclaro.pago.paypal_approval_url IS 'Enlace de aprobacion devuelto por PayPal para reanudar el checkout.';
 
 -- ---------------------------------------------------------------------------
 -- Indices adicionales
@@ -224,6 +233,12 @@ CREATE INDEX IF NOT EXISTS ix_cotizacion_carpintero_fecha ON tallerclaro.cotizac
 CREATE INDEX IF NOT EXISTS ix_detalle_cotizacion_id_cotizacion ON tallerclaro.detalle_cotizacion (id_cotizacion);
 CREATE INDEX IF NOT EXISTS ix_pedido_carpintero_fecha ON tallerclaro.pedido (id_carpintero, fecha_creacion DESC);
 CREATE INDEX IF NOT EXISTS ix_pago_id_pedido ON tallerclaro.pago (id_pedido);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_pago_clave_idempotencia
+    ON tallerclaro.pago (clave_idempotencia)
+    WHERE clave_idempotencia IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_pago_pendiente_por_pedido_tipo
+    ON tallerclaro.pago (id_pedido, tipo)
+    WHERE estado = 'pending';
 
 -- ---------------------------------------------------------------------------
 -- Funcion y triggers de ultima_actualizacion

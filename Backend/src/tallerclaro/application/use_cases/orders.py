@@ -18,8 +18,11 @@ from tallerclaro.application.exceptions import (
 from tallerclaro.application.interfaces import UnitOfWork
 from tallerclaro.application.use_cases.authorization import authorize_workshop_or_customer
 from tallerclaro.domain.entities import (
+    ORDER_STATUS_CANCELLED,
+    ORDER_STATUS_DELETED,
     ORDER_STATUS_DELIVERED,
     ORDER_STATUS_PAID,
+    PAYMENT_STATUS_COMPLETED,
     CarpenterId,
     Order,
     OrderId,
@@ -40,11 +43,13 @@ class ListOrders:
 
     def execute_with_context(
         self, carpenter_id: CarpenterId, limit: int = 20, offset: int = 0
-    ) -> tuple[list[tuple[Order, str | None, str | None, str | None]], int]:
+    ) -> tuple[list[tuple[Order, str | None, str | None, str | None, list]], int]:
         with self._uow:
             orders = self._uow.orders.list_by_carpenter(carpenter_id, limit, offset)
             total = self._uow.orders.count_by_carpenter(carpenter_id)
-            enriched: list[tuple[Order, str | None, str | None, str | None]] = []
+            enriched: list[
+                tuple[Order, str | None, str | None, str | None, list]
+            ] = []
             for order in orders:
                 cust_name = None
                 cust_email = None
@@ -56,7 +61,8 @@ class ListOrders:
                     if customer:
                         cust_name = customer.name
                         cust_email = customer.email
-                enriched.append((order, cust_name, cust_email, proj_req))
+                payments = self._uow.payments.list_by_order(order.id)
+                enriched.append((order, cust_name, cust_email, proj_req, payments))
             return enriched, total
 
 
@@ -115,10 +121,35 @@ class UpdateOrder:
             if resolved_carpenter_id is not None and order.carpenter_id != resolved_carpenter_id:
                 raise ForbiddenError("Not authorized to update this order")
 
+            self._guard_status_change(order, update_input)
             self._apply_updates(order, update_input)
             order = self._uow.orders.save(order)
             self._uow.commit()
             return order
+
+    def _guard_status_change(
+        self, order: Order, update_input: UpdateOrderInput
+    ) -> None:
+        """Impide estados logísticos incompatibles con el dinero verificado."""
+        if update_input.status == ORDER_STATUS_PAID:
+            payments = self._uow.payments.list_by_order(order.id)
+            if not order.is_fully_paid(payments):
+                raise ConflictError(
+                    "Cannot mark an order as paid without full verified payment"
+                )
+
+        if update_input.status not in {ORDER_STATUS_CANCELLED, ORDER_STATUS_DELETED}:
+            return
+
+        payments = self._uow.payments.list_by_order(order.id)
+        if any(payment.status == PAYMENT_STATUS_COMPLETED for payment in payments):
+            raise ConflictError(
+                "Cannot cancel or delete an order with completed payments; resolve the refund manually"
+            )
+        if self._uow.capture_reservations.active_payment_id(order.id) is not None:
+            raise ConflictError(
+                "Cannot cancel or delete an order with a capture in progress"
+            )
 
     def _apply_updates(self, order: Order, update_input: UpdateOrderInput) -> None:
         if update_input.status is not None:
