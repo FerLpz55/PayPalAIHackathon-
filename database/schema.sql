@@ -322,6 +322,26 @@ CREATE INDEX IF NOT EXISTS ix_sesion_taller_vigente
     WHERE revocada_en IS NULL;
 
 -- ---------------------------------------------------------------------------
+-- Migracion 006: límites de uso persistentes y atómicos
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS tallerclaro.limite_consumo (
+    clave           text NOT NULL,
+    ventana_inicio  timestamptz NOT NULL,
+    contador        integer NOT NULL DEFAULT 0,
+    expira_en       timestamptz NOT NULL,
+
+    CONSTRAINT pk_limite_consumo PRIMARY KEY (clave, ventana_inicio),
+    CONSTRAINT ck_limite_consumo_contador CHECK (contador >= 0),
+    CONSTRAINT ck_limite_consumo_ventana CHECK (expira_en > ventana_inicio)
+);
+
+COMMENT ON TABLE tallerclaro.limite_consumo IS
+    'Contadores atómicos por clave y ventana para limitar abuso.';
+
+CREATE INDEX IF NOT EXISTS ix_limite_consumo_expiracion
+    ON tallerclaro.limite_consumo (expira_en);
+
+-- ---------------------------------------------------------------------------
 -- Migracion 002: informacion adicional y partidas activas
 -- ---------------------------------------------------------------------------
 ALTER TABLE tallerclaro.cotizacion
@@ -372,7 +392,8 @@ BEGIN
             tallerclaro.pedido,
             tallerclaro.pago,
             tallerclaro.cliente_token,
-            tallerclaro.sesion_taller
+            tallerclaro.sesion_taller,
+            tallerclaro.limite_consumo
         TO tallerclaro_app;
 
         -- Obtener el nombre real de cada secuencia identity, incluso si fue renombrada.

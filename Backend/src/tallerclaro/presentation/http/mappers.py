@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
-from tallerclaro.application.dtos import MarketPriceReference, OrderDetailResult
+from tallerclaro.application.dtos import (
+    CustomerContext,
+    MarketPriceReference,
+    OrderDetailResult,
+)
 from tallerclaro.domain.accounting import WorkshopFinancialSummary
 from tallerclaro.domain.entities import Order, Payment, Quote, QuoteLineItem
 from tallerclaro.presentation.http.schemas.accounting import FinancialSummaryResponse
+from tallerclaro.presentation.http.schemas.customer import CustomerContextResponse
 from tallerclaro.presentation.http.schemas.orders import (
     OrderDetailResponse,
     OrderResponse,
@@ -132,6 +137,15 @@ def to_order_detail_response(detail: OrderDetailResult) -> OrderDetailResponse:
         customer_name=detail.customer_name,
         customer_email=detail.customer_email,
         project_request=detail.project_request,
+    )
+
+
+def to_customer_context_response(context: CustomerContext) -> CustomerContextResponse:
+    """Expone los recursos del cliente autenticado con los campos existentes."""
+    return CustomerContextResponse(
+        quote=to_quote_response(context.quote, include_missing=True),
+        order=to_order_response(context.order) if context.order is not None else None,
+        payments=[to_payment_response(payment) for payment in context.payments],
     )
 
 

@@ -58,3 +58,15 @@ class CustomerTokenService:
 
     def _hash(self, token: str) -> str:
         return hmac.new(self._secret, token.encode("utf-8"), hashlib.sha256).hexdigest()
+
+    def revoke_for_quote(self, quote_id: QuoteId) -> int:
+        cursor = self._conn.execute(
+            """
+            UPDATE tallerclaro.cliente_token
+            SET usado = true
+            WHERE id_cotizacion = %s
+              AND usado = false
+            """,
+            (int(quote_id),),
+        )
+        return int(cursor.rowcount or 0)

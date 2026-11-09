@@ -11,6 +11,7 @@ aplicación.
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any, Callable, Protocol, TypeVar
 
 from tallerclaro.application.dtos import (
@@ -146,6 +147,10 @@ class CustomerTokenRepository(Protocol):
         """Devuelve ``None`` para tokens inválidos, manipulados o expirados."""
         ...
 
+    def revoke_for_quote(self, quote_id: QuoteId) -> int:
+        """Marca como usados los tokens vigentes de la cotización; devuelve cuántos."""
+        ...
+
 
 class WorkshopSessionRepository(Protocol):
     """Sesiones opacas del taller.
@@ -166,6 +171,24 @@ class WorkshopSessionRepository(Protocol):
         ...
 
     def revoke_all(self, carpenter_id: CarpenterId) -> int:
+        ...
+
+
+class RateLimiter(Protocol):
+    """Contadores atómicos por clave y ventana fija."""
+
+    def retry_after(
+        self, key: str, *, limit: int, window_seconds: int, now: datetime
+    ) -> int | None:
+        """Segundos de espera si la clave alcanzó el límite; ``None`` si puede usarse."""
+        ...
+
+    def hit(self, key: str, *, window_seconds: int, now: datetime) -> int:
+        """Incrementa el contador y devuelve el valor resultante."""
+        ...
+
+    def reset(self, key: str, *, window_seconds: int, now: datetime) -> None:
+        """Pone el contador de la ventana actual a cero."""
         ...
 
 
@@ -222,6 +245,10 @@ class UnitOfWork(Protocol):
 
     @property
     def sessions(self) -> WorkshopSessionRepository:
+        ...
+
+    @property
+    def rate_limits(self) -> RateLimiter:
         ...
 
     def commit(self) -> None:

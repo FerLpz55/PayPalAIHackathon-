@@ -10,6 +10,7 @@ import psycopg
 
 from tallerclaro.application.interfaces import (
     CustomerTokenRepository,
+    RateLimiter,
     SqlPhase,
     UnitOfWork,
     WorkshopSessionRepository,
@@ -23,6 +24,7 @@ from tallerclaro.infrastructure.db.repositories import (
     PostgresPaymentRepository,
     PostgresQuoteRepository,
 )
+from tallerclaro.infrastructure.security.rate_limiter import PostgresRateLimiter
 from tallerclaro.infrastructure.security.session_service import WorkshopSessionService
 from tallerclaro.infrastructure.security.token_service import CustomerTokenService
 
@@ -38,6 +40,7 @@ class _TransactionFrame:
     payments: PostgresPaymentRepository
     tokens: CustomerTokenRepository
     sessions: WorkshopSessionRepository
+    rate_limits: RateLimiter
     committed: bool = False
 
 
@@ -95,6 +98,7 @@ class PostgresUnitOfWork:
                 idle_minutes=self._session_idle_minutes,
                 absolute_hours=self._session_absolute_hours,
             ),
+            rate_limits=PostgresRateLimiter(conn),
             committed=False,
         )
         self._frames.append(frame)
@@ -148,6 +152,10 @@ class PostgresUnitOfWork:
     @property
     def sessions(self) -> WorkshopSessionRepository:
         return self._active_frame().sessions
+
+    @property
+    def rate_limits(self) -> RateLimiter:
+        return self._active_frame().rate_limits
 
     def get_connection(self):
         """Expone la conexión activa."""

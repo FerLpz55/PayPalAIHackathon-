@@ -12,7 +12,7 @@ Monolito FastAPI organizado por capas para cotizaciones, pedidos y pagos de Tall
 - Reserva de captura separada del contrato general de pedidos mediante un protocolo dedicado expuesto por el Unit of Work.
 - Cálculo de importes y elegibilidad de pagos centralizados en el dominio; los casos de uso solo cargan datos, autorizan, coordinan y persisten.
 - Endpoints HTTP documentados en OpenAPI bajo `/api`.
-- Pruebas unitarias, de aplicación y de API con dobles de memoria (352 pruebas aprobadas).
+- Pruebas unitarias, de aplicación y de API con dobles de memoria (400 pruebas aprobadas).
 
 **Pendiente de conexión real:**
 
@@ -116,7 +116,7 @@ Las pruebas usan dobles en memoria y no requieren PostgreSQL ni PayPal.
 Su configuración se aísla del `.env` local y de las variables de credenciales
 del proceso para evitar conexiones accidentales a servicios reales.
 
-Verificación local del 2026-11-09: `Backend/.venv/bin/pytest Backend` produjo 352 pruebas
+Verificación local del 2026-11-09: `Backend/.venv/bin/pytest Backend` produjo 400 pruebas
 aprobadas y una advertencia de deprecación de `pytest-asyncio` con Python 3.14.
 No se validaron servicios reales ni capturas simultáneas contra PostgreSQL.
 
@@ -195,11 +195,13 @@ Prefijo: `/api`
 | POST | `/auth/login` | Iniciar sesión del taller (cookie + CSRF) |
 | GET | `/auth/session` | Consultar la sesión vigente |
 | POST | `/auth/logout` | Revocar la sesión y borrar cookies |
+| GET | `/customer/context` | Cotización, pedido e intentos del cliente autenticado |
 | POST | `/quotes` | Crear cliente y cotización draft |
 | GET | `/quotes/{id}` | Consultar cotización |
 | POST | `/quotes/{id}/generate` | Generar propuesta con IA |
 | POST | `/quotes/{id}/approve` | Aprobar cotización y crear pedido |
 | POST | `/quotes/{id}/reject` | Rechazar cotización |
+| POST | `/quotes/{id}/customer-access` | Reemitir el enlace del cliente (solo taller) |
 | GET | `/orders` | Listar pedidos del taller |
 | GET | `/orders/{id}` | Consultar pedido con pagos y saldo |
 | PATCH | `/orders/{id}` | Actualizar estado/fecha estimada |
@@ -212,12 +214,20 @@ Prefijo: `/api`
 ### Autorización
 
 - Sin autenticación: `GET /api/health` y `POST /api/quotes`; esta última devuelve el token del cliente.
-- Taller: `POST /api/auth/login`, `GET /api/auth/session` y `POST /api/auth/logout`, además de `GET /api/orders`, `PATCH/DELETE /api/orders/{id}`, `POST /api/quotes/{id}/generate`, `GET /api/accounting/summary` y `POST /api/accounting/assistant`.
+- Taller: `POST /api/auth/login`, `GET /api/auth/session` y `POST /api/auth/logout`, además de `GET /api/orders`, `PATCH/DELETE /api/orders/{id}`, `POST /api/quotes/{id}/customer-access`, `GET /api/accounting/summary` y `POST /api/accounting/assistant`.
 - El login verifica las credenciales contra `TALLERCLARO_WORKSHOP_PASSWORD_HASH` y emite una sesión opaca de 256 bits. Solo se guarda su SHA-256 en `tallerclaro.sesion_taller`; caduca a los 30 minutos de inactividad o 8 horas absolutas, es revocable y rota en cada login. Cambiar el hash bcrypt invalida las sesiones (huella de credenciales).
 - Cookies: `__Host-tallerclaro_session` (`HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/`, sin `Domain`) y `__Host-tallerclaro_csrf` (legible por el JS del mismo origen). Las peticiones autenticadas por cookie que cambian estado exigen `X-CSRF-Token` igual al valor de la cookie CSRF y un `Origin` permitido.
 - Basic está desactivado por defecto; solo se acepta con `TALLERCLARO_ENABLE_WORKSHOP_BASIC_AUTH=true` como compatibilidad explícita.
-- Cliente: crear, consultar y capturar pagos requieren `X-Customer-Token` o `Authorization: Bearer`.
-- Lectura, aprobación y rechazo de cotizaciones, y detalle de pedido, aceptan token del cliente o sesión del taller mediante `PrincipalDep`, con validación de pertenencia en aplicación. Un token de cliente inválido nunca concede privilegios del taller.
+- Cliente: crear, consultar y capturar pagos, y `GET /api/customer/context`, requieren `X-Customer-Token` o `Authorization: Bearer`. La reemisión de acceso solo la puede solicitar el taller autenticado, revoca los tokens anteriores de la cotización y registra el evento; nunca se recupera acceso usando solo el ID.
+- Lectura, aprobación, rechazo y generación de cotizaciones, y detalle de pedido, aceptan token del cliente propietario o sesión del taller mediante `PrincipalDep`, con validación de pertenencia antes y después de la llamada de IA. Un token de cliente inválido nunca concede privilegios del taller.
+
+### Límites de abuso
+
+- Los contadores viven en `tallerclaro.limite_consumo` y se incrementan con `INSERT ... ON CONFLICT DO UPDATE` (atómico, sin `DELETE`). El rechazo responde `429 RATE_LIMITED` con `Retry-After`.
+- Login: 5 fallos por usuario e IP cada 15 minutos; un login correcto reinicia el contador.
+- Creación de cotizaciones: 5 por minuto por IP. Generación: 5 cada 10 minutos por cotización y 100 por hora por taller; si el límite no está disponible no se llama a la IA. Catálogo de precios: 20 por minuto por actor.
+- Los cuerpos JSON se limitan a 64 KiB (`TALLERCLARO_MAX_REQUEST_BODY_BYTES`) antes de procesarlos y responden `413 PAYLOAD_TOO_LARGE`.
+- `X-Forwarded-For` solo se usa con `TALLERCLARO_TRUST_PROXY_HEADERS=true`; por defecto se emplea la IP de la conexión.
 
 ## Configuración
 

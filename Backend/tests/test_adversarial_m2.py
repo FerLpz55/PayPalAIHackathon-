@@ -529,6 +529,11 @@ class StrictlyClosedUnitOfWorkWrapper:
         self._check_open()
         return self._inner.sessions
 
+    @property
+    def rate_limits(self):
+        self._check_open()
+        return self._inner.rate_limits
+
     def commit(self):
         self._check_open()
         self._inner.commit()
@@ -824,9 +829,27 @@ def test_adversarial_auth_cross_role_access_boundaries(adversarial_app):
     assert resp.status_code == 401
     assert "Workshop session required" in resp.json()["detail"]
 
-    resp = client.post("/api/quotes/1/generate", headers={"X-Customer-Token": token})
-    assert resp.status_code == 401
-    assert "Workshop session required" in resp.json()["detail"]
+    # El cliente propietario sí puede generar su propia cotización.
+    owner_generate = client.post(
+        "/api/quotes/1/generate", headers={"X-Customer-Token": token}
+    )
+    assert owner_generate.status_code == 200
+
+    # Otro token de cliente no puede generar una cotización ajena.
+    other = client.post(
+        "/api/quotes",
+        json={
+            "customer": {"name": "Delta", "email": "delta@example.com"},
+            "carpenter_id": 1,
+            "request": "Mesa",
+        },
+    )
+    other_token = other.json()["customer_token"]
+    forbidden = client.post(
+        "/api/quotes/1/generate", headers={"X-Customer-Token": other_token}
+    )
+    assert forbidden.status_code == 403
+    assert "Not authorized" in forbidden.json()["message"]
 
     resp = client.patch("/api/orders/1", json={"status": "in_progress"}, headers={"X-Customer-Token": token})
     assert resp.status_code == 401

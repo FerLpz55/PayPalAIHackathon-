@@ -105,6 +105,11 @@ class Settings(BaseSettings):
     customer_token_secret: str = "change-me-secret-min-32-chars-long"
     customer_token_ttl_hours: int = 72
 
+    # Límites y transporte
+    max_request_body_bytes: int = 64 * 1024
+    # Solo confiar en X-Forwarded-For si un proxy propio lo sobrescribe.
+    trust_proxy_headers: bool = False
+
     @field_validator("environment", mode="before")
     @classmethod
     def normalize_environment(cls, value: object) -> str:

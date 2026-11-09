@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import logging
 import uuid
 
 from tallerclaro.application.dtos import (
     AccessPrincipal,
     CreatedQuoteResult,
     CreateQuoteInput,
+    CustomerContext,
     CustomerInput,
     QuoteLineItemInput,
     QuoteProposalResult,
@@ -36,6 +38,9 @@ from tallerclaro.domain.entities import (
     QuoteId,
     QuoteLineItem,
 )
+
+
+_logger = logging.getLogger(__name__)
 
 
 def _authorize_quote_access(quote: Quote, principal: AccessPrincipal | None) -> None:
@@ -239,6 +244,65 @@ class GenerateQuoteProposal:
             )
             for item in items
         ]
+
+
+class GetCustomerContext:
+    """Recupera cotización, pedido e intentos de pago del cliente autenticado."""
+
+    def __init__(self, uow: UnitOfWork) -> None:
+        self._uow = uow
+
+    def execute(self, principal: AccessPrincipal) -> CustomerContext:
+        if not principal.is_customer or principal.quote_id is None:
+            raise ForbiddenError("A customer token is required")
+        with self._uow:
+            quote = self._uow.quotes.get_by_id(principal.quote_id)
+            if quote is None:
+                raise NotFoundError("Quote", principal.quote_id)
+            if (
+                principal.customer_id is not None
+                and quote.customer_id != principal.customer_id
+            ):
+                raise ForbiddenError("Not authorized to access this quote")
+
+            order = self._uow.orders.get_by_quote_id(quote.id)
+            payments = (
+                self._uow.payments.list_by_order(order.id) if order is not None else []
+            )
+            return CustomerContext(quote=quote, order=order, payments=payments)
+
+
+class ReissueCustomerAccess:
+    """Emite un token nuevo para el cliente; solo el taller autenticado puede hacerlo."""
+
+    def __init__(self, uow: UnitOfWork) -> None:
+        self._uow = uow
+
+    def execute(self, quote_id: QuoteId, principal: AccessPrincipal | None) -> str:
+        if principal is None or not principal.is_workshop:
+            raise ForbiddenError("Only the authenticated workshop can reissue access")
+        with self._uow:
+            quote = self._uow.quotes.get_by_id(quote_id)
+            if quote is None:
+                raise NotFoundError("Quote", quote_id)
+            _authorize_quote_access(quote, principal)
+            customer = self._uow.customers.get_by_id(quote.customer_id)
+            if customer is None:
+                raise NotFoundError("Customer", quote.customer_id)
+
+            revoked = self._uow.tokens.revoke_for_quote(quote.id)
+            token = self._uow.tokens.create(quote.customer_id, quote.id)
+            self._uow.commit()
+
+        _logger.info(
+            "customer_access_reissued",
+            extra={
+                "quote_id": int(quote.id),
+                "customer_id": int(quote.customer_id),
+                "revoked_tokens": revoked,
+            },
+        )
+        return token
 
 
 class ApproveQuote:

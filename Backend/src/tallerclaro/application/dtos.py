@@ -63,6 +63,15 @@ class CreatedQuoteResult:
 
 
 @dataclass
+class CustomerContext:
+    """Recursos vinculados al token de un cliente autorizado."""
+
+    quote: Quote
+    order: Order | None
+    payments: list[Payment]
+
+
+@dataclass
 class OrderDetailResult:
     order: Order
     payments: list[Payment]

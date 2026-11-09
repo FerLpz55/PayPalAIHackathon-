@@ -16,6 +16,12 @@ from tallerclaro.presentation.http.dependencies import (
     get_settings,
     get_unit_of_work,
 )
+from tallerclaro.presentation.http.rate_limits import (
+    client_ip,
+    enforce_login_allowed,
+    record_login_failure,
+    reset_login_failures,
+)
 from tallerclaro.presentation.http.schemas.auth import LoginRequest, SessionResponse
 from tallerclaro.presentation.http.session_cookies import (
     CSRF_COOKIE_NAME,
@@ -54,13 +60,24 @@ def login(
 ) -> SessionResponse:
     """Autentica por JSON y rota la sesión; no devuelve token de sesión ni contraseña."""
     ensure_allowed_origin(request, settings)
-    principal = authenticate_workshop_credentials(body.username, body.password, settings)
+    ip = client_ip(request, settings)
+    enforce_login_allowed(uow, body.username, ip)
+    try:
+        principal = authenticate_workshop_credentials(
+            body.username, body.password, settings
+        )
+    except HTTPException:
+        # Solo los fallos consumen el límite de 5 intentos por usuario e IP.
+        record_login_failure(uow, body.username, ip)
+        raise
     if principal.carpenter_id is None:
+        record_login_failure(uow, body.username, ip)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid workshop credentials",
         )
 
+    reset_login_failures(uow, body.username, ip)
     previous_token = read_session_token(request)
     if previous_token:
         EndWorkshopSession(uow).execute(previous_token)

@@ -10,6 +10,7 @@ from tallerclaro.application.exceptions import (
     DomainError,
     ForbiddenError,
     NotFoundError,
+    RateLimitedError,
     ValidationDomainError,
 )
 
@@ -26,6 +27,8 @@ def _domain_error_to_status(error: DomainError) -> int:
         "BAD_GATEWAY": status.HTTP_502_BAD_GATEWAY,
         "PAYMENT_PROVIDER_ERROR": status.HTTP_502_BAD_GATEWAY,
         "SERVICE_UNAVAILABLE": status.HTTP_503_SERVICE_UNAVAILABLE,
+        "RATE_LIMITED": status.HTTP_429_TOO_MANY_REQUESTS,
+        "PAYLOAD_TOO_LARGE": status.HTTP_413_CONTENT_TOO_LARGE,
     }
     return mapping.get(error.code, status.HTTP_400_BAD_REQUEST)
 
@@ -35,6 +38,8 @@ def domain_error_handler(request: Request, exc: DomainError) -> JSONResponse:
     status_code = _domain_error_to_status(exc)
     if status_code == status.HTTP_401_UNAUTHORIZED:
         headers["WWW-Authenticate"] = "Basic"
+    if isinstance(exc, RateLimitedError):
+        headers["Retry-After"] = str(exc.retry_after)
     return JSONResponse(
         status_code=status_code,
         content={"code": exc.code, "message": exc.message},

@@ -62,11 +62,21 @@ pnpm run test && pnpm run lint && pnpm run build
 
 ## Autorización y contrato HTTP
 
-- Taller: Basic Auth (`require_workshop_credentials`) en listado/actualización de pedidos y generación de cotizaciones.
-- Cliente: header `X-Customer-Token` (o `Authorization: Bearer`) en pagos. Lecturas/acciones de cotización y detalle de pedido usan `PrincipalDep` (token de cliente **o** Basic del taller).
+- Taller: sesión opaca con cookie `__Host-tallerclaro_session` (`HttpOnly`, `Secure`, `SameSite=Lax`, 30 min de inactividad / 8 h absolutas) en listado/actualización de pedidos y reemisión de acceso de cliente. Login/sesión/logout en `/api/auth/*`; toda petición autenticada por cookie que cambie estado exige `X-CSRF-Token` y `Origin` permitido. Basic solo se acepta con `TALLERCLARO_ENABLE_WORKSHOP_BASIC_AUTH=true`.
+- Cliente: header `X-Customer-Token` (o `Authorization: Bearer`) en pagos y `GET /api/customer/context`. Lecturas/acciones de cotización, generación y detalle de pedido usan `PrincipalDep` (token del cliente propietario **o** sesión/Basic del taller); un token inválido nunca degrada a privilegios del taller.
+- Reemitir el enlace del cliente es exclusivo del taller (`POST /api/quotes/{id}/customer-access`), revoca los tokens previos y audita el evento; no se recupera acceso solo con el ID.
+- Límites persistentes: login 5 fallos/15 min por usuario e IP, creación 5/min por IP, generación 5/10 min por cotización y 100/h por taller, catálogo 20/min por actor. Responden `429` con `Retry-After`. Cuerpos JSON limitados a 64 KiB (`413`).
 - `frontend/docs/API_CONTRACT.md` es una foto del 2026-11-02 y contiene afirmaciones desactualizadas (p. ej. auth de cotizaciones); verificar contra los routers y esquemas actuales.
 
-## Contexto verificado el 2026-11-04
+## Contexto verificado el 2026-11-09 (fases A–C)
+
+- `Backend/.env` se resuelve por ruta absoluta desde el paquete y las variables del proceso tienen prioridad; las pruebas neutralizan el archivo. `TALLERCLARO_ENVIRONMENT=release` rechaza secretos de plantilla, CORS con comodines/HTTP, PayPal incompleto y Live sin `TALLERCLARO_ALLOW_LIVE_PAYMENTS=true`.
+- El pool usa `check_connection`, timeout de adquisición y `max_idle=300`; una indisponibilidad responde `503`. `uow.execute_sql` reintenta solo fases SQL ante `SERIALIZABLE`, nunca operaciones que llamaron a IA/PayPal. En release el rol no puede ser superusuario ni tener `DELETE`.
+- Migraciones 005 (`sesion_taller`) y 006 (`limite_consumo`) existen pero **no se han aplicado** contra Supabase. `database/tests/verify_privileges.sql` es de solo lectura.
+- Verificación local: 400 pruebas backend aprobadas con Python 3.14 (1 advertencia de `pytest-asyncio`); frontend sin cambios en esta fase. No se validaron PostgreSQL, IA ni PayPal reales.
+- El frontend sigue usando `taller:demo-password` y credenciales en `sessionStorage`, y genera cotizaciones como ruta de taller; su migración a sesiones llega en la Fase F.
+
+## Contexto histórico verificado el 2026-11-04 (parcialmente superado)
 
 - El arranque exige hash bcrypt válido en `TALLERCLARO_WORKSHOP_PASSWORD_HASH` y conexión inicial a PostgreSQL. El backend no tiene contraseña de taller predeterminada. PayPal habilitado exige URL HTTPS en `TALLERCLARO_PAYPAL_RETURN_URL` y `TALLERCLARO_PAYPAL_CANCEL_URL`.
 - La migración 003 añade `pedido.captura_en_curso`. Esquema y seed incluyen la columna para tablas nuevas; `CREATE TABLE IF NOT EXISTS` no actualiza una tabla existente. Verificar su presencia antes del despliegue.

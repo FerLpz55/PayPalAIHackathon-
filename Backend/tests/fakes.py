@@ -195,6 +195,44 @@ class FakeCustomerTokenRepository:
             return None
         return record['customer_id'], record['quote_id']
 
+    def revoke_for_quote(self, quote_id: QuoteId) -> int:
+        revoked = 0
+        for record in self._tokens.values():
+            if record['quote_id'] == quote_id and not record['used']:
+                record['used'] = True
+                revoked += 1
+        return revoked
+
+
+class FakeRateLimiter:
+    """Contadores en memoria con la misma semántica que PostgreSQL."""
+
+    def __init__(self) -> None:
+        self._counters: dict[tuple[str, int], int] = {}
+
+    @staticmethod
+    def _start(now: datetime, window_seconds: int) -> int:
+        epoch = int(now.timestamp())
+        return epoch - (epoch % window_seconds)
+
+    def retry_after(
+        self, key: str, *, limit: int, window_seconds: int, now: datetime
+    ) -> int | None:
+        start = self._start(now, window_seconds)
+        if self._counters.get((key, start), 0) < limit:
+            return None
+        expires = datetime.fromtimestamp(start + window_seconds, tz=timezone.utc)
+        return max(1, int((expires - now).total_seconds()))
+
+    def hit(self, key: str, *, window_seconds: int, now: datetime) -> int:
+        start = self._start(now, window_seconds)
+        value = self._counters.get((key, start), 0) + 1
+        self._counters[(key, start)] = value
+        return value
+
+    def reset(self, key: str, *, window_seconds: int, now: datetime) -> None:
+        self._counters[(key, self._start(now, window_seconds))] = 0
+
 
 class FakeWorkshopSessionRepository:
     """Sesiones en memoria con la misma semántica que PostgreSQL.
@@ -291,6 +329,7 @@ class FakeUnitOfWork:
         self._capture_reservations = FakeCaptureReservationRepository()
         self._payments = FakePaymentRepository()
         self._tokens = tokens if tokens is not None else FakeCustomerTokenRepository()
+        self._rate_limits = FakeRateLimiter()
         self._sessions = (
             sessions
             if sessions is not None
@@ -345,6 +384,11 @@ class FakeUnitOfWork:
         return self._sessions
 
     @property
+    def rate_limits(self):
+        self._active_frame()
+        return self._rate_limits
+
+    @property
     def capture_reservations(self):
         self._active_frame()
         return self._capture_reservations
@@ -365,6 +409,7 @@ class FakeUnitOfWork:
             "payments_next_id": self._payments._next_id,
             "tokens_dict": copy.deepcopy({key: value for key, value in self._tokens.__dict__.items() if key != '_clock'}),
             "sessions_store": copy.deepcopy(self._sessions._sessions),
+            "rate_limits": copy.deepcopy(self._rate_limits._counters),
         }
 
     def _restore_snapshot(self, snap: dict) -> None:
@@ -381,6 +426,7 @@ class FakeUnitOfWork:
         self._payments._store = copy.deepcopy(snap["payments_store"])
         self._payments._next_id = snap["payments_next_id"]
         self._sessions._sessions = copy.deepcopy(snap["sessions_store"])
+        self._rate_limits._counters = copy.deepcopy(snap["rate_limits"])
         clock = self._tokens.__dict__.get('_clock')
         self._tokens.__dict__.clear()
         self._tokens.__dict__.update(copy.deepcopy(snap["tokens_dict"]))

@@ -15,8 +15,10 @@ from tallerclaro.infrastructure.payment.paypal_processor import build_payment_pr
 from tallerclaro.infrastructure.security.session_service import credential_fingerprint
 from tallerclaro.infrastructure.security.workshop_auth import ensure_workshop_auth_configured
 from tallerclaro.presentation.http.exception_handlers import register as register_exception_handlers
+from tallerclaro.presentation.http.middleware import RequestBodyLimitMiddleware
 from tallerclaro.presentation.http.routers.accounting import router as accounting_router
 from tallerclaro.presentation.http.routers.auth import router as auth_router
+from tallerclaro.presentation.http.routers.customer import router as customer_router
 from tallerclaro.presentation.http.routers.health import router as health_router
 from tallerclaro.presentation.http.routers.orders import router as orders_router
 from tallerclaro.presentation.http.routers.payments import router as payments_router
@@ -96,6 +98,12 @@ def create_app(
     if price_lookup_service is not None:
         app.state.price_lookup_service = price_lookup_service
 
+    # El límite de cuerpo se añade antes de CORS para que este último sea el
+    # middleware más externo y las respuestas 413 conserven sus cabeceras.
+    app.add_middleware(
+        RequestBodyLimitMiddleware,
+        max_body_bytes=settings.max_request_body_bytes,
+    )
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
@@ -108,6 +116,7 @@ def create_app(
 
     app.include_router(health_router)
     app.include_router(auth_router)
+    app.include_router(customer_router)
     app.include_router(quotes_router)
     app.include_router(orders_router)
     app.include_router(payments_router)

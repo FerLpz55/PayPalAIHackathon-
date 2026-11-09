@@ -12,7 +12,9 @@ from tallerclaro.application.use_cases.quotes import (
     ApproveQuote,
     CreateQuote,
     GenerateQuoteProposal,
+    GetCustomerContext,
     GetQuote,
+    ReissueCustomerAccess,
     RejectQuote,
     VerifyCustomerToken,
 )
@@ -29,6 +31,8 @@ __all__ = [
     "StartWorkshopSession",
     "ResolveWorkshopSession",
     "EndWorkshopSession",
+    "GetCustomerContext",
+    "ReissueCustomerAccess",
     "ListOrders",
     "GetOrder",
     "UpdateOrder",
