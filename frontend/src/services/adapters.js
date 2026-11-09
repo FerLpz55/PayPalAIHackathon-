@@ -105,6 +105,13 @@ export function adaptOrderResponse(order) {
     codeToNumericId.set(String(resolvedId), numericOrderId)
   }
 
+  const paid = Number(order.paid_amount ?? order.paid ?? 0)
+  const financialStatus = order.financial_status || (total > 0 && paid >= total
+    ? 'paid'
+    : paid > 0
+      ? 'deposit_paid'
+      : 'unpaid')
+
   return {
     id: resolvedId,
     orderId: numericOrderId,
@@ -118,7 +125,8 @@ export function adaptOrderResponse(order) {
     remainingBalance: order.remaining_balance == null ? null : Number(order.remaining_balance),
     status: order.status || 'pending',
     date: order.created_at ? order.created_at.slice(0, 10) : (order.date || new Date().toISOString().slice(0, 10)),
-    paid: Number(order.paid_amount ?? order.paid ?? 0),
+    paid,
+    financialStatus,
     spent: Number(order.spent ?? 0),
     receipts: Array.isArray(order.receipts) ? order.receipts : [],
     payments: Array.isArray(order.payments) ? order.payments : [],

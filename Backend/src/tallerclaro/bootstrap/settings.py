@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Literal
 from urllib.parse import urlsplit, urlunsplit
 
 from pydantic import AliasChoices, Field, field_validator, model_validator
@@ -100,6 +101,9 @@ class Settings(BaseSettings):
     # Sesiones revocables: inactividad y duración absoluta.
     workshop_session_idle_minutes: int = 30
     workshop_session_absolute_hours: int = 8
+    # `none` es obligatorio cuando el frontend (Vercel) y la API viven en
+    # sitios distintos; el despliegue same-site debe mantener `lax`.
+    workshop_session_cookie_samesite: Literal["lax", "strict", "none"] = "lax"
     # Basic solo como compatibilidad explícita; las sesiones son el mecanismo por defecto.
     enable_workshop_basic_auth: bool = False
 

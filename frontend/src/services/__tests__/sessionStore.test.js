@@ -1,5 +1,8 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
+  clearWorkshopSession,
+  getWorkshopSession,
+  saveWorkshopSession,
   clearPendingPayment,
   clearSession,
   discardPendingPayment,
@@ -77,5 +80,30 @@ describe('sessionStore', () => {
 
     expect(readPendingPayment()).toBeNull()
     expect(getCompletedPayment(2000, 'balance')).toBeNull()
+  })
+})
+
+
+describe('workshop session metadata', () => {
+  beforeEach(() => {
+    let store = {}
+    globalThis.sessionStorage = {
+      getItem: (key) => (Object.prototype.hasOwnProperty.call(store, key) ? store[key] : null),
+      setItem: (key, value) => { store[key] = String(value) },
+      removeItem: (key) => { delete store[key] },
+      clear: () => { store = {} },
+    }
+  })
+
+  it('stores and clears the workshop session without touching the customer token', () => {
+    saveSession({ customerToken: 'cust-1' })
+    saveWorkshopSession({ authenticated: true, username: 'taller', csrfToken: 'csrf' })
+
+    expect(getWorkshopSession()).toMatchObject({ username: 'taller', csrfToken: 'csrf' })
+    expect(getSession().customerToken).toBe('cust-1')
+
+    clearWorkshopSession()
+    expect(getWorkshopSession()).toBeNull()
+    expect(getSession().customerToken).toBe('cust-1')
   })
 })

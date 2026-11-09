@@ -6,13 +6,16 @@ import EmptyState from '../components/ui/EmptyState.jsx'
 import LoadingState from '../components/ui/LoadingState.jsx'
 import PageHeading from '../components/ui/PageHeading.jsx'
 import Status from '../components/ui/Status.jsx'
-import { apiClient } from '../services/apiClient.js'
-import { ORDER_STATUS_TRANSITIONS, STATUS_LABELS } from '../utils/constants.js'
+import { apiClient, isDemoMode } from '../services/apiClient.js'
+import { FINANCIAL_STATUS_LABELS, ORDER_STATUS_TRANSITIONS, STATUS_LABELS } from '../utils/constants.js'
 import { formatMoney } from '../utils/format.js'
 
 function OrderDetailPage({ id, orders, loading, go, mutate }) {
   const [pendingStatus, setPendingStatus] = useState('')
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [customerLink, setCustomerLink] = useState('')
+  const [linkBusy, setLinkBusy] = useState(false)
+  const [linkError, setLinkError] = useState('')
   const order = orders.find((item) => item.id === id || String(item.orderId) === String(id))
   if (loading) return <div className="page-content"><LoadingState /></div>
   if (!order) {
@@ -26,6 +29,27 @@ function OrderDetailPage({ id, orders, loading, go, mutate }) {
     const nextStatus = pendingStatus
     setPendingStatus('')
     void mutate(() => apiClient.updateStatus(targetOrderId, nextStatus), `Order ${order.id} status changed to ${STATUS_LABELS[nextStatus] || nextStatus}.`)
+  }
+
+  const issueCustomerLink = async () => {
+    if (!order.quoteId) return
+    setLinkBusy(true)
+    setLinkError('')
+    try {
+      const { customerToken } = await apiClient.reissueCustomerAccess(order.quoteId)
+      const base = `${window.location.origin}${window.location.pathname}`
+      const link = `${base}#/customer/quote?token=${encodeURIComponent(customerToken)}&id=${order.quoteId}`
+      setCustomerLink(link)
+      try {
+        await navigator.clipboard.writeText(link)
+      } catch {
+        // El enlace queda visible para copiarlo manualmente.
+      }
+    } catch (caught) {
+      setLinkError(caught?.message || 'The customer link could not be reissued.')
+    } finally {
+      setLinkBusy(false)
+    }
   }
 
   const handleDeleteOrder = async () => {
@@ -49,6 +73,11 @@ function OrderDetailPage({ id, orders, loading, go, mutate }) {
                 View Quote & Materials ↗
               </Button>
             )}
+            {order.quoteId && !isDemoMode && (
+              <Button variant="subtle" disabled={linkBusy} onClick={issueCustomerLink}>
+                {linkBusy ? 'Issuing link…' : 'Reissue customer link'}
+              </Button>
+            )}
           </div>
         }
       />
@@ -61,6 +90,7 @@ function OrderDetailPage({ id, orders, loading, go, mutate }) {
           <DataLine label="Contracted total" value={formatMoney(order.amount)} />
           <DataLine label="Paid via PayPal" value={formatMoney(order.paid)} />
           <DataLine label="Remaining balance" value={formatMoney(Math.max(order.remainingBalance ?? (order.amount - order.paid), 0))} />
+          <DataLine label="Financial status" value={FINANCIAL_STATUS_LABELS[order.financialStatus] || order.financialStatus || 'Unknown'} />
           <div className="status-editor" style={{ marginTop: 20 }}>
             <label htmlFor="order-status-select" style={{ fontWeight: 600 }}>Update production milestone</label>
             <select id="order-status-select" value={order.status} disabled={!availableTransitions.length} onChange={(event) => setPendingStatus(event.target.value)}>
@@ -95,18 +125,31 @@ function OrderDetailPage({ id, orders, loading, go, mutate }) {
             <div style={{ padding: 12, border: '1px solid var(--line)', borderRadius: 8, background: '#f8fbff' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
                 <strong>Deposit (50%)</strong>
-                <span className={order.paid > 0 ? 'status-paid' : 'status-pending'} style={{ padding: '2px 8px', borderRadius: 999, fontSize: 11, fontWeight: 600 }}>
-                  {order.paid > 0 ? 'Confirmed via PayPal' : 'Awaiting Payment'}
+                <span className={['deposit_paid', 'paid'].includes(order.financialStatus) ? 'status-paid' : 'status-pending'} style={{ padding: '2px 8px', borderRadius: 999, fontSize: 11, fontWeight: 600 }}>
+                  {['deposit_paid', 'paid'].includes(order.financialStatus) ? 'Confirmed via PayPal' : 'Awaiting Payment'}
                 </span>
               </div>
               <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--navy)' }}>{formatMoney(order.deposit)}</span>
             </div>
 
+            {order.payments?.length > 0 && (
+              <div style={{ padding: 12, border: '1px solid var(--line)', borderRadius: 8 }}>
+                <strong style={{ display: 'block', marginBottom: 6 }}>Payment attempts</strong>
+                {order.payments.map((payment) => (
+                  <DataLine
+                    key={payment.id}
+                    label={`${payment.type} · ${payment.status}`}
+                    value={formatMoney(payment.amount)}
+                  />
+                ))}
+              </div>
+            )}
+
             <div style={{ padding: 12, border: '1px solid var(--line)', borderRadius: 8, background: '#f8fbff' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
                 <strong>Final Balance (50%)</strong>
-                <span className={order.status === 'paid' || order.status === 'delivered' ? 'status-paid' : 'status-pending'} style={{ padding: '2px 8px', borderRadius: 999, fontSize: 11, fontWeight: 600 }}>
-                  {order.status === 'paid' || order.status === 'delivered' ? 'Confirmed via PayPal' : 'Due upon completion'}
+                <span className={order.financialStatus === 'paid' ? 'status-paid' : 'status-pending'} style={{ padding: '2px 8px', borderRadius: 999, fontSize: 11, fontWeight: 600 }}>
+                  {order.financialStatus === 'paid' ? 'Confirmed via PayPal' : 'Due upon completion'}
                 </span>
               </div>
               <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--navy)' }}>{formatMoney(order.balance)}</span>
@@ -114,6 +157,18 @@ function OrderDetailPage({ id, orders, loading, go, mutate }) {
           </div>
         </section>
       </div>
+      {(customerLink || linkError) && (
+        <section className="panel detail-panel" style={{ marginTop: 16 }}>
+          <h2>Customer access link</h2>
+          {linkError ? <p role="alert" className="inline-error">{linkError}</p> : null}
+          {customerLink && (
+            <>
+              <p className="status-help">The previous link was revoked. Share this new link with the customer; it contains a bearer token and must not be published.</p>
+              <input readOnly value={customerLink} aria-label="Customer access link" onFocus={(event) => event.target.select()} />
+            </>
+          )}
+        </section>
+      )}
       {pendingStatus && (
         <ConfirmDialog
           title="Update production status?"

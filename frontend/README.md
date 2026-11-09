@@ -6,20 +6,21 @@ Responsive React frontend for TallerClaro. DEMO uses local sample data; REAL mod
 
 | Classification | Current frontend features |
 | --- | --- |
-| **REAL (source integrated; runtime unverified)** | Quote request/review, order list/detail, PayPal payment create, status lookup, capture, verified return handling, and AI bookkeeping assistant when `VITE_API_BASE_URL` points to a working backend. |
+| **REAL (source integrated; runtime unverified)** | Quote request/review, customer link recovery, order list/detail, PayPal payment create, explicit `sync`/`cancel` reconciliation, verified return handling, workshop cookie session with CSRF, and AI bookkeeping assistant when `VITE_API_BASE_URL` points to a working backend. |
 | **DEMO (explicit opt-in)** | Customer request, sample quote, simulated payment, tracking, dashboard, order updates, receipt-name entries, interactive demo AI bookkeeping assistant, and accounting summaries. Select with `VITE_APP_MODE=demo`; no PayPal charge is made. |
 | **UNCONFIGURED** | If no API URL is set and DEMO was not explicitly selected, sample data is hidden and the app explains how to configure a mode. |
 | **PARTIAL** | Voice-to-text can use the browser Web Speech API where available. It only transcribes text into the request form; it does not call an AI quote service. |
 | **NOT IMPLEMENTED** | Receipt upload and accounting reports backed by server data. |
 
-The backend repository contains quote, order, and payment route handlers, but source presence does not establish that those routes are deployed, configured, or operational. PayPal return/cancel URLs are now configurable on the backend and require HTTPS. See [the current backend guide](../Backend/BACKENDREADME.md) and [PayPal return URL requirements](docs/PAYPAL_RETURN_URLS.md). The [API inventory](docs/API_CONTRACT.md) and [feature matrix](docs/DEMO_VS_REAL_FUNCTIONALITY.md) are historical snapshots with superseded statements.
+The backend repository contains quote, order, and payment route handlers, but source presence does not establish that those routes are deployed, configured, or operational. PayPal return/cancel URLs are configurable on the backend and require HTTPS. See [the current backend guide](../Backend/BACKENDREADME.md) and [PayPal return URL requirements](docs/PAYPAL_RETURN_URLS.md). The [API inventory](docs/API_CONTRACT.md) and [feature matrix](docs/DEMO_VS_REAL_FUNCTIONALITY.md) are historical snapshots with superseded statements.
 
-The transport still uses stored workshop credentials or `taller:demo-password`.
-The backend now requires a configured bcrypt hash and has no default workshop
-password. Customer quote creation and clarification invoke workshop-only
-generation, so a customer token alone is insufficient. Initial generation errors
-are caught and leave the draft available; there is no fallback to demo data.
-The complete REAL customer flow needs integration work.
+Workshop authentication now uses a revocable `HttpOnly` cookie session created by `POST /api/auth/login`. Mutating cookie-authenticated requests send `X-CSRF-Token` (stored in `sessionStorage` after login/session) plus an allowed `Origin`. HTTP Basic remains behind `TALLERCLARO_ENABLE_WORKSHOP_BASIC_AUTH=false` and the frontend no longer sends it. A workshop sign-in screen gates `#/dashboard`, `#/orders`, `#/quotes`, `#/receipts`, `#/accounting` and `#/order/*`; the customer screens stay public.
+
+Customer links carry a token in the URL (`#/customer/quote?token=...`). The frontend adopts the token into `sessionStorage`, removes it from the URL, and calls `GET /api/customer/context` to recover the quote, order and payments. Only the workshop can reissue the link (`POST /api/quotes/{id}/customer-access`).
+
+Payments are created with `POST /api/orders/{id}/payments`, reconciled explicitly with `POST /api/payments/{id}/sync` (capture only when PayPal reports `APPROVED`) and closed with `POST /api/payments/{id}/cancel`. The frontend no longer calls `/capture`. Orders expose `financial_status` (`unpaid`, `deposit_paid`, `paid`) in the orders table, order detail, tracking and quote review.
+
+The REAL customer flow (customer token → quote → approval → deposit reconciliation) and the workshop cookie session flow have automated coverage; runtime integration with PostgreSQL, AI and PayPal Sandbox is still unverified. See [the E2E suite](#end-to-end-tests).
 
 ## Run locally
 
@@ -39,6 +40,17 @@ pnpm run build
 pnpm run preview
 ```
 
+### End-to-end tests
+
+Playwright drives the built-in Vite dev server and mocks the backend at the HTTP layer, so it does not need PostgreSQL, AI or PayPal credentials:
+
+```bash
+pnpm exec playwright install chromium   # first run only
+pnpm run test:e2e
+```
+
+`test:e2e` is separate from `pnpm run test` (Vitest). The suite covers a customer token link that approves a quote and reconciles a mocked PayPal deposit, and the workshop cookie-session gate plus sign out.
+
 ## Deploy on Vercel
 
 The frontend is a static Vite build with hash routes, so no rewrite rules are needed. In Vercel, import the GitHub repository and set **Root Directory** to `frontend`. Install, build and output settings come from `vercel.json` (`pnpm install --frozen-lockfile`, `pnpm run build`, `dist`).
@@ -53,7 +65,11 @@ Environment variables (Settings > Environment Variables) are embedded at build t
 | `VITE_APP_MODE` | `demo` (no backend) or `real` | Yes |
 | `VITE_API_BASE_URL` | `https://<backend-origin>` (origin only, without `/api` or a trailing slash) | Only in REAL mode |
 
-For REAL mode the backend must allow the Vercel origin in `TALLERCLARO_CORS_ORIGINS`, and PayPal return/cancel URLs must point to `https://<vercel-origin>/#/customer/payment/return` and `/#/customer/payment/cancel`. Preview deployments get different `*.vercel.app` origins; set `VITE_APP_MODE=demo` for the Preview environment unless those origins are added to CORS.
+**Only the frontend is deployed on Vercel.** The FastAPI backend and PostgreSQL run on their own origin (any HTTPS host); they are not part of the Vercel project and no serverless function wraps them.
+
+For REAL mode the backend must allow the Vercel origin in `TALLERCLARO_CORS_ORIGINS` **with credentials** (`allow_credentials=True`), and PayPal return/cancel URLs must point to `https://<vercel-origin>/#/customer/payment/return` and `/#/customer/payment/cancel`. Preview deployments get different `*.vercel.app` origins; set `VITE_APP_MODE=demo` for the Preview environment unless those origins are added to CORS.
+
+Because frontend and API are different sites, workshop session cookies need `TALLERCLARO_WORKSHOP_SESSION_COOKIE_SAMESITE=none` (requires HTTPS and a browser that accepts third-party cookies). With both on the same site, keep the default `lax`. The CSRF token is returned in the login/session body and stored in `sessionStorage`, so the backend domain must also expose `/api/auth/*` in CORS.
 
 `vercel.json` applies security headers (CSP, `X-Frame-Options`, `nosniff`, `Referrer-Policy`, `Permissions-Policy`) and long-term caching for hashed assets. Once the backend domain is fixed, narrow `connect-src` from `https:` to that origin. Never put secrets in `VITE_*` variables: they are public in the bundle.
 
@@ -97,26 +113,30 @@ src/
   components/
     ui/                   Reusable building blocks (Button, Icon, Status, DataLine, ...)
     layout/               Sidebar, Topbar, CustomerHeader, Toast
+    auth/                 WorkshopLogin cookie-session sign-in form
     orders/               OrdersTable, ReceiptList
     customer/             RequestForm, HowItWorks, PayPalCheckout
     accounting/           AccountingAssistant
   pages/                  One file per workshop screen
     customer/             Customer screens (request, quote review, tracking, payment return)
-  hooks/                  useDemoData, useHashRoute, useQuoteRequest, useSpeechInput, useAccountingAssistant
+  hooks/                  useDemoData, useHashRoute, useQuoteRequest, useSpeechInput, useAccountingAssistant, useWorkshopSession
     __tests__/            Vitest suites for quote title derivation
   services/
     apiClient.js          Facade preserving the public service interface
-    http.js               Fetch transport, mode detection, and ApiError
+    http.js               Fetch transport with cookies/CSRF, mode detection, and ApiError
     adapters.js           API-to-UI normalization for quotes, orders, and accounting
-    sessionStore.js       sessionStorage for tokens and payment recovery
+    sessionStore.js       sessionStorage for workshop CSRF, customer tokens and payment recovery
     mockApi.js            Replaceable local demo service
-    __tests__/            Vitest suites for adapters and session storage
+    __tests__/            Vitest suites for adapters, transport, API client and session storage
   utils/                  formatMoney, shared constants, security, and analytics
     __tests__/            Vitest suites for URL safety
   styles/                 Global reset and application styles
+e2e/
+  critical-flows.spec.js  Playwright customer and workshop critical flows
 docs/
-  API_CONTRACT.md         Backend source contract and frontend integration status
+  API_CONTRACT.md         Historical backend contract snapshot (see banner)
   DEMO_VS_REAL_FUNCTIONALITY.md Feature classifications and evidence
+playwright.config.js      Playwright projects and Vite web server
 ```
 
 ## Accessibility and responsive behavior
@@ -125,4 +145,4 @@ The interface uses semantic landmarks, labeled fields, visible focus styles, key
 
 ## Backend handoff
 
-Keep demo operations isolated in `src/services/mockApi.js`. Do not silently fall back to demo data after a backend error. Keep server-side pricing and payment verification authoritative. Consult current routers and schemas rather than the historical contract for endpoint behavior; runtime availability has not been established. Database, AI and PayPal provider secrets belong on the backend; the workshop credential fallback described above remains in the public frontend source.
+Keep demo operations isolated in `src/services/mockApi.js`. Do not silently fall back to demo data after a backend error. Keep server-side pricing and payment verification authoritative. Consult current routers and schemas rather than the historical contract for endpoint behavior; runtime availability has not been established. Database, AI and PayPal provider secrets, the workshop password hash and the customer-token secret belong only on the backend; the frontend holds no workshop credentials.

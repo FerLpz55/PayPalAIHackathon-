@@ -111,6 +111,20 @@ def test_login_sets_host_prefixed_secure_httponly_cookies(session_app):
     assert "session_token" not in serialized
 
 
+def test_cross_site_cookie_mode_uses_samesite_none():
+    uow = FakeUnitOfWork()
+    settings = _settings(workshop_session_cookie_samesite="none")
+    _, client = _build_app(settings, uow)
+
+    resp = _login(client)
+
+    assert resp.status_code == 200
+    cookies = _cookie_values(resp)
+    assert "samesite=none" in cookies.lower()
+    assert "secure" in cookies.lower()
+    assert "domain=" not in cookies.lower()
+
+
 def test_session_store_never_contains_plaintext_token(session_app):
     client, uow, _ = session_app
     _login(client)

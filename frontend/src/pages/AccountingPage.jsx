@@ -10,6 +10,7 @@ import { formatMoney } from '../utils/format.js'
 function AccountingPage() {
   const [summary, setSummary] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
 
   useEffect(() => {
     let active = true
@@ -17,7 +18,15 @@ function AccountingPage() {
       .then((data) => {
         if (active) setSummary(data)
       })
-      .catch(() => {})
+      .catch((caught) => {
+        if (!active) return
+        setSummary(null)
+        setError(
+          caught?.status === 401 || caught?.status === 403
+            ? 'The workshop session is not authorized to read accounting data.'
+            : caught?.message || 'Accounting data could not be loaded from the backend.'
+        )
+      })
       .finally(() => {
         if (active) setLoading(false)
       })
@@ -45,7 +54,12 @@ function AccountingPage() {
       {/* Asistente contable con IA */}
       <AccountingAssistant />
 
-      {loading ? <LoadingState /> : (
+      {loading ? <LoadingState /> : error ? (
+        <div className="panel" style={{ padding: 20 }}>
+          <p role="alert" className="inline-error">{error}</p>
+          <p className="status-help">No sample figures are shown as real accounting data. Retry after the backend session is available.</p>
+        </div>
+      ) : (
         <>
           <div className="section-head accounting-heading" style={{ marginTop: 24 }}>
             <div>

@@ -21,19 +21,24 @@ Frontend (desde `frontend/`, usar **solo `pnpm`**, nunca `npm`/`yarn`):
 pnpm install
 pnpm run dev
 pnpm run test && pnpm run lint && pnpm run build
+pnpm exec playwright install chromium   # solo la primera vez
+pnpm run test:e2e                       # Playwright; mockea la API, no necesita backend
 ```
 
-`pnpm run test` ejecuta la suite de Vitest (sin navegador ni backend).
+`pnpm run test` ejecuta la suite de Vitest (sin navegador ni backend); `pnpm run test:e2e` es una suite Playwright separada (`frontend/e2e/`) que levanta Vite y mockea las rutas `/api/**`.
 
 `frontend/README.md` documenta modos y despliegue en Vercel; la fuente de verdad del modo sigue siendo `frontend/src/services/apiClient.js`.
 
 ## Modo demo vs API real (frontend)
 
 - El modo se decide en `frontend/src/services/apiClient.js`: `VITE_APP_MODE=demo` ⇒ `mockApi`/`localStorage`; si no es demo y `VITE_API_BASE_URL` (solo origen, las rutas ya incluyen `/api`) no está vacío ⇒ `fetch` al backend; si no es demo y falta la URL, la app muestra "no configurado" y no enseña datos de ejemplo.
-- Despliegue del frontend en Vercel (Root Directory `frontend`; install/build/salida y cabeceras de seguridad en `frontend/vercel.json`); pnpm fijado por `packageManager` + `pnpm-lock.yaml` versionado (requiere `ENABLE_EXPERIMENTAL_COREPACK=1` en Vercel), Node por `engines.node`. Las variables `VITE_*` se fijan en build.
-- Demo persiste en la clave `localStorage` `tallerclaro.demo.v1`; la sesión (token de cliente, credenciales) en `sessionStorage` `tallerclaro.session.v1`.
+- **En Vercel solo se despliega el frontend** (Root Directory `frontend`; install/build/salida y cabeceras de seguridad en `frontend/vercel.json`); el backend FastAPI y PostgreSQL viven en su propio origen. pnpm fijado por `packageManager` + `pnpm-lock.yaml` versionado (requiere `ENABLE_EXPERIMENTAL_COREPACK=1` en Vercel), Node por `engines.node`. Las variables `VITE_*` se fijan en build.
+- Frontend y API en sitios distintos ⇒ CORS con credenciales y `TALLERCLARO_WORKSHOP_SESSION_COOKIE_SAMESITE=none` en el backend (HTTPS obligatorio). Mismo sitio ⇒ `lax`.
+- El taller se autentica con cookie `HttpOnly` (`POST /api/auth/login`) y CSRF de doble envío: el token se recibe en el cuerpo de login/session y se guarda en `sessionStorage` porque el frontend no puede leer la cookie CSRF del dominio de la API. Las rutas de taller (`#/dashboard`, `#/orders`, `#/quotes`, `#/receipts`, `#/accounting`, `#/order/*`) están detrás de `useWorkshopSession`; no se envían credenciales Basic.
+- El enlace de cliente usa `?token=`; `sessionStore.adoptCustomerAccessFromUrl` lo adopta, limpia la URL y `GET /api/customer/context` recupera cotización, pedido y pagos. Los pagos usan `POST /api/payments/{id}/sync|cancel` (nunca `/capture`).
+- Demo persiste en la clave `localStorage` `tallerclaro.demo.v1`; la sesión (token de cliente, CSRF, credenciales de recuperación de pago) en `sessionStorage` `tallerclaro.session.v1`.
 - No hacer fallback silencioso a demo tras un error del backend: el error debe propagarse.
-- Nunca poner secretos de IA/PayPal en variables `VITE_*`; viven solo en `Backend/.env`.
+- Nunca poner secretos de IA/PayPal, el hash del taller ni el secreto de tokens de cliente en variables `VITE_*`; viven solo en `Backend/.env`.
 
 ## Mapa del backend
 
@@ -62,7 +67,7 @@ pnpm run test && pnpm run lint && pnpm run build
 
 ## Autorización y contrato HTTP
 
-- Taller: sesión opaca con cookie `__Host-tallerclaro_session` (`HttpOnly`, `Secure`, `SameSite=Lax`, 30 min de inactividad / 8 h absolutas) en listado/actualización de pedidos y reemisión de acceso de cliente. Login/sesión/logout en `/api/auth/*`; toda petición autenticada por cookie que cambie estado exige `X-CSRF-Token` y `Origin` permitido. Basic solo se acepta con `TALLERCLARO_ENABLE_WORKSHOP_BASIC_AUTH=true`.
+- Taller: sesión opaca con cookie `__Host-tallerclaro_session` (`HttpOnly`, `Secure`, `SameSite` configurable: `lax` por defecto, `none` para frontend/API en sitios distintos; 30 min de inactividad / 8 h absolutas) en listado/actualización de pedidos y reemisión de acceso de cliente. Login/sesión/logout en `/api/auth/*`; toda petición autenticada por cookie que cambie estado exige `X-CSRF-Token` y `Origin` permitido. Basic solo se acepta con `TALLERCLARO_ENABLE_WORKSHOP_BASIC_AUTH=true`.
 - Cliente: header `X-Customer-Token` (o `Authorization: Bearer`) en pagos y `GET /api/customer/context`. Lecturas/acciones de cotización, generación y detalle de pedido usan `PrincipalDep` (token del cliente propietario **o** sesión/Basic del taller); un token inválido nunca degrada a privilegios del taller.
 - Reemitir el enlace del cliente es exclusivo del taller (`POST /api/quotes/{id}/customer-access`), revoca los tokens previos y audita el evento; no se recupera acceso solo con el ID.
 - Límites persistentes: login 5 fallos/15 min por usuario e IP, creación 5/min por IP, generación 5/10 min por cotización y 100/h por taller, catálogo 20/min por actor. Responden `429` con `Retry-After`. Cuerpos JSON limitados a 64 KiB (`413`).
@@ -76,7 +81,7 @@ pnpm run test && pnpm run lint && pnpm run build
 - Verificación local: 467 pruebas backend aprobadas con Python 3.14 (1 advertencia de `pytest-asyncio`); frontend sin cambios en esta fase. No se validaron PostgreSQL, IA ni PayPal reales.
 - Fase D: creación idempotente con `PayPal-Request-Id`, orden pendiente única por pedido/tipo, conciliación `sync` sin captura implícita, cancelación segura, bloqueo de cancelar/borrar pedidos con pagos completados o captura en curso y `financial_status` (`unpaid|deposit_paid|paid`).
 - Fase E: `POST /api/payments/webhook/paypal` verifica la firma con PayPal antes de tocar la base, deduplica en `tallerclaro.evento_paypal` (`new`/`retry`/`duplicate`) y reconcilia reconsultando el estado real; los reintentos de un evento `failed` están permitidos. Un worker del `lifespan` concilia intentos `pending` antiguos por lotes cuando `paypal_mode=sandbox|live`. Reembolsos y disputas se registran como `ignored`. En release, PayPal exige `TALLERCLARO_PAYPAL_WEBHOOK_ID`.
-- El frontend sigue usando `taller:demo-password` y credenciales en `sessionStorage`, y genera cotizaciones como ruta de taller; su migración a sesiones y a los nuevos endpoints de pago llega en la Fase F.
+- Fase F: el frontend migró a sesión de taller por cookie + CSRF (sin Basic ni `taller:demo-password`), recupera enlaces de cliente con `?token=` + `GET /api/customer/context`, reemite el enlace desde el detalle del pedido, usa `POST /api/payments/{id}/sync|cancel` (nunca `/capture`) y muestra `financial_status`. La cookie admite `TALLERCLARO_WORKSHOP_SESSION_COOKIE_SAMESITE=lax|strict|none`. Se añadió Playwright (`pnpm run test:e2e`) separado de Vitest.
 
 ## Contexto histórico verificado el 2026-11-04 (parcialmente superado)
 

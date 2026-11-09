@@ -6,6 +6,7 @@ import EmptyState from '../../components/ui/EmptyState.jsx'
 import LoadingState from '../../components/ui/LoadingState.jsx'
 import PageHeading from '../../components/ui/PageHeading.jsx'
 import { apiClient, isConfigurationMissing } from '../../services/apiClient.js'
+import { FINANCIAL_STATUS_LABELS } from '../../utils/constants.js'
 import { formatMoney } from '../../utils/format.js'
 
 function QuoteReviewPage({ quote, orders, loading, go, mutate, refresh }) {
@@ -306,7 +307,14 @@ function QuoteReviewPage({ quote, orders, loading, go, mutate, refresh }) {
           )}
 
           {approved && order?.orderId && (
-            <PayPalCheckout orderId={order.orderId} type="deposit" refresh={refresh} />
+            <>
+              {order.financialStatus && (
+                <p className="status-help" role="status">
+                  Order financial status: <strong>{FINANCIAL_STATUS_LABELS[order.financialStatus] || order.financialStatus}</strong>
+                </p>
+              )}
+              <PayPalCheckout orderId={order.orderId} type="deposit" refresh={refresh} />
+            </>
           )}
 
           {approved && !order && (

@@ -5,6 +5,7 @@ import LoadingState from '../../components/ui/LoadingState.jsx'
 import PageHeading from '../../components/ui/PageHeading.jsx'
 import PayPalCheckout from '../../components/customer/PayPalCheckout.jsx'
 import { isConnectedMode, isDemoMode } from '../../services/apiClient.js'
+import { FINANCIAL_STATUS_LABELS } from '../../utils/constants.js'
 import { formatMoney } from '../../utils/format.js'
 
 function OrderTrackingPage({ quote, orders, loading, go, refresh }) {
@@ -33,6 +34,7 @@ function OrderTrackingPage({ quote, orders, loading, go, refresh }) {
           <DataLine label="Contracted total" value={formatMoney(order.amount)} />
           <DataLine label="Verified paid" value={formatMoney(order.paid)} />
           <DataLine label="Remaining balance" value={formatMoney(Math.max(order.remainingBalance ?? (order.amount - order.paid), 0))} />
+          <DataLine label="Payment status" value={FINANCIAL_STATUS_LABELS[order.financialStatus] || order.financialStatus || 'Unknown'} />
           <h3 style={{ marginTop: 20, marginBottom: 8 }}>Transaction History</h3>
           {order.payments?.length ? (
             order.payments.map((payment) => (

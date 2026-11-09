@@ -219,9 +219,9 @@ Prefijo: `/api`
 - Sin autenticación: `GET /api/health`, `POST /api/quotes` (devuelve el token del cliente) y `POST /api/payments/webhook/paypal`, que se autentica con la firma de PayPal.
 - Taller: `POST /api/auth/login`, `GET /api/auth/session` y `POST /api/auth/logout`, además de `GET /api/orders`, `PATCH/DELETE /api/orders/{id}`, `POST /api/quotes/{id}/customer-access`, `GET /api/accounting/summary` y `POST /api/accounting/assistant`.
 - El login verifica las credenciales contra `TALLERCLARO_WORKSHOP_PASSWORD_HASH` y emite una sesión opaca de 256 bits. Solo se guarda su SHA-256 en `tallerclaro.sesion_taller`; caduca a los 30 minutos de inactividad o 8 horas absolutas, es revocable y rota en cada login. Cambiar el hash bcrypt invalida las sesiones (huella de credenciales).
-- Cookies: `__Host-tallerclaro_session` (`HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/`, sin `Domain`) y `__Host-tallerclaro_csrf` (legible por el JS del mismo origen). Las peticiones autenticadas por cookie que cambian estado exigen `X-CSRF-Token` igual al valor de la cookie CSRF y un `Origin` permitido.
+- Cookies: `__Host-tallerclaro_session` (`HttpOnly`, `Secure`, `SameSite` configurable con `TALLERCLARO_WORKSHOP_SESSION_COOKIE_SAMESITE=lax|strict|none`, `Path=/`, sin `Domain`) y `__Host-tallerclaro_csrf` (legible por el JS del mismo origen). Usa `none` cuando el frontend (p. ej. Vercel) y la API estén en sitios distintos; exige HTTPS y CORS con credenciales. Las peticiones autenticadas por cookie que cambian estado exigen `X-CSRF-Token` igual al valor de la cookie CSRF y un `Origin` permitido.
 - Basic está desactivado por defecto; solo se acepta con `TALLERCLARO_ENABLE_WORKSHOP_BASIC_AUTH=true` como compatibilidad explícita.
-- Cliente: crear, consultar y capturar pagos, y `GET /api/customer/context`, requieren `X-Customer-Token` o `Authorization: Bearer`. La reemisión de acceso solo la puede solicitar el taller autenticado, revoca los tokens anteriores de la cotización y registra el evento; nunca se recupera acceso usando solo el ID.
+- Cliente: crear, consultar, conciliar (`sync`) y cancelar pagos, y `GET /api/customer/context`, requieren `X-Customer-Token` o `Authorization: Bearer`. El frontend no usa `/capture`: reconcilia con `/sync`, que solo captura si PayPal reporta `APPROVED`. La reemisión de acceso solo la puede solicitar el taller autenticado, revoca los tokens anteriores de la cotización y registra el evento; nunca se recupera acceso usando solo el ID.
 - Lectura, aprobación, rechazo y generación de cotizaciones, y detalle de pedido, aceptan token del cliente propietario o sesión del taller mediante `PrincipalDep`, con validación de pertenencia antes y después de la llamada de IA. Un token de cliente inválido nunca concede privilegios del taller.
 
 ### Límites de abuso
@@ -238,6 +238,9 @@ La configuración se define en `bootstrap/settings.py` y la plantilla es `.env.e
 Se usa el prefijo `TALLERCLARO_`, con `DATABASE_URL` como alias recomendado para PostgreSQL.
 El hash del taller no tiene un valor predeterminado utilizable. Cambia también el
 secreto de tokens de ejemplo y configura `TALLERCLARO_CORS_ORIGINS` para el frontend.
+Si el frontend y la API están en sitios distintos, usa
+`TALLERCLARO_WORKSHOP_SESSION_COOKIE_SAMESITE=none` (HTTPS y CORS con credenciales);
+en el mismo sitio, el valor por defecto `lax` es suficiente.
 
 `TALLERCLARO_ENVIRONMENT` acepta `development`, `test` y `release`. En `release`
 el arranque rechaza secretos de plantilla, CORS con comodines o sin HTTPS,

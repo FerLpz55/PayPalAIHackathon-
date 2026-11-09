@@ -21,7 +21,6 @@ CSRF_HEADER_NAME = "X-CSRF-Token"
 
 _SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 _COOKIE_PATH = "/"
-_COOKIE_SAME_SITE = "lax"
 
 
 def new_csrf_token() -> str:
@@ -57,6 +56,11 @@ def enforce_csrf(request: Request, settings: Settings) -> None:
         raise ForbiddenError("Invalid CSRF token")
 
 
+def _cookie_samesite(settings: Settings) -> str:
+    """`none` permite la cookie entre el frontend y la API en sitios distintos."""
+    return settings.workshop_session_cookie_samesite
+
+
 def set_session_cookies(
     response: Response,
     *,
@@ -72,7 +76,7 @@ def set_session_cookies(
         path=_COOKIE_PATH,
         secure=True,
         httponly=True,
-        samesite=_COOKIE_SAME_SITE,
+        samesite=_cookie_samesite(settings),
     )
     set_csrf_cookie(response, csrf_token, settings)
     response.headers["Cache-Control"] = "no-store"
@@ -87,24 +91,24 @@ def set_csrf_cookie(response: Response, csrf_token: str, settings: Settings) -> 
         path=_COOKIE_PATH,
         secure=True,
         httponly=False,
-        samesite=_COOKIE_SAME_SITE,
+        samesite=_cookie_samesite(settings),
     )
     response.headers["Cache-Control"] = "no-store"
 
 
-def clear_session_cookies(response: Response) -> None:
+def clear_session_cookies(response: Response, settings: Settings) -> None:
     response.delete_cookie(
         SESSION_COOKIE_NAME,
         path=_COOKIE_PATH,
         secure=True,
         httponly=True,
-        samesite=_COOKIE_SAME_SITE,
+        samesite=_cookie_samesite(settings),
     )
     response.delete_cookie(
         CSRF_COOKIE_NAME,
         path=_COOKIE_PATH,
         secure=True,
         httponly=False,
-        samesite=_COOKIE_SAME_SITE,
+        samesite=_cookie_samesite(settings),
     )
     response.headers["Cache-Control"] = "no-store"

@@ -16,6 +16,9 @@ import PaymentReturnPage from './pages/customer/PaymentReturnPage.jsx'
 import QuoteReviewPage from './pages/customer/QuoteReviewPage.jsx'
 import RequestOrderPage from './pages/customer/RequestOrderPage.jsx'
 import EmptyState from './components/ui/EmptyState.jsx'
+import LoadingState from './components/ui/LoadingState.jsx'
+import WorkshopLogin from './components/auth/WorkshopLogin.jsx'
+import { useWorkshopSession } from './hooks/useWorkshopSession.js'
 import { isConfigurationMissing } from './services/apiClient.js'
 import './styles/app.css'
 
@@ -25,7 +28,13 @@ function App() {
   const closeNav = useCallback(() => setMobileNavOpen(false), [])
   const { route, go } = useHashRoute(closeNav)
   const isCustomer = route.startsWith('customer/')
-  const { orders, quote, loading, notice, error, refresh, mutate, dismiss } = useDemoData({ customerMode: isCustomer })
+  const requiresWorkshopAuth = !isCustomer && !isConfigurationMissing
+  const auth = useWorkshopSession({ enabled: requiresWorkshopAuth })
+  const dataEnabled = !requiresWorkshopAuth || auth.status === 'authenticated'
+  const { orders, quote, loading, notice, error, refresh, mutate, dismiss } = useDemoData({
+    customerMode: isCustomer,
+    enabled: dataEnabled,
+  })
   const shared = { orders, quote, loading, go, mutate, refresh, error }
 
   const renderPage = () => {
@@ -45,15 +54,19 @@ function App() {
   return (
     <div className={`${isCustomer ? 'app customer-app' : 'app'}${isConfigurationMissing ? ' app-unconfigured' : ''}`}>
       <a className="skip-link" href="#main-content">Skip to main content</a>
-      {!isCustomer && !isConfigurationMissing && <Sidebar active={route.split('/')[0]} open={mobileNavOpen} onClose={closeNav} go={go} triggerRef={menuTriggerRef} />}
+      {!isCustomer && !isConfigurationMissing && (!requiresWorkshopAuth || auth.status === 'authenticated') && <Sidebar active={route.split('/')[0]} open={mobileNavOpen} onClose={closeNav} go={go} triggerRef={menuTriggerRef} />}
       <div className="main-area">
         {isConfigurationMissing
           ? <header className="topbar"><div className="brand"><span className="brand-mark" aria-hidden="true">T</span><span>TallerClaro</span></div></header>
-          : isCustomer ? <CustomerHeader /> : <Topbar route={route} onMenu={() => setMobileNavOpen((open) => !open)} menuOpen={mobileNavOpen} menuButtonRef={menuTriggerRef} />}
+          : isCustomer ? <CustomerHeader /> : <Topbar route={route} onMenu={() => setMobileNavOpen((open) => !open)} menuOpen={mobileNavOpen} menuButtonRef={menuTriggerRef} username={auth.username} onLogout={auth.status === 'authenticated' ? auth.logout : undefined} />}
         <Toast error={error} notice={notice} onDismiss={dismiss} />
         <main id="main-content" tabIndex="-1" inert={mobileNavOpen}>{isConfigurationMissing
           ? <div className={isCustomer ? 'customer-page' : 'page-content'}><EmptyState title="Application mode is not configured" text="Set VITE_API_BASE_URL to connect to the backend. To use sample data, explicitly set VITE_APP_MODE=demo. Sample data is hidden until DEMO is selected." /></div>
-          : renderPage()}</main>
+          : (requiresWorkshopAuth && auth.status === 'checking') || auth.status === 'signing_out'
+            ? <div className="page-content"><LoadingState /></div>
+            : requiresWorkshopAuth && (auth.status === 'anonymous' || auth.status === 'error')
+              ? <WorkshopLogin onLogin={auth.login} initialError={auth.error} />
+              : renderPage()}</main>
       </div>
     </div>
   )

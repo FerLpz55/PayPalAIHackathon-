@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
-import { apiClient, isDemoMode, isConfigurationMissing } from '../services/apiClient.js'
+import { apiClient, isDemoMode, isConnectedMode, isConfigurationMissing, getSession } from '../services/apiClient.js'
 
-export function useDemoData({ customerMode = false } = {}) {
+export function useDemoData({ customerMode = false, enabled = true } = {}) {
   const [orders, setOrders] = useState([])
   const [quote, setQuote] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -9,6 +9,13 @@ export function useDemoData({ customerMode = false } = {}) {
   const [error, setError] = useState('')
 
   const refresh = useCallback(async () => {
+    if (!enabled) {
+      setOrders([])
+      setQuote(null)
+      setError('')
+      setLoading(false)
+      return
+    }
     setLoading(true)
     if (isConfigurationMissing) {
       setOrders([])
@@ -18,12 +25,22 @@ export function useDemoData({ customerMode = false } = {}) {
       return
     }
     try {
-      const quoteData = await apiClient.getQuote()
-      const orderData = customerMode && quoteData && apiClient.getCustomerOrder
-        ? await apiClient.getCustomerOrder(quoteData.numericId || quoteData.id)
-        : customerMode
-          ? null
-          : await apiClient.listOrders()
+      let quoteData
+      let orderData
+      if (customerMode && isConnectedMode && getSession().customerToken) {
+        // Un enlace de cliente recupera la cotización, el pedido y los pagos
+        // con el token; nunca se adivinan recursos por ID.
+        const context = await apiClient.getCustomerContext()
+        quoteData = context?.quote || null
+        orderData = context?.order || null
+      } else {
+        quoteData = await apiClient.getQuote()
+        orderData = customerMode && quoteData && apiClient.getCustomerOrder
+          ? await apiClient.getCustomerOrder(quoteData.numericId || quoteData.id)
+          : customerMode
+            ? null
+            : await apiClient.listOrders()
+      }
       setOrders(Array.isArray(orderData) ? orderData : orderData ? [orderData] : customerMode && isDemoMode ? await apiClient.listOrders() : [])
       setQuote(quoteData)
       setError('')
@@ -32,7 +49,7 @@ export function useDemoData({ customerMode = false } = {}) {
     } finally {
       setLoading(false)
     }
-  }, [customerMode])
+  }, [customerMode, enabled])
 
   useEffect(() => {
     const timer = window.setTimeout(() => { void refresh() }, 0)

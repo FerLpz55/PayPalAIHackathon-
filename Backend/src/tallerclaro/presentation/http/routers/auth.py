@@ -137,5 +137,5 @@ def logout(
         EndWorkshopSession(uow).execute(token)
 
     response = Response(status_code=status.HTTP_204_NO_CONTENT)
-    clear_session_cookies(response)
+    clear_session_cookies(response, settings)
     return response
