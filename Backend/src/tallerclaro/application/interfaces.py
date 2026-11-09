@@ -11,7 +11,7 @@ aplicación.
 
 from __future__ import annotations
 
-from typing import Protocol
+from typing import Any, Callable, Protocol, TypeVar
 
 from tallerclaro.application.dtos import (
     CapturedPayment,
@@ -147,6 +147,10 @@ class CustomerTokenRepository(Protocol):
         ...
 
 
+T = TypeVar("T")
+SqlPhase = Callable[["UnitOfWork"], T]
+
+
 class UnitOfWork(Protocol):
     """Frontera transaccional por petición.
 
@@ -200,6 +204,16 @@ class UnitOfWork(Protocol):
 
     def rollback(self) -> None:
         """Revierte la transacción activa sin devolver la conexión todavía."""
+        ...
+
+    def execute_sql(self, operation: "SqlPhase", *, attempts: int = 3) -> Any:
+        """Ejecuta una fase SQL completa con commit y reintento acotado.
+
+        El callback recibe el UoW con la transacción abierta y no debe realizar
+        llamadas de red (IA/PayPal). Solo se reintentan conflictos de
+        serialización de PostgreSQL dentro de la fase; nunca una operación
+        completa que ya haya llamado a un proveedor externo.
+        """
         ...
 
 

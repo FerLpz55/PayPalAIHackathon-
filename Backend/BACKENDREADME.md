@@ -12,7 +12,7 @@ Monolito FastAPI organizado por capas para cotizaciones, pedidos y pagos de Tall
 - Reserva de captura separada del contrato general de pedidos mediante un protocolo dedicado expuesto por el Unit of Work.
 - Cálculo de importes y elegibilidad de pagos centralizados en el dominio; los casos de uso solo cargan datos, autorizan, coordinan y persisten.
 - Endpoints HTTP documentados en OpenAPI bajo `/api`.
-- Pruebas unitarias, de aplicación y de API con dobles de memoria (298 pruebas aprobadas).
+- Pruebas unitarias, de aplicación y de API con dobles de memoria (352 pruebas aprobadas).
 
 **Pendiente de conexión real:**
 
@@ -58,6 +58,11 @@ Documentación interactiva: <http://127.0.0.1:8000/docs>
 
 ### Conexión a PostgreSQL en Supabase
 
+`.env` se resuelve como `Backend/.env` desde la ubicación del paquete, no desde el
+directorio de trabajo del proceso. Las variables del proceso siguen teniendo
+prioridad sobre el archivo. Las pruebas neutralizan el archivo y las variables
+`TALLERCLARO_*`/`DATABASE_URL`, de modo que nunca usan credenciales locales.
+
 Al ejecutar desde `Backend/`, el backend carga automáticamente `.env`. Puedes
 mantener la URL de tu base de Supabase en `DATABASE_URL` usando el **Session Pooler**
 (puerto `5432`, compatible con IPv4 y sesiones persistentes de FastAPI), por
@@ -68,9 +73,19 @@ DATABASE_URL=postgresql://postgres.<project-ref>:example%402026@aws-0-us-east-1.
 ```
 
 El pool de conexiones (`Database`) desactiva prepared statements automáticos
-(`prepare_threshold=None`) y `PostgresUnitOfWork` aplica `SET LOCAL TRANSACTION ISOLATION LEVEL SERIALIZABLE`
+(`prepare_threshold=None`), usa `check_connection` antes de entregar conexiones,
+un timeout de adquisición (`TALLERCLARO_DATABASE_POOL_ACQUIRE_TIMEOUT_SECONDS`,
+10 s por defecto) y caduca conexiones inactivas a los 300 s
+(`TALLERCLARO_DATABASE_POOL_MAX_IDLE_SECONDS`). Al arrancar se ejecuta
+`SELECT 1` para verificar la conexión. `PostgresUnitOfWork` aplica
+`SET LOCAL TRANSACTION ISOLATION LEVEL SERIALIZABLE`
 al abrir cada transacción. La conexión recomendada es el Session Pooler
 (`5432`); la compatibilidad real del entorno desplegado requiere verificación.
+
+Una indisponibilidad del pool se traduce a `503 SERVICE_UNAVAILABLE` sin exponer
+la cadena de conexión. Las fases SQL que optan por `uow.execute_sql(...)`
+reintentan hasta tres veces un conflicto `SERIALIZABLE`; el reintento cubre solo
+la transacción, nunca una operación que ya haya llamado a IA o PayPal.
 
 Se mantiene `TALLERCLARO_DATABASE_URL` por compatibilidad. Dentro de cada fuente
 de configuración gana `DATABASE_URL`; las variables del proceso prevalecen sobre
@@ -101,7 +116,7 @@ Las pruebas usan dobles en memoria y no requieren PostgreSQL ni PayPal.
 Su configuración se aísla del `.env` local y de las variables de credenciales
 del proceso para evitar conexiones accidentales a servicios reales.
 
-Verificación local del 2026-11-08: `Backend/.venv/bin/pytest Backend` produjo 298 pruebas
+Verificación local del 2026-11-09: `Backend/.venv/bin/pytest Backend` produjo 352 pruebas
 aprobadas y una advertencia de deprecación de `pytest-asyncio` con Python 3.14.
 No se validaron servicios reales ni capturas simultáneas contra PostgreSQL.
 
@@ -205,6 +220,11 @@ Se usa el prefijo `TALLERCLARO_`, con `DATABASE_URL` como alias recomendado para
 El hash del taller no tiene un valor predeterminado utilizable. Cambia también el
 secreto de tokens de ejemplo y configura `TALLERCLARO_CORS_ORIGINS` para el frontend.
 
+`TALLERCLARO_ENVIRONMENT` acepta `development`, `test` y `release`. En `release`
+el arranque rechaza secretos de plantilla, CORS con comodines o sin HTTPS,
+PayPal incompleto, Live sin `TALLERCLARO_ALLOW_LIVE_PAYMENTS=true` y un rol de
+base de datos superusuario o con `DELETE`.
+
 No incluir secretos en el código ni en variables `VITE_*`.
 
 ## PostgreSQL
@@ -221,7 +241,12 @@ Antes de aplicar una migración en el servidor desplegado, verifica de forma de 
 psql -h <host> -U <user> -d <db> -c "SELECT version();"
 psql -h <host> -U <user> -d <db> -c "\dt tallerclaro.*"
 psql -h <host> -U <user> -d <db> -c "\d tallerclaro.cotizacion"
+psql -X "$DATABASE_URL" -v ON_ERROR_STOP=1 -f database/tests/verify_privileges.sql
 ```
+
+`verify_privileges.sql` comprueba el rol efectivo, las tablas, los privilegios
+`DELETE`, la columna de reserva de captura y posibles intentos de pago pendientes
+duplicados. No escribe datos.
 
 No ejecutes migraciones ni pruebas que escriban contra el servidor desplegado sin confirmar el entorno.
 

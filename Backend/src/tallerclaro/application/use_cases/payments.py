@@ -52,23 +52,30 @@ class CreateOrderPayment:
         self._payment_processor = payment_processor
 
     def _validate_and_compute_amount(
-        self, order_id: OrderId, payment_type: PaymentType, authorized_quote_id: QuoteId | None
+        self,
+        uow: UnitOfWork,
+        order_id: OrderId,
+        payment_type: PaymentType,
+        authorized_quote_id: QuoteId | None,
     ) -> Money:
-        order = self._uow.orders.get_by_id(order_id)
+        order = uow.orders.get_by_id(order_id)
         if order is None:
             raise NotFoundError("Order", order_id)
         if authorized_quote_id is not None and order.quote_id != authorized_quote_id:
             raise ForbiddenError("Not authorized to make payment for this order")
 
-        payments = self._uow.payments.list_by_order(order_id)
+        payments = uow.payments.list_by_order(order_id)
         return order.requested_payment_amount(payment_type, payments)
 
     def execute(
         self, order_id: OrderId, payment_type: PaymentType, authorized_quote_id: QuoteId | None = None
     ) -> PaymentIntent:
         # Fase 1: Validar pedido y calcular el monto permitido.
-        with self._uow:
-            amount = self._validate_and_compute_amount(order_id, payment_type, authorized_quote_id)
+        amount = self._uow.execute_sql(
+            lambda uow: self._validate_and_compute_amount(
+                uow, order_id, payment_type, authorized_quote_id
+            )
+        )
 
         # Fase 2: Crear la orden en el proveedor externo fuera de la transacción SQL.
         intent = self._payment_processor.create_order(
@@ -76,8 +83,10 @@ class CreateOrderPayment:
         )
 
         # Fase 3: Revalidar el monto y persistir el intento pendiente.
-        with self._uow:
-            current_amount = self._validate_and_compute_amount(order_id, payment_type, authorized_quote_id)
+        def persist_pending(uow: UnitOfWork) -> PaymentIntent:
+            current_amount = self._validate_and_compute_amount(
+                uow, order_id, payment_type, authorized_quote_id
+            )
             if current_amount != amount:
                 raise ConflictError("Payment amount changed while creating PayPal order")
 
@@ -94,9 +103,7 @@ class CreateOrderPayment:
                 updated_at=None,
                 paid_at=None,
             )
-            payment = self._uow.payments.save(payment)
-            self._uow.commit()
-
+            payment = uow.payments.save(payment)
             return PaymentIntent(
                 payment_id=payment.id,
                 paypal_order_id=intent.paypal_order_id,
@@ -104,6 +111,8 @@ class CreateOrderPayment:
                 currency="USD",
                 approval_url=intent.approval_url,
             )
+
+        return self._uow.execute_sql(persist_pending)
 
 
 class CapturePayment:
@@ -131,8 +140,10 @@ class CapturePayment:
     def _reserve_capture(
         self, payment_id: PaymentId, authorized_quote_id: QuoteId | None
     ) -> tuple[CapturedPayment | None, _CaptureExpectation | None]:
-        with self._uow:
-            payment, order = self._load_authorized_payment_and_order(payment_id, authorized_quote_id)
+        def reserve(uow: UnitOfWork) -> tuple[CapturedPayment | None, _CaptureExpectation | None]:
+            payment, order = self._load_authorized_payment_and_order(
+                uow, payment_id, authorized_quote_id
+            )
             if payment.status == PAYMENT_STATUS_COMPLETED:
                 return self._to_completed_dto(payment), None
 
@@ -140,9 +151,9 @@ class CapturePayment:
             if payment.paypal_order_id is None:
                 raise ConflictError("Payment has no PayPal order")
 
-            self._validate_order_balance_for_capture(order, payment)
+            self._validate_order_balance_for_capture(uow, order, payment)
 
-            if not self._uow.capture_reservations.reserve(order.id, payment.id):
+            if not uow.capture_reservations.reserve(order.id, payment.id):
                 raise ConflictError("Another capture is in progress for this order")
 
             expectation = _CaptureExpectation(
@@ -150,8 +161,9 @@ class CapturePayment:
                 amount=payment.amount.amount,
                 currency=payment.currency,
             )
-            self._uow.commit()
             return None, expectation
+
+        return self._uow.execute_sql(reserve)
 
     def _capture_and_verify_with_provider(
         self, expectation: _CaptureExpectation
@@ -166,39 +178,43 @@ class CapturePayment:
         captured: CapturedPayment,
         authorized_quote_id: QuoteId | None,
     ) -> CapturedPayment:
-        with self._uow:
-            payment, order = self._load_authorized_payment_and_order(payment_id, authorized_quote_id)
+        def persist(uow: UnitOfWork) -> CapturedPayment:
+            payment, order = self._load_authorized_payment_and_order(
+                uow, payment_id, authorized_quote_id
+            )
             if payment.status == PAYMENT_STATUS_COMPLETED:
                 return self._to_completed_dto(payment)
 
             self._ensure_payment_is_pending(payment)
-            self._validate_order_balance_for_capture(order, payment)
+            self._validate_order_balance_for_capture(uow, order, payment)
 
             payment.mark_completed(
                 paypal_order_id=captured.paypal_order_id,
                 paypal_capture_id=captured.paypal_capture_id,
                 paid_at=datetime.fromisoformat(captured.paid_at),
             )
-            self._uow.payments.save(payment)
+            uow.payments.save(payment)
 
-            self._maybe_mark_order_paid(order)
-            self._uow.orders.save(order)
-            self._uow.capture_reservations.release(order.id, payment.id)
-            self._uow.commit()
+            self._maybe_mark_order_paid(uow, order)
+            uow.orders.save(order)
+            uow.capture_reservations.release(order.id, payment.id)
 
             captured.payment_id = payment.id
             captured.amount = payment.amount.amount
             captured.currency = payment.currency
             return captured
 
+        return self._uow.execute_sql(persist)
+
+    @staticmethod
     def _load_authorized_payment_and_order(
-        self, payment_id: PaymentId, authorized_quote_id: QuoteId | None
+        uow: UnitOfWork, payment_id: PaymentId, authorized_quote_id: QuoteId | None
     ) -> tuple[Payment, Order]:
-        payment = self._uow.payments.get_by_id(payment_id)
+        payment = uow.payments.get_by_id(payment_id)
         if payment is None:
             raise NotFoundError("Payment", payment_id)
 
-        order = self._uow.orders.get_by_id(payment.order_id)
+        order = uow.orders.get_by_id(payment.order_id)
         if order is None:
             raise NotFoundError("Order", payment.order_id)
         if authorized_quote_id is not None and order.quote_id != authorized_quote_id:
@@ -206,12 +222,16 @@ class CapturePayment:
 
         return payment, order
 
-    def _validate_order_balance_for_capture(self, order: Order, payment: Payment) -> None:
-        payments = self._uow.payments.list_by_order(order.id)
+    @staticmethod
+    def _validate_order_balance_for_capture(
+        uow: UnitOfWork, order: Order, payment: Payment
+    ) -> None:
+        payments = uow.payments.list_by_order(order.id)
         order.validate_capture(payment, payments)
 
-    def _maybe_mark_order_paid(self, order: Order) -> None:
-        payments = self._uow.payments.list_by_order(order.id)
+    @staticmethod
+    def _maybe_mark_order_paid(uow: UnitOfWork, order: Order) -> None:
+        payments = uow.payments.list_by_order(order.id)
         if order.is_fully_paid(payments) and order.status == ORDER_STATUS_PENDING:
             order.update_status(ORDER_STATUS_PAID)
 

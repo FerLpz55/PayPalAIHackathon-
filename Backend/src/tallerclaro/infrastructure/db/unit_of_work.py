@@ -6,7 +6,13 @@ from dataclasses import dataclass
 from types import TracebackType
 from typing import Any
 
-from tallerclaro.application.interfaces import CustomerTokenRepository, UnitOfWork
+import psycopg
+
+from tallerclaro.application.interfaces import (
+    CustomerTokenRepository,
+    SqlPhase,
+    UnitOfWork,
+)
 from tallerclaro.infrastructure.db.connection import Database
 from tallerclaro.infrastructure.db.repositories import (
     PostgresCaptureReservationRepository,
@@ -137,3 +143,23 @@ class PostgresUnitOfWork:
         frame = self._active_frame()
         frame.conn.rollback()
         frame.committed = False
+
+    def execute_sql(self, operation: SqlPhase, *, attempts: int = 3) -> Any:
+        """Ejecuta una fase SQL con commit y reintento acotado de SERIALIZABLE.
+
+        El callback solo debe operar con el UoW recibido; no puede contener
+        llamadas a proveedores externos. Cada intento abre una transacción y
+        una conexión nuevas.
+        """
+        if attempts < 1:
+            raise ValueError("attempts must be at least 1")
+        for attempt in range(1, attempts + 1):
+            try:
+                with self:
+                    result = operation(self)
+                    self.commit()
+                return result
+            except psycopg.errors.SerializationFailure:
+                if attempt == attempts:
+                    raise
+        raise AssertionError("unreachable")

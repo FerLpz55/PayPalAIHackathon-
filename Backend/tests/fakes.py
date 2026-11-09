@@ -319,6 +319,15 @@ class FakeUnitOfWork:
     def get_connection(self):
         raise RuntimeError("FakeUnitOfWork has no database connection")
 
+    def execute_sql(self, operation, *, attempts: int = 3):
+        """Ejecuta la fase en el fake; no hay conflictos de serialización que reintentar."""
+        if attempts < 1:
+            raise ValueError("attempts must be at least 1")
+        with self:
+            result = operation(self)
+            self.commit()
+        return result
+
 
 class FakeDependenciesContainer:
     """Contenedor de dependencias de prueba."""

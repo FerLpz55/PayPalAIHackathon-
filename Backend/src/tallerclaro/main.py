@@ -21,15 +21,33 @@ from tallerclaro.presentation.http.routers.payments import router as payments_ro
 from tallerclaro.presentation.http.routers.quotes import router as quotes_router
 
 
+def _enforce_minimal_database_privileges(database: Database) -> None:
+    """En release, el rol de aplicación no puede ser superusuario ni borrar filas."""
+    privileges = database.inspect_privileges()
+    if privileges.is_superuser:
+        raise RuntimeError(
+            "Release requires a dedicated non-superuser role for the backend"
+        )
+    if privileges.tables_with_delete:
+        tables = ", ".join(privileges.tables_with_delete)
+        raise RuntimeError(
+            f"Release role must not have DELETE privileges; revoke them on: {tables}"
+        )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings: Settings = app.state.settings
     ensure_workshop_auth_configured(settings)
     database = getattr(app.state, "database", None)
+    owned_database = database is None
     if database is None:
         database = Database(settings)
         database.connect()
         app.state.database = database
+
+    if owned_database and settings.is_release:
+        _enforce_minimal_database_privileges(database)
 
     if getattr(app.state, "uow_factory", None) is None:
         app.state.uow_factory = lambda: PostgresUnitOfWork(

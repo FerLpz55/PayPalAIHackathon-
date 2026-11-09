@@ -531,6 +531,12 @@ class StrictlyClosedUnitOfWorkWrapper:
         self._check_open()
         self._inner.rollback()
 
+    def execute_sql(self, operation, *, attempts: int = 3):
+        with self:
+            result = operation(self)
+            self.commit()
+        return result
+
 
 def test_closed_connection_simulation_get_order_executes_cleanly(adversarial_app):
     """Verify GET /api/orders/{order_id} loads payments, customer, and quote inside the transaction."""

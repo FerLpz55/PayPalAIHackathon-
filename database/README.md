@@ -20,6 +20,7 @@ database/
   schema.sql                inicializacion y actualizacion del esquema tallerclaro
   seeds/demo.sql            datos ficticios de ejemplo
   tests/schema_test.sql     pruebas SQL que revierten sus datos al finalizar
+  tests/verify_privileges.sql  verificación de solo lectura del rol y el esquema
   migrations/               cambios posteriores numerados
     001_add_customer_link_tokens.sql
     002_add_quote_clarification_fields.sql
@@ -94,6 +95,25 @@ contiene la transaccion; no combinarlo con `--single-transaction`.
   sobre las siete tablas y `USAGE` en sus secuencias identity (sin `DELETE`,
   `CREATE` ni `TRUNCATE`). Este rol SQL no sustituye la autorización de acceso
   por carpintero o token de cliente en FastAPI.
+
+### Aprovisionar el rol de aplicación sin secretos en scripts
+
+No escribas contraseñas en SQL versionado ni en scripts. Crea el rol una sola
+vez desde el SQL Editor de Supabase o con `psql` y asigna la contraseña de forma
+interactiva:
+
+```sql
+CREATE ROLE tallerclaro_app LOGIN;
+```
+
+```bash
+psql "$DATABASE_URL" -c "\password tallerclaro_app"
+```
+
+Después ejecuta `schema.sql` (o reaplica únicamente los `GRANT`) y verifica el
+resultado con [`tests/verify_privileges.sql`](tests/verify_privileges.sql).
+El backend rechaza el arranque en `TALLERCLARO_ENVIRONMENT=release` si el rol
+efectivo es superusuario o conserva `DELETE` sobre alguna tabla de negocio.
 
 ## Integracion con el backend
 

@@ -48,3 +48,10 @@ class ForbiddenError(DomainError):
     def __init__(self, message: str = "Forbidden") -> None:
         super().__init__(code="FORBIDDEN", message=message)
 
+
+class ServiceUnavailableError(DomainError):
+    """Dependencia externa o infraestructura no disponible."""
+
+    def __init__(self, message: str = "Service temporarily unavailable") -> None:
+        super().__init__(code="SERVICE_UNAVAILABLE", message=message)
+
