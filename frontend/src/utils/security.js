@@ -28,6 +28,22 @@ export function isSafePayPalUrl(rawUrl) {
 }
 
 /**
+ * Valida que una URL externa use protocolo HTTP o HTTPS para evitar XSS vía esquemas javascript: o data:.
+ *
+ * @param {string|null|undefined} rawUrl
+ * @returns {boolean}
+ */
+export function isSafeExternalUrl(rawUrl) {
+  if (!rawUrl || typeof rawUrl !== 'string') return false
+  try {
+    const parsed = new URL(rawUrl)
+    return parsed.protocol === 'https:' || parsed.protocol === 'http:'
+  } catch {
+    return false
+  }
+}
+
+/**
  * Elimina tokens y datos sensibles de PayPal de la URL actual sin recargar la página.
  */
 export function cleanPayPalUrlParams() {

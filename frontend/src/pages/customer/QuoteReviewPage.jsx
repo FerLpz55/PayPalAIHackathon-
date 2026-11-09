@@ -6,6 +6,7 @@ import EmptyState from '../../components/ui/EmptyState.jsx'
 import LoadingState from '../../components/ui/LoadingState.jsx'
 import PageHeading from '../../components/ui/PageHeading.jsx'
 import { apiClient, isConfigurationMissing } from '../../services/apiClient.js'
+import { isSafeExternalUrl } from '../../utils/security.js'
 import { formatMoney } from '../../utils/format.js'
 
 function QuoteReviewPage({ quote, orders, loading, go, mutate, refresh }) {
@@ -207,7 +208,7 @@ function QuoteReviewPage({ quote, orders, loading, go, mutate, refresh }) {
                     </strong>
                     <div style={{ marginTop: 'auto', display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 8 }}>
                       <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--navy)' }}>${prod.priceUsd.toFixed(2)} USD</span>
-                      {prod.url && (
+                      {prod.url && isSafeExternalUrl(prod.url) && (
                         <a
                           href={prod.url}
                           target="_blank"
