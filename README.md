@@ -282,6 +282,8 @@ No browser E2E script or CI workflow is defined. On November 9, 2026, the fake-b
 - [Issue acceptance matrix](MATRIZ_ISSUES_Y_CRITERIOS_ACEPTACION.md)
 - [E2E verification report](INFORME_PRUEBAS_E2E.md)
 - [Infrastructure blockers](PENDIENTES_INFRAESTRUCTURA_Y_CREDENCIALES.md)
+- [Full MVP flow tracking issue #19](https://github.com/FerLpz55/PayPalAIHackathon-/issues/19)
+- [OWASP review tracking issue #23](https://github.com/FerLpz55/PayPalAIHackathon-/issues/23)
 - [Repository instructions](AGENTS.md)
 - [Historical frontend API notes](frontend/docs/API_CONTRACT.md) - not the current API contract
 - [Historical demo/real feature snapshot](frontend/docs/DEMO_VS_REAL_FUNCTIONALITY.md) - verify against source before relying on it

@@ -1,28 +1,28 @@
 # Matriz de issues y criterios de aceptación — TallerClaro
 
-Actualizada: 9 de noviembre de 2026. Los cuerpos, títulos, estado remoto, owner y criterios oficiales de #10–#28 no se pudieron confirmar. Las descripciones parciales de `frontend/docs/FRONTEND_AUDIT.md` y `IMPLEMENTATION_ROADMAP.md` son provisionales. No se cerró ninguna issue.
+Actualizada: 9 de noviembre de 2026. Títulos, estados y criterios se consultaron en el API público oficial del repositorio. #24–#26 son PRs ya fusionados, no issues. Esta tabla registra la evidencia del checkout y esta iteración; no altera ni cierra issues. Los criterios se resumen del cuerpo oficial.
 
-| Issue | Criterio de aceptación local/provisional | Estado del checkout | Archivos/evidencia | Dependencia y prueba para cierre |
+| Issue | Criterio oficial resumido | Estado GitHub | Evidencia en checkout/esta iteracion | Pendiente para aceptar criterio |
 |---|---|---|---|---|
-| #10 | No disponible | No verificable | Sin referencia local encontrada | Cuerpo/criterios oficiales; prueba acorde al alcance. |
-| #11 | No disponible | No verificable | Sin referencia local encontrada | Ídem. |
-| #12 | No disponible | No verificable | Sin referencia local encontrada | Ídem. |
-| #13 | No disponible | No verificable | Sin referencia local encontrada | Ídem. |
-| #14 | No disponible | No verificable | Sin referencia local encontrada | Ídem. |
-| #15 - Quote review/approval (provisional) | Quote completa, validada, aclaraciones, aprobar/rechazar y persistir; official issue criteria unavailable | Parcial: DEMO y error/retry REAL probados con stub; missing_info visible; sugerencias aisladas por quote; formulario conserva aclaracion ante fallo; cliente no puede enviarla sin Basic de taller. Sin API/IA real ni aprobacion persistida. | QuoteReviewPage, RequestForm, apiClient, adapters; prueba browser local | Definir auth/contrato de aclaracion cliente; API/IA/DB de prueba; verificar persistencia, approve/reject, retry y errores contra backend. |
-| #16 - Dashboard/order management (provisional) | Lista/detalle/estado de ordenes persistidos y autorizados | Parcial: paginacion, summary global y Order Detail/PATCH conectados; pruebas solo con stub local | DashboardPage, OrdersPage, OrderDetailPage, apiClient; DEMO y stub local | Backend/auth/DB; validar list/detail/PATCH/transiciones/pagos contra API de prueba. |
-| #17 | No disponible | No verificable | Sin referencia local encontrada | Cuerpo/criterios oficiales. |
-| #18 ? PayPal checkout (provisional) | Intencion, aprobacion, captura verificada, errores/reintento/idempotencia | Bloqueado por Sandbox/DB; gate visual terminal implementado y probado con stub; API todavia no bloquea pedidos cancelados/eliminados | PayPalCheckout, apiClient, PaymentReturnPage, OrderTrackingPage; nunca se ejecuto proveedor | PayPal Sandbox, API y DB staging; validar rechazo backend cancelled/deleted, importe/moneda, duplicados, timeout y retorno. |
-| #19 — Shared integration (provisional) | Alcance compartido no identificable | Pendiente de integración; criterio oficial no verificable | Referida por roadmap local a contratos y coordinación | Acordar owner/issue body; pruebas de contrato compartidas. |
-| #20 - Customer navigation/tracking (provisional) | Navegacion quote->order, estado/pago server-backed y aislamiento por cliente | Parcial: cambio de ID y de token en mismo ID ocultan quote anterior ante 403; requests obsoletas descartadas. Tracking y estados probados con stub; ownership real y token recuperable sin verificar. | useHashRoute, useDemoData, OrderTrackingPage; Chromium/stub local | Politica de token/DB/API; probar sesiones distintas, ownership y pagos contra backend de prueba. |
-| #21 — Accessibility/responsive (provisional) | Accesibilidad y reflow verificados, no certificación | Parcial: overflow de recibos corregido a 390 px; mic fake y nav funcionales; sin pruebas físicas/AT | app.css, hook de voz, navegación | Browser/AT matriz oficial; corregir hallazgos adicionales; autorización antes de mic nativo. |
-| #22 — Demo separation/documentation (provisional) | DEMO identificable y no presentada como REAL | Parcialmente implementada y probada local: avisos demo visibles, sin calls API, sin checkout/pagos reales | DemoNotice, mockApi, páginas; Chromium DEMO | Revisar criterios oficiales; contrastar modos/config de despliegue. |
-| #23 — Shared task (provisional) | Scope compartido/acceptance desconocidos | Pendiente de integración; oficial no verificable | Mencionada por docs locales junto a coordinación | Issue body, ownership y evidencia conjunta. |
-| #24 | No disponible | No verificable | Sin referencia local encontrada | Cuerpo/criterios oficiales. |
-| #25 | No disponible | No verificable | Sin referencia local encontrada | Ídem. |
-| #26 | No disponible | No verificable | Sin referencia local encontrada | Ídem. |
-| #27 | No disponible | No verificable | Sin referencia local encontrada | Ídem. |
-| #28 | No disponible | No verificable | Sin referencia local encontrada | Ídem. |
+| [#10](https://github.com/FerLpz55/PayPalAIHackathon-/issues/10) PostgreSQL | Conexion de FastAPI, esquema comparado, crear/leer quote, errores sin secretos | Cerrada | Repositorios y suite fake-backed; 314 tests pasan | Base de pruebas aislada, inspeccion de esquema y persistencia real no comprobadas |
+| [#11](https://github.com/FerLpz55/PayPalAIHackathon-/issues/11) Formulario API | POST de solicitud guardada, error/reintento, prueba con DB | Cerrada | Solicitud y generation se ejercitaron con stub; backend suite pasa | Probar POST y persistencia con FastAPI/PostgreSQL aislados |
+| [#12](https://github.com/FerLpz55/PayPalAIHackathon-/issues/12) Consulta de solicitud | Recuperar por ID tras recarga, error claro, DB de pruebas | Cerrada | Navegacion por ID y quote con stub/DEMO; query route corregida | Recuperacion/persistencia real y token/ownership en API |
+| [#13](https://github.com/FerLpz55/PayPalAIHackathon-/issues/13) Acceso | Aislamiento por cliente, autenticacion/taller y pruebas permitidas/denegadas | Cerrada | Basic en memoria, gate fail-closed y 401/logout verificados con stub; backend tests con fakes | Probar FastAPI real, ownership por recurso, token expirado, TLS/CORS; el login no es sesion HttpOnly |
+| [#14](https://github.com/FerLpz55/PayPalAIHackathon-/issues/14) Generacion IA | Propuesta validada, missing info continuable, errores comprensibles con dobles | Abierta | Draft/error/retry visibles; stub ejercito 503 y retry 200; suite backend usa fakes | Credenciales/proveedor de prueba, generacion real y contrato customer-auth para aclaraciones |
+| [#15](https://github.com/FerLpz55/PayPalAIHackathon-/issues/15) Revision/aprobacion quote | Ver descripcion/partidas/total/estado reales; completar datos y aprobar; carga/error/recarga | Cerrada | Parser y estados corregidos; stub y DEMO ejercitados | Contrato API+DB, aprobacion y persistencia real; issue ya figura cerrada remotamente |
+| [#16](https://github.com/FerLpz55/PayPalAIHackathon-/issues/16) Pedidos/dashboard | Datos persistidos, PATCH autorizado persistente, carga/vacio/error sin mezcla | Cerrada | Paginacion, GET detail, payments y PATCH comprobados con stub; DEMO separada | Verificar autorizacion/transiciones/persistencia contra FastAPI/PostgreSQL |
+| [#17](https://github.com/FerLpz55/PayPalAIHackathon-/issues/17) Pagos verificados | Importe/moneda calculados por server, duplicados/saldo controlados, retry probado | Abierta | Contratos y reglas backend; suite fake-backed pasa | PayPal Sandbox, carreras/idempotencia/persistencia y recuperacion operativa |
+| [#18](https://github.com/FerLpz55/PayPalAIHackathon-/issues/18) Checkout | Pago Sandbox, retorno, confirmacion server-side, cancelar/error/reintentar | Abierta | Checkout consulta/captura por API en fuente; gate terminal probado con stub | Ejecutar sandbox completo con DB/API; ningun pago real se hizo |
+| [#19](https://github.com/FerLpz55/PayPalAIHackathon-/issues/19) Recorrido E2E | Request->quote IA->approve->Sandbox verificado por backend; persistencia y errores; documentacion | Abierta | DEMO y stubs cubren flujos parciales; README e informes actualizados | E2E continuo API+DB+IA+Sandbox y persistencia tras recarga |
+| [#20](https://github.com/FerLpz55/PayPalAIHackathon-/issues/20) Navegacion/tracking | Recuperacion tras navegar/recargar, aislamiento, pago confirmado por backend | Cerrada | Scope por ID/token, estados y pagos mapeados; stubs/DEMO | Sesion nueva, ownership y pagos reales en API/DB |
+| [#21](https://github.com/FerLpz55/PayPalAIHackathon-/issues/21) A11y/responsive | Flujo con teclado, acciones visibles movil/escritorio, errores accesibles | Cerrada | Chromium puntual en 320/390/768/1280; lint/build | Cobertura total, browsers/dispositivos, teclado/AT; no es auditoria/certificacion |
+| [#22](https://github.com/FerLpz55/PayPalAIHackathon-/issues/22) DEMO/documentacion | Marcar simulaciones; README y dependencias; lint/build o bloqueo documentado | Cerrada | DEMO sin API, copy Demo, README; lint y build pasan; bloqueo Vitest documentado | Revisar criterios remotos completos y desplegar; no se proclama REAL operativo |
+| [#23](https://github.com/FerLpz55/PayPalAIHackathon-/issues/23) OWASP | Matriz A01-A10, hallazgos criticos, pruebas y limitaciones sin secretos | Abierta | Restricciones y riesgos documentados | Falta matriz OWASP y verificacion de seguridad completa; no declarar conformidad |
+| #24 PR | Mejora a11y/responsive (no issue) | Cerrado y fusionado | PR oficial consultado; cambios previos ya en main | No es issue; esta iteracion no lo modifica |
+| #25 PR | Separacion DEMO/REAL (no issue) | Cerrado y fusionado | PR oficial consultado; cambios previos ya en main | No es issue; esta iteracion no lo modifica |
+| #26 PR | Dashboard y gestion de ordenes (no issue) | Cerrado y fusionado | PR oficial consultado; cambios previos ya en main | No es issue; esta iteracion no lo modifica |
+| [#27](https://github.com/FerLpz55/PayPalAIHackathon-/issues/27) Infra live | Supabase, IA y PayPal Sandbox conectados; quote y pago reales | Abierta | No se uso DB, IA, PayPal ni se leyeron credenciales | Provision/autorizar staging, comprobar schema/migracion, IA y Sandbox |
+| [#28](https://github.com/FerLpz55/PayPalAIHackathon-/issues/28) Entrega Hackathon | README ejecutable, enlaces #19/#23, video demo y submission | Abierta | README y docs de setup/status/pruebas actualizados; README enlaza issues | Agregar evidencia OWASP, grabar video y completar submission/flujo integral |
 
 ### Issue nueva recomendada
 
@@ -38,14 +38,14 @@ Para cerrar cualquier issue, sustituir el criterio provisional por el body ofici
 
 ### Autenticación de taller — evidencia Fase 8
 
-El cliente actual no tiene Basic Auth fijo. Con modo REAL y sin credenciales, Dashboard mostró que la solicitud no se envió; Network no registró llamadas `/api/`. El flujo sigue sin ser utilizable porque no existe UI que establezca `workshopCredentials`. No se asigna a una issue específica porque no se obtuvo el body oficial de #10–#28. Ver [Informe Fase 8](INFORME_VERIFICACION_AUTH_FRONTEND_FASE_8.md).
+En la Fase 8 se verificó el guard fail-closed antes de que existiera el login. En ese momento no se asignó a issue porque sus cuerpos no se habían consultado; el estado actual de criterios oficiales está en la tabla superior. Ver [Informe Fase 8](INFORME_VERIFICACION_AUTH_FRONTEND_FASE_8.md).
 
 ### Login de taller — evidencia Fase 9
 
-La UI ya tiene acceso Basic en memoria, Sign out, bloqueo de datos REAL sin sesión y expiración al 401. Evidencia local solo con stub loopback; no valida FastAPI ni credenciales de despliegue. No se asignó a una issue concreta por falta del body oficial de #10–#28; no se cerró ninguna. [Informe Fase 9](INFORME_IMPLEMENTACION_LOGIN_TALLER_FASE_9.md).
+La UI ya tiene acceso Basic en memoria, Sign out, bloqueo de datos REAL sin sesión y expiración al 401. Evidencia local solo con stub loopback; no valida FastAPI ni credenciales de despliegue. La asociación a criterios oficiales está en la tabla superior; no se cambió el estado de issue alguna. [Informe Fase 9](INFORME_IMPLEMENTACION_LOGIN_TALLER_FASE_9.md).
 
 ### Consulta oficial y estado de verificacion para publicacion
 
-Se intento consultar el repositorio oficial y la lista de issues/PR. La pagina publica del repositorio abre, pero las vistas de issues y pull requests no se recuperaron; `gh auth status` reporto invalido el token configurado y `git ls-remote` no pudo conectar a github.com:443. Por tanto, los criterios oficiales y la existencia de un PR relacionado siguen **NO VERIFICABLES**. Las asociaciones #15–#22 de esta matriz son hipotesis basadas en documentos locales, no mapeos oficiales confirmados. No se usaron referencias de cierre automatico ni se cerro issue alguna.
+La API pública del repositorio permitió leer cuerpos y estados. #10–#13, #15–#16 y #20–#22 figuran cerradas; #14, #17–#19, #23, #27 y #28 abiertas. #24–#26 son PRs ya fusionados, no issues. No había PR abierto antes de publicar esta rama. El CLI `gh` tiene token inválido y el navegador está desconectado, por lo que aún no se puede crear el PR. No se alteró estado remoto de ninguna issue.
 
 La suite backend revisada en esta publicacion obtuvo **314 passed**; el frontend obtuvo lint/build exitosos, pero Vitest no se ejecuto. La evidencia local no satisface criterios que exijan API, PostgreSQL o proveedores reales.

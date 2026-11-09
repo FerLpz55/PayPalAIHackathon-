@@ -13,7 +13,7 @@ Actualizado: 9 de noviembre de 2026. No contiene valores de secretos ni datos `.
 | Channel3 | Lookup aparece asociado a catálogo/precios; proveedor no se verificó. | Confirmar si entra en alcance, proveedor/contrato/coste y credencial de prueba antes de validar “live”. |
 | PayPal | Sandbox no conectado. No Live. | App/client/secret Sandbox, usuarios test, URLs de return/cancel HTTPS y API staging; aprobar casos de captura, duplicate/timeout y reconciliación. |
 | Recibos/storage | No hay endpoint backend ni bytes; DEMO conserva nombres solamente. | Acordar modelo/permisos/MIME/tamaño/retención/storage antes de provisionar proveedor o DB. |
-| GitHub/PR | La vista pública del repositorio abrió, pero las vistas de issues/PR no se recuperaron; `gh auth status` indicó token inválido y `git ls-remote` no conectó a GitHub. | Restablecer autenticación GitHub autorizada y acceso de red para consultar cuerpos/estado de issues #10–#28, comprobar PR relacionado y publicar la rama. No cerrar issues. |
+| GitHub/PR | Issues #10–#23, #27 y #28 se consultaron por la API pública; #24–#26 son PRs fusionados. La lista pública no tenía PR abierto antes de esta rama. El push sí se realizó; `gh auth status` indica token inválido y el navegador está desconectado. | Iniciar sesión mediante el flujo habitual de GitHub para crear el PR de la rama publicada. No compartir tokens ni cerrar issues. |
 
 ## Límite local vigente
 

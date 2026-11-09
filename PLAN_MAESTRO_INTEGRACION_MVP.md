@@ -34,7 +34,7 @@ Frontend DEMO local se ejecuta en Chromium y build/lint pasan. Login de taller B
 - API local o de staging segura y accesible; autenticación Basic segura o decisión sobre sustitución.
 - Base PostgreSQL de prueba descartable identificada, schema/version y política explícita de migraciones.
 - Credenciales Sandbox AI/PayPal/Channel3 y URLs de staging para validar únicamente los proveedores autorizados; todavía no se usan.
-- Contenido oficial y criterios de issues #10–#28.
+- Seguimiento de criterios oficiales #10–#28 en [matriz de issues](MATRIZ_ISSUES_Y_CRITERIOS_ACEPTACION.md); completar trabajo abierto #14, #17–#19, #23, #27 y #28.
 
 ## Estado de la evidencia
 
@@ -59,4 +59,4 @@ El usuario eligió Basic en memoria. La UI, comprobación read-only de acceso, l
 
 - Desde `Backend/`, Python 3.11.10: `.venv/Scripts/python.exe -m pytest -v -p no:cacheprovider --basetemp=.pytest-tmp-publication-full` -> **314 passed**. El directorio temporal quedo bajo `Backend/`; las pruebas no usaron PostgreSQL ni servicios externos.
 - Frontend: ESLint directo -> exit 0; `vite build` directo -> exit 0, 62 modulos transformados. `pnpm run test/lint/build` no pudo adquirir el lock del store global en el sandbox. Vitest no esta instalado; no se instalaron dependencias.
-- No se consultaron APIs externas. GitHub remoto no pudo ser consultado con CLI por token invalido y conexion restringida; los criterios oficiales de issues y PR existente siguen sin verificarse.
+- Se consultaron issues y PR públicos vía API: #24–#26 son PRs fusionados y no había PR abierto antes de esta publicación. El CLI `gh` tiene un token inválido y la sesión web está cerrada; la creación del PR sigue pendiente de autenticación interactiva.
