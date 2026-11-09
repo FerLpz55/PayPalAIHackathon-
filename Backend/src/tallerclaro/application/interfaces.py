@@ -147,6 +147,28 @@ class CustomerTokenRepository(Protocol):
         ...
 
 
+class WorkshopSessionRepository(Protocol):
+    """Sesiones opacas del taller.
+
+    ``create`` devuelve el token en claro una sola vez y persiste únicamente su
+    hash. ``verify`` valida caducidad de inactividad, caducidad absoluta,
+    revocación y vigencia de la huella de credenciales, y actualiza el último
+    uso de forma atómica. ``revoke`` es idempotente.
+    """
+
+    def create(self, carpenter_id: CarpenterId) -> str:
+        ...
+
+    def verify(self, token: str) -> CarpenterId | None:
+        ...
+
+    def revoke(self, token: str) -> bool:
+        ...
+
+    def revoke_all(self, carpenter_id: CarpenterId) -> int:
+        ...
+
+
 T = TypeVar("T")
 SqlPhase = Callable[["UnitOfWork"], T]
 
@@ -196,6 +218,10 @@ class UnitOfWork(Protocol):
 
     @property
     def tokens(self) -> CustomerTokenRepository:
+        ...
+
+    @property
+    def sessions(self) -> WorkshopSessionRepository:
         ...
 
     def commit(self) -> None:

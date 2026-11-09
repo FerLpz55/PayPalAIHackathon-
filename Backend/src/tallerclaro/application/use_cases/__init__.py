@@ -1,6 +1,11 @@
 """Casos de uso de la aplicación."""
 
 from tallerclaro.application.use_cases.accounting import AskAccountingAssistant, GetWorkshopFinancialSummary
+from tallerclaro.application.use_cases.authorization import (
+    EndWorkshopSession,
+    ResolveWorkshopSession,
+    StartWorkshopSession,
+)
 from tallerclaro.application.use_cases.orders import GetOrder, ListOrders, UpdateOrder
 from tallerclaro.application.use_cases.payments import CapturePayment, CreateOrderPayment, GetPayment
 from tallerclaro.application.use_cases.quotes import (
@@ -21,6 +26,9 @@ __all__ = [
     "ApproveQuote",
     "RejectQuote",
     "VerifyCustomerToken",
+    "StartWorkshopSession",
+    "ResolveWorkshopSession",
+    "EndWorkshopSession",
     "ListOrders",
     "GetOrder",
     "UpdateOrder",

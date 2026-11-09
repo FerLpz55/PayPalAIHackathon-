@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from tallerclaro.application.dtos import AccessPrincipal
 from tallerclaro.application.exceptions import ForbiddenError
+from tallerclaro.application.interfaces import UnitOfWork
 from tallerclaro.domain.entities import CarpenterId, QuoteId
 
 
@@ -34,3 +35,35 @@ def authorize_workshop_or_customer(
 
     raise ForbiddenError("Invalid principal")
 
+
+class StartWorkshopSession:
+    """Crea una sesión opaca nueva (rotación en cada inicio de sesión)."""
+
+    def __init__(self, uow: UnitOfWork) -> None:
+        self._uow = uow
+
+    def execute(self, carpenter_id: CarpenterId) -> str:
+        return self._uow.execute_sql(lambda uow: uow.sessions.create(carpenter_id))
+
+
+class ResolveWorkshopSession:
+    """Devuelve el taller de una sesión vigente o ``None`` si no es utilizable."""
+
+    def __init__(self, uow: UnitOfWork) -> None:
+        self._uow = uow
+
+    def execute(self, token: str) -> CarpenterId | None:
+        with self._uow:
+            return self._uow.sessions.verify(token)
+
+
+class EndWorkshopSession:
+    """Revoca una sesión; es idempotente ante tokens desconocidos o ya revocados."""
+
+    def __init__(self, uow: UnitOfWork) -> None:
+        self._uow = uow
+
+    def execute(self, token: str) -> bool:
+        return bool(
+            self._uow.execute_sql(lambda uow: uow.sessions.revoke(token))
+        )

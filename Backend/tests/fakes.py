@@ -196,10 +196,94 @@ class FakeCustomerTokenRepository:
         return record['customer_id'], record['quote_id']
 
 
+class FakeWorkshopSessionRepository:
+    """Sesiones en memoria con la misma semántica que PostgreSQL.
+
+    Guarda solo el SHA-256 del token; expone ``stored_hashes`` para comprobar que
+    el valor en claro nunca se persiste.
+    """
+
+    def __init__(
+        self,
+        *,
+        idle_minutes: int = 30,
+        absolute_hours: int = 8,
+        credential_fingerprint: str = "test-fingerprint",
+        clock: Callable[[], datetime] | None = None,
+    ) -> None:
+        self._sessions: dict[str, dict] = {}
+        self._idle_minutes = idle_minutes
+        self._absolute_hours = absolute_hours
+        self._credential_fingerprint = credential_fingerprint
+        self._clock = clock if clock is not None else lambda: datetime.now(timezone.utc)
+
+    @property
+    def stored_hashes(self) -> list[str]:
+        return list(self._sessions)
+
+    @staticmethod
+    def _hash(token: str) -> str:
+        import hashlib
+
+        return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+    def create(self, carpenter_id: CarpenterId) -> str:
+        import secrets
+
+        token = secrets.token_urlsafe(32)
+        now = self._clock()
+        self._sessions[self._hash(token)] = {
+            "carpenter_id": carpenter_id,
+            "fingerprint": self._credential_fingerprint,
+            "expires": now + timedelta(hours=self._absolute_hours),
+            "last_used": now,
+            "revoked": False,
+        }
+        return token
+
+    def verify(self, token: str) -> CarpenterId | None:
+        record = self._sessions.get(self._hash(token))
+        if record is None or record["revoked"]:
+            return None
+        if record["fingerprint"] != self._credential_fingerprint:
+            return None
+        now = self._clock()
+        if record["expires"] <= now:
+            return None
+        if record["last_used"] <= now - timedelta(minutes=self._idle_minutes):
+            return None
+        record["last_used"] = now
+        return record["carpenter_id"]
+
+    def revoke(self, token: str) -> bool:
+        record = self._sessions.get(self._hash(token))
+        if record is None or record["revoked"]:
+            return False
+        record["revoked"] = True
+        return True
+
+    def revoke_all(self, carpenter_id: CarpenterId) -> int:
+        revoked = 0
+        for record in self._sessions.values():
+            if record["carpenter_id"] == carpenter_id and not record["revoked"]:
+                record["revoked"] = True
+                revoked += 1
+        return revoked
+
+
 class FakeUnitOfWork:
     """Unidad de trabajo en memoria para pruebas unitarias con soporte real de commit y rollback."""
 
-    def __init__(self, *, tokens=None) -> None:
+    def __init__(
+        self,
+        *,
+        tokens=None,
+        sessions=None,
+        session_clock: Callable[[], datetime] | None = None,
+        session_idle_minutes: int = 30,
+        session_absolute_hours: int = 8,
+        session_credential_fingerprint: str = "test-fingerprint",
+    ) -> None:
         self._customers = FakeCustomerRepository()
         self._carpenters = FakeCarpenterRepository()
         self._quotes = FakeQuoteRepository()
@@ -207,6 +291,16 @@ class FakeUnitOfWork:
         self._capture_reservations = FakeCaptureReservationRepository()
         self._payments = FakePaymentRepository()
         self._tokens = tokens if tokens is not None else FakeCustomerTokenRepository()
+        self._sessions = (
+            sessions
+            if sessions is not None
+            else FakeWorkshopSessionRepository(
+                idle_minutes=session_idle_minutes,
+                absolute_hours=session_absolute_hours,
+                credential_fingerprint=session_credential_fingerprint,
+                clock=session_clock,
+            )
+        )
         self._committed = False
         self._frames: list[dict] = []
 
@@ -246,6 +340,11 @@ class FakeUnitOfWork:
         return self._tokens
 
     @property
+    def sessions(self):
+        self._active_frame()
+        return self._sessions
+
+    @property
     def capture_reservations(self):
         self._active_frame()
         return self._capture_reservations
@@ -265,6 +364,7 @@ class FakeUnitOfWork:
             "payments_store": copy.deepcopy(self._payments._store),
             "payments_next_id": self._payments._next_id,
             "tokens_dict": copy.deepcopy({key: value for key, value in self._tokens.__dict__.items() if key != '_clock'}),
+            "sessions_store": copy.deepcopy(self._sessions._sessions),
         }
 
     def _restore_snapshot(self, snap: dict) -> None:
@@ -280,6 +380,7 @@ class FakeUnitOfWork:
         self._capture_reservations._captures = copy.deepcopy(snap["capture_reservations"])
         self._payments._store = copy.deepcopy(snap["payments_store"])
         self._payments._next_id = snap["payments_next_id"]
+        self._sessions._sessions = copy.deepcopy(snap["sessions_store"])
         clock = self._tokens.__dict__.get('_clock')
         self._tokens.__dict__.clear()
         self._tokens.__dict__.update(copy.deepcopy(snap["tokens_dict"]))

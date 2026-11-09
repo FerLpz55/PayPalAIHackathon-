@@ -89,6 +89,11 @@ class Settings(BaseSettings):
     workshop_username: str = "taller"
     workshop_carpenter_id: int = 1
     workshop_password_hash: str = ""
+    # Sesiones revocables: inactividad y duración absoluta.
+    workshop_session_idle_minutes: int = 30
+    workshop_session_absolute_hours: int = 8
+    # Basic solo como compatibilidad explícita; las sesiones son el mecanismo por defecto.
+    enable_workshop_basic_auth: bool = False
 
     # CORS
     cors_origins: list[str] = Field(

@@ -12,9 +12,11 @@ from tallerclaro.infrastructure.ai.service import build_ai_service
 from tallerclaro.infrastructure.db.connection import Database
 from tallerclaro.infrastructure.db.unit_of_work import PostgresUnitOfWork
 from tallerclaro.infrastructure.payment.paypal_processor import build_payment_processor
+from tallerclaro.infrastructure.security.session_service import credential_fingerprint
 from tallerclaro.infrastructure.security.workshop_auth import ensure_workshop_auth_configured
 from tallerclaro.presentation.http.exception_handlers import register as register_exception_handlers
 from tallerclaro.presentation.http.routers.accounting import router as accounting_router
+from tallerclaro.presentation.http.routers.auth import router as auth_router
 from tallerclaro.presentation.http.routers.health import router as health_router
 from tallerclaro.presentation.http.routers.orders import router as orders_router
 from tallerclaro.presentation.http.routers.payments import router as payments_router
@@ -54,6 +56,11 @@ async def lifespan(app: FastAPI):
             database,
             token_secret=settings.customer_token_secret,
             token_ttl_hours=settings.customer_token_ttl_hours,
+            session_idle_minutes=settings.workshop_session_idle_minutes,
+            session_absolute_hours=settings.workshop_session_absolute_hours,
+            session_credential_fingerprint=credential_fingerprint(
+                settings.workshop_password_hash
+            ),
         )
     if getattr(app.state, "ai_service", None) is None:
         app.state.ai_service = build_ai_service(settings)
@@ -100,6 +107,7 @@ def create_app(
     register_exception_handlers(app)
 
     app.include_router(health_router)
+    app.include_router(auth_router)
     app.include_router(quotes_router)
     app.include_router(orders_router)
     app.include_router(payments_router)

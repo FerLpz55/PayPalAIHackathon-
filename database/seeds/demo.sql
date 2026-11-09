@@ -246,6 +246,32 @@ COMMENT ON TABLE tallerclaro.cliente_token IS
     'Tokens de enlace de un solo uso para acceso temporal del cliente.';
 
 -- ---------------------------------------------------------------------------
+-- 7b. sesion_taller (Migracion 005)
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS tallerclaro.sesion_taller (
+    id_sesion             bigint GENERATED ALWAYS AS IDENTITY,
+    id_carpintero         bigint NOT NULL,
+    token_hash            text NOT NULL,
+    credencial_huella     text NOT NULL,
+    fecha_creacion        timestamptz NOT NULL DEFAULT now(),
+    ultimo_uso            timestamptz NOT NULL DEFAULT now(),
+    fecha_expiracion      timestamptz NOT NULL,
+    revocada_en           timestamptz,
+
+    CONSTRAINT pk_sesion_taller PRIMARY KEY (id_sesion),
+    CONSTRAINT fk_sesion_taller_carpintero FOREIGN KEY (id_carpintero)
+        REFERENCES tallerclaro.carpintero (id_carpintero)
+        ON DELETE RESTRICT ON UPDATE RESTRICT,
+    CONSTRAINT uq_sesion_taller_token_hash UNIQUE (token_hash),
+    CONSTRAINT ck_sesion_taller_token_hash_no_vacio CHECK (btrim(token_hash) <> ''),
+    CONSTRAINT ck_sesion_taller_huella_no_vacia CHECK (btrim(credencial_huella) <> ''),
+    CONSTRAINT ck_sesion_taller_fechas CHECK (fecha_expiracion > fecha_creacion)
+);
+
+COMMENT ON TABLE tallerclaro.sesion_taller IS
+    'Sesiones opacas del taller; se almacena solo el hash del token.';
+
+-- ---------------------------------------------------------------------------
 -- 8. Campos adicionales de cotizacion y detalle (Migracion 002)
 -- ---------------------------------------------------------------------------
 ALTER TABLE tallerclaro.cotizacion
@@ -339,7 +365,8 @@ BEGIN
             tallerclaro.detalle_cotizacion,
             tallerclaro.pedido,
             tallerclaro.pago,
-            tallerclaro.cliente_token
+            tallerclaro.cliente_token,
+            tallerclaro.sesion_taller
         TO tallerclaro_app;
 
         FOR tabla, columna IN
@@ -350,7 +377,8 @@ BEGIN
                 ('detalle_cotizacion', 'id_detalle'),
                 ('pedido', 'id_pedido'),
                 ('pago', 'id_pago'),
-                ('cliente_token', 'id_token')
+                ('cliente_token', 'id_token'),
+                ('sesion_taller', 'id_sesion')
             ) AS ids(nombre_tabla, nombre_columna)
         LOOP
             secuencia := pg_get_serial_sequence(format('%I.%I', 'tallerclaro', tabla), columna);

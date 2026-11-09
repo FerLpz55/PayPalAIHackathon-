@@ -7,6 +7,9 @@ from tests.fakes import FakeAIService, FakePaymentProcessor
 
 EXPECTED_OPERATIONS = {
     ("get", "/api/health"),
+    ("post", "/api/auth/login"),
+    ("get", "/api/auth/session"),
+    ("post", "/api/auth/logout"),
     ("get", "/api/accounting/summary"),
     ("post", "/api/accounting/assistant"),
     ("post", "/api/quotes"),

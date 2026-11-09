@@ -25,11 +25,14 @@ database/
     001_add_customer_link_tokens.sql
     002_add_quote_clarification_fields.sql
     003_reserve_payment_capture.sql
+    004_add_cancelled_order_status.sql
+    005_add_workshop_sessions.sql
 ```
 
-`schema.sql` incorpora 001–002 y la columna de 003 al crear tablas nuevas.
-Sobre una base existente, `CREATE TABLE IF NOT EXISTS` no añade esa columna:
-aplica 003 por separado. El esquema no sustituye futuras migraciones ni comprueba
+`schema.sql` incorpora 001–002, la columna de 003 y la tabla de 005 al crear
+tablas nuevas. Sobre una base existente, `CREATE TABLE IF NOT EXISTS` no añade
+esa columna: aplica 003 por separado. La tabla `sesion_taller` debe crearse con
+la migración 005. El esquema no sustituye futuras migraciones ni comprueba
 automáticamente todas las diferencias de una base modificada manualmente.
 
 ## Requisitos
@@ -42,7 +45,8 @@ automáticamente todas las diferencias de una base modificada manualmente.
 - Base: en Supabase la base por defecto es `postgres`.
 - Esquema dedicado: `tallerclaro` (aislado de `public` y de PostgREST / Data API).
 - Seis tablas de negocio (`cliente`, `carpintero`, `cotizacion`,
-  `detalle_cotizacion`, `pedido`, `pago`) y `cliente_token`.
+  `detalle_cotizacion`, `pedido`, `pago`), `cliente_token` y
+  `sesion_taller` (sesiones opacas del taller, migración 005).
 - Convenciones: columnas en español, `snake_case`, PK `bigint GENERATED ALWAYS AS
   IDENTITY`, importes `numeric(14,2)`, cantidades `numeric(12,3)`, moneda `USD`,
   fechas `timestamptz`, estados como `text` con `CHECK`, nombres calificados.

@@ -192,6 +192,9 @@ Prefijo: `/api`
 | Método | Endpoint | Descripción |
 | --- | --- | --- |
 | GET | `/health` | Comprobación de vida |
+| POST | `/auth/login` | Iniciar sesión del taller (cookie + CSRF) |
+| GET | `/auth/session` | Consultar la sesión vigente |
+| POST | `/auth/logout` | Revocar la sesión y borrar cookies |
 | POST | `/quotes` | Crear cliente y cotización draft |
 | GET | `/quotes/{id}` | Consultar cotización |
 | POST | `/quotes/{id}/generate` | Generar propuesta con IA |
@@ -209,9 +212,12 @@ Prefijo: `/api`
 ### Autorización
 
 - Sin autenticación: `GET /api/health` y `POST /api/quotes`; esta última devuelve el token del cliente.
-- Taller: `GET /api/orders`, `PATCH /api/orders/{id}`, `POST /api/quotes/{id}/generate`, `GET /api/accounting/summary` y `POST /api/accounting/assistant` requieren Basic Auth; el servidor verifica la contraseña contra `TALLERCLARO_WORKSHOP_PASSWORD_HASH`.
+- Taller: `POST /api/auth/login`, `GET /api/auth/session` y `POST /api/auth/logout`, además de `GET /api/orders`, `PATCH/DELETE /api/orders/{id}`, `POST /api/quotes/{id}/generate`, `GET /api/accounting/summary` y `POST /api/accounting/assistant`.
+- El login verifica las credenciales contra `TALLERCLARO_WORKSHOP_PASSWORD_HASH` y emite una sesión opaca de 256 bits. Solo se guarda su SHA-256 en `tallerclaro.sesion_taller`; caduca a los 30 minutos de inactividad o 8 horas absolutas, es revocable y rota en cada login. Cambiar el hash bcrypt invalida las sesiones (huella de credenciales).
+- Cookies: `__Host-tallerclaro_session` (`HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/`, sin `Domain`) y `__Host-tallerclaro_csrf` (legible por el JS del mismo origen). Las peticiones autenticadas por cookie que cambian estado exigen `X-CSRF-Token` igual al valor de la cookie CSRF y un `Origin` permitido.
+- Basic está desactivado por defecto; solo se acepta con `TALLERCLARO_ENABLE_WORKSHOP_BASIC_AUTH=true` como compatibilidad explícita.
 - Cliente: crear, consultar y capturar pagos requieren `X-Customer-Token` o `Authorization: Bearer`.
-- Lectura, aprobación y rechazo de cotizaciones, y detalle de pedido, aceptan token del cliente o Basic del taller mediante `PrincipalDep`, con validación de pertenencia en aplicación.
+- Lectura, aprobación y rechazo de cotizaciones, y detalle de pedido, aceptan token del cliente o sesión del taller mediante `PrincipalDep`, con validación de pertenencia en aplicación. Un token de cliente inválido nunca concede privilegios del taller.
 
 ## Configuración
 

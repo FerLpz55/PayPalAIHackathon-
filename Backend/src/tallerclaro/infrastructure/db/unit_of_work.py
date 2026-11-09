@@ -12,6 +12,7 @@ from tallerclaro.application.interfaces import (
     CustomerTokenRepository,
     SqlPhase,
     UnitOfWork,
+    WorkshopSessionRepository,
 )
 from tallerclaro.infrastructure.db.connection import Database
 from tallerclaro.infrastructure.db.repositories import (
@@ -22,6 +23,7 @@ from tallerclaro.infrastructure.db.repositories import (
     PostgresPaymentRepository,
     PostgresQuoteRepository,
 )
+from tallerclaro.infrastructure.security.session_service import WorkshopSessionService
 from tallerclaro.infrastructure.security.token_service import CustomerTokenService
 
 
@@ -35,6 +37,7 @@ class _TransactionFrame:
     capture_reservations: PostgresCaptureReservationRepository
     payments: PostgresPaymentRepository
     tokens: CustomerTokenRepository
+    sessions: WorkshopSessionRepository
     committed: bool = False
 
 
@@ -46,10 +49,16 @@ class PostgresUnitOfWork:
         database: Database,
         token_secret: str = "change-me-secret-min-32-chars-long",
         token_ttl_hours: int = 72,
+        session_idle_minutes: int = 30,
+        session_absolute_hours: int = 8,
+        session_credential_fingerprint: str = "",
     ) -> None:
         self._database = database
         self._token_secret = token_secret
         self._token_ttl_hours = token_ttl_hours
+        self._session_idle_minutes = session_idle_minutes
+        self._session_absolute_hours = session_absolute_hours
+        self._session_credential_fingerprint = session_credential_fingerprint
         self._frames: list[_TransactionFrame] = []
         self._conn = None
 
@@ -79,6 +88,12 @@ class PostgresUnitOfWork:
                 conn,
                 secret=self._token_secret,
                 ttl_hours=self._token_ttl_hours,
+            ),
+            sessions=WorkshopSessionService(
+                conn,
+                credential_fingerprint=self._session_credential_fingerprint,
+                idle_minutes=self._session_idle_minutes,
+                absolute_hours=self._session_absolute_hours,
             ),
             committed=False,
         )
@@ -129,6 +144,10 @@ class PostgresUnitOfWork:
     @property
     def tokens(self) -> CustomerTokenRepository:
         return self._active_frame().tokens
+
+    @property
+    def sessions(self) -> WorkshopSessionRepository:
+        return self._active_frame().sessions
 
     def get_connection(self):
         """Expone la conexión activa."""
