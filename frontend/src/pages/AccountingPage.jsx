@@ -1,28 +1,37 @@
 import { useEffect, useState } from 'react'
 import AccountingAssistant from '../components/accounting/AccountingAssistant.jsx'
+import Button from '../components/ui/Button.jsx'
+import DemoNotice from '../components/ui/DemoNotice.jsx'
 import EmptyState from '../components/ui/EmptyState.jsx'
 import LoadingState from '../components/ui/LoadingState.jsx'
 import Metric from '../components/ui/Metric.jsx'
 import PageHeading from '../components/ui/PageHeading.jsx'
-import { apiClient, isConfigurationMissing } from '../services/apiClient.js'
+import { apiClient, isConfigurationMissing, isDemoMode } from '../services/apiClient.js'
 import { formatMoney } from '../utils/format.js'
 
 function AccountingPage() {
   const [summary, setSummary] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [retry, setRetry] = useState(0)
 
   useEffect(() => {
     let active = true
+    if (isConfigurationMissing) {
+      return () => { active = false }
+    }
     apiClient.getFinancialSummary()
       .then((data) => {
         if (active) setSummary(data)
       })
-      .catch(() => {})
+      .catch((caught) => {
+        if (active) setError(caught?.message || 'The financial summary could not be loaded.')
+      })
       .finally(() => {
         if (active) setLoading(false)
       })
     return () => { active = false }
-  }, [])
+  }, [retry])
 
   if (isConfigurationMissing) {
     return (
@@ -39,13 +48,20 @@ function AccountingPage() {
     <div className="page-content">
       <PageHeading
         title="Workshop Financials & Accounting"
-        description="Real-time revenue, PayPal collections, and financial insights powered by AI."
+        description={isDemoMode ? 'Illustrative summary from local sample orders.' : 'Order and payment summary returned by the workshop backend.'}
       />
-      
+      {isDemoMode && <DemoNotice text="These sample totals are local demo data. They do not represent live payments or accounting records." />}
+
       {/* Asistente contable con IA */}
       <AccountingAssistant />
 
-      {loading ? <LoadingState /> : (
+      {loading ? <LoadingState /> : error ? (
+        <section className="panel" role="alert" style={{ marginTop: 20, padding: 18 }}>
+          <h2>Financial summary unavailable</h2>
+          <p>{error}</p>
+          <Button variant="secondary" onClick={() => { setError(''); setLoading(true); setRetry((value) => value + 1) }}>Retry summary</Button>
+        </section>
+      ) : summary ? (
         <>
           <div className="section-head accounting-heading" style={{ marginTop: 24 }}>
             <div>
@@ -55,9 +71,9 @@ function AccountingPage() {
           </div>
 
           <section className="metric-row accounting-metrics">
-            <Metric label="Total Contracted" value={formatMoney(summary?.totalContracted ?? 0)} detail="All approved customer orders" />
-            <Metric label="Collected via PayPal" value={formatMoney(summary?.collectedTotal ?? 0)} detail="Deposits and balances cleared" tone="green" />
-            <Metric label="Pending Collection" value={formatMoney(summary?.pendingToCollect ?? 0)} detail="Awaiting delivery & balances" tone="blue" />
+            <Metric label="Total Contracted" value={formatMoney(summary.totalContracted)} detail="Approved customer orders" />
+            <Metric label={isDemoMode ? 'Sample collected' : 'Collected via PayPal'} value={formatMoney(summary.collectedTotal)} detail={isDemoMode ? 'Illustrative demo totals' : 'Backend payment summary'} tone="green" />
+            <Metric label="Pending Collection" value={formatMoney(summary.pendingToCollect)} detail="Backend-reported outstanding balance" tone="blue" />
           </section>
 
           <div className="detail-grid" style={{ marginTop: 16 }}>
@@ -67,19 +83,19 @@ function AccountingPage() {
               <div style={{ display: 'grid', gap: 12, marginTop: 14 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0', borderBottom: '1px solid var(--line)' }}>
                   <span>Total orders placed</span>
-                  <strong>{summary?.ordersCount ?? 0}</strong>
+                  <strong>{summary.ordersCount ?? '—'}</strong>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0', borderBottom: '1px solid var(--line)' }}>
                   <span>Active production</span>
-                  <strong>{summary?.activeOrdersCount ?? summary?.ordersCount ?? 0}</strong>
+                  <strong>{summary.activeOrdersCount ?? '—'}</strong>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0', borderBottom: '1px solid var(--line)' }}>
                   <span>Awaiting initial deposit</span>
-                  <strong>{summary?.awaitingDeposit ?? 0}</strong>
+                  <strong>{summary.awaitingDeposit ?? '—'}</strong>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0', borderBottom: '1px solid var(--line)' }}>
                   <span>Completed & delivered</span>
-                  <strong style={{ color: 'var(--green)' }}>{summary?.deliveredOrdersCount ?? 0}</strong>
+                  <strong style={{ color: 'var(--green)' }}>{summary.deliveredOrdersCount ?? '—'}</strong>
                 </div>
               </div>
             </section>
@@ -90,21 +106,21 @@ function AccountingPage() {
               <div style={{ display: 'grid', gap: 12, marginTop: 14 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0', borderBottom: '1px solid var(--line)' }}>
                   <span>Collected advance deposits</span>
-                  <strong style={{ color: 'var(--navy)' }}>{formatMoney(summary?.collectedDeposits ?? summary?.collectedTotal ?? 0)}</strong>
+                  <strong style={{ color: 'var(--navy)' }}>{formatMoney(summary.collectedDeposits)}</strong>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0', borderBottom: '1px solid var(--line)' }}>
                   <span>Collected final balances</span>
-                  <strong style={{ color: 'var(--green)' }}>{formatMoney(summary?.collectedBalances ?? 0)}</strong>
+                  <strong style={{ color: 'var(--green)' }}>{formatMoney(summary.collectedBalances)}</strong>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0', borderBottom: '1px solid var(--line)' }}>
                   <span>Average order value</span>
-                  <strong>{formatMoney(summary?.averageOrderValue ?? 0)}</strong>
+                  <strong>{formatMoney(summary.averageOrderValue)}</strong>
                 </div>
               </div>
             </section>
           </div>
         </>
-      )}
+      ) : <p role="status">No financial summary is available.</p>}
     </div>
   )
 }

@@ -2,7 +2,7 @@ import Icon from '../ui/Icon.jsx'
 import { TOPBAR_LABELS } from '../../utils/constants.js'
 import { isDemoMode } from '../../services/apiClient.js'
 
-function Topbar({ route, onMenu, menuOpen, menuButtonRef }) {
+function Topbar({ route, onMenu, menuOpen, menuButtonRef, workshopAuthenticated, onSignIn, onSignOut }) {
   const [section, defaultHeading] = TOPBAR_LABELS[route.split('/')[0]] || TOPBAR_LABELS.dashboard
   const heading = !isDemoMode && route.split('/')[0] === 'dashboard' ? 'Dashboard' : defaultHeading
   return (
@@ -14,7 +14,11 @@ function Topbar({ route, onMenu, menuOpen, menuButtonRef }) {
         <div className="breadcrumb">{section} <span aria-hidden="true">/</span> TallerClaro</div>
         <div className="topbar-title">{heading}</div>
       </div>
-      <div className="user-menu"><span>{isDemoMode ? 'Alex' : 'Workshop'}</span><span className="user-avatar" aria-hidden="true">{isDemoMode ? 'A' : 'W'}</span></div>
+      {isDemoMode
+        ? <div className="user-menu"><span>Alex</span><span className="user-avatar" aria-hidden="true">A</span></div>
+        : <button className="user-menu user-menu-auth" type="button" onClick={workshopAuthenticated ? onSignOut : onSignIn} aria-label={workshopAuthenticated ? 'Sign out of workshop' : 'Sign in to workshop'}>
+            <span>{workshopAuthenticated ? 'Sign out' : 'Sign in'}</span><span className="user-avatar" aria-hidden="true">W</span>
+          </button>}
     </header>
   )
 }

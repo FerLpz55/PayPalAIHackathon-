@@ -4,6 +4,7 @@ import {
   isDemoMode,
   isConnectedMode,
   isConfigurationMissing,
+  isSecureWorkshopTransport,
   apiRequest,
 } from './http.js'
 import {
@@ -32,6 +33,7 @@ export {
   isDemoMode,
   isConnectedMode,
   isConfigurationMissing,
+  isSecureWorkshopTransport,
   getSession,
   saveSession,
   clearSession,
@@ -39,14 +41,35 @@ export {
   adaptOrderResponse,
 }
 
+const quoteGenerationErrors = new Map()
+
 export const apiClient = {
   async listOrders() {
     if (isDemoMode) {
       return mockApi.listOrders()
     }
-    const data = await apiRequest('/api/orders', { isWorkshopRoute: true })
+    const page = await apiClient.listOrdersPage()
+    return page.orders
+  },
+
+  async listOrdersPage({ limit = 20, offset = 0 } = {}) {
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100 || !Number.isInteger(offset) || offset < 0) {
+      throw new Error('Order page limit or offset is invalid.')
+    }
+    if (isDemoMode) {
+      const allOrders = await mockApi.listOrders()
+      return { orders: allOrders.slice(offset, offset + limit), total: allOrders.length, limit, offset }
+    }
+    const data = await apiRequest(`/api/orders?limit=${limit}&offset=${offset}`, { isWorkshopRoute: true })
     const list = Array.isArray(data?.orders) ? data.orders : (Array.isArray(data) ? data : [])
-    return list.map(adaptOrderResponse).filter((order) => order && order.status !== 'deleted')
+    const orders = list.map(adaptOrderResponse).filter((order) => order && order.status !== 'deleted')
+    const responseTotal = data?.total == null ? Number.NaN : Number(data.total)
+    return {
+      orders,
+      total: Number.isFinite(responseTotal) && responseTotal >= 0 ? responseTotal : orders.length,
+      limit: Number.isInteger(data?.limit) ? data.limit : limit,
+      offset: Number.isInteger(data?.offset) ? data.offset : offset,
+    }
   },
 
   async getQuote(quoteId, options = {}) {
@@ -60,9 +83,14 @@ export const apiClient = {
     try {
       const queryParam = options?.query ? `?q=${encodeURIComponent(options.query)}` : ''
       const data = await apiRequest(`/api/quotes/${targetId}${queryParam}`, {
-        customerToken: options?.customerToken || session.customerToken,
+        customerToken: options?.workshop ? null : options?.customerToken || session.customerToken,
+        isWorkshopRoute: options?.workshop === true,
       })
-      return adaptQuoteResponse(data)
+      const quote = adaptQuoteResponse(data)
+      const generationError = quoteGenerationErrors.get(String(targetId))
+      if (quote?.status === 'draft' && generationError) quote.generationError = generationError
+      else if (quote) quoteGenerationErrors.delete(String(targetId))
+      return quote
     } catch (err) {
       if (err.status === 404) return null
       throw err
@@ -103,36 +131,63 @@ export const apiClient = {
       customerEmail,
     })
 
-    // Solicita la generación de la propuesta por la ruta documentada.
+    let generationError = ''
     try {
       await apiRequest(`/api/quotes/${quoteId}/generate`, {
         method: 'POST',
         isWorkshopRoute: true,
       })
-    } catch {
-      // Mantiene la cotización disponible si el servicio de IA no responde.
+    } catch (error) {
+      generationError = error?.message || 'The workshop could not generate this estimate.'
     }
 
-    // Recupera la cotización completa con totales y partidas calculadas.
-    const fullQuote = await apiRequest(`/api/quotes/${quoteId}`, {
-      customerToken: token,
-    })
+    let fullQuote
+    try {
+      fullQuote = await apiRequest(`/api/quotes/${quoteId}`, { customerToken: token })
+    } catch (error) {
+      fullQuote = {
+        ...created,
+        status: 'draft',
+        total: null,
+        deposit_amount: null,
+        balance_amount: null,
+        items: [],
+      }
+      generationError ||= `The request was saved, but its status could not be confirmed: ${error?.message || 'backend read failed.'}`
+    }
 
-    return adaptQuoteResponse(fullQuote, { name: customerName, email: customerEmail })
+    const quote = adaptQuoteResponse(fullQuote, { name: customerName, email: customerEmail })
+    if (quote?.status === 'draft' && generationError) {
+      quoteGenerationErrors.set(String(quoteId), generationError)
+      quote.generationError = generationError
+    } else if (quote) {
+      quoteGenerationErrors.delete(String(quoteId))
+    }
+    return quote
+  },
+
+  async retryQuoteGeneration(quote) {
+    if (!quote?.numericId || quote.status !== 'draft') {
+      throw new Error('Only a confirmed draft can be retried. Refresh the quote status before trying again.')
+    }
+    const quoteId = quote.numericId
+    await apiRequest(`/api/quotes/${quoteId}/generate`, {
+      method: 'POST',
+      isWorkshopRoute: true,
+    })
+    const token = getSession().customerToken
+    const refreshed = await apiRequest(`/api/quotes/${quoteId}`, { customerToken: token })
+    const updatedQuote = adaptQuoteResponse(refreshed)
+    if (!updatedQuote || !['pending_review', 'needs_information'].includes(updatedQuote.status)) {
+      throw new Error('The backend did not confirm a generated quote. Its current status remains unverified.')
+    }
+    quoteGenerationErrors.delete(String(quoteId))
+    return updatedQuote
   },
 
   async submitMissingInfo(quoteId, additionalInfo) {
     if (isDemoMode) {
-      const quote = await mockApi.getQuote()
-      if (quote) {
-        quote.status = 'pending_review'
-        quote.missing_info = []
-        if (quote.description) {
-          quote.description += ` | Additional details: ${additionalInfo}`
-        }
-        return quote
-      }
-      return null
+      return mockApi.submitMissingInfo(additionalInfo)
     }
 
     const session = getSession()
@@ -176,12 +231,7 @@ export const apiClient = {
 
   async rejectQuote(quoteId) {
     if (isDemoMode) {
-      const quote = await mockApi.getQuote()
-      if (quote) {
-        quote.status = 'rejected'
-        return quote
-      }
-      return null
+      return mockApi.rejectQuote()
     }
 
     const session = getSession()
@@ -192,7 +242,7 @@ export const apiClient = {
     return adaptQuoteResponse(updated)
   },
 
-  async getOrder(orderId) {
+  async getOrder(orderId, { customer = false } = {}) {
     if (isDemoMode) {
       const orders = await mockApi.listOrders()
       const found = orders.find((o) => o.id === orderId || o.orderId === parseNumericId(orderId))
@@ -200,7 +250,7 @@ export const apiClient = {
     }
 
     const targetId = parseNumericId(orderId)
-    const data = await apiRequest(`/api/orders/${targetId}`, { isWorkshopRoute: !getSession().customerToken })
+    const data = await apiRequest(`/api/orders/${targetId}`, { isWorkshopRoute: !customer })
     return adaptOrderResponse(data)
   },
 
@@ -208,7 +258,7 @@ export const apiClient = {
     if (!isConnectedMode) return null
     const session = getSession()
     if (!session.customerToken || !session.activeOrderId || String(session.activeOrderQuoteId) !== String(parseNumericId(quoteId))) return null
-    return this.getOrder(session.activeOrderId)
+    return this.getOrder(session.activeOrderId, { customer: true })
   },
 
   getPendingPayment(orderId, type) {

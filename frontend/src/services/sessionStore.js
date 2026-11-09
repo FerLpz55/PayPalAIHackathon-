@@ -6,6 +6,31 @@
 const SESSION_KEY = 'tallerclaro.session.v1'
 const PENDING_PAYMENT_KEY = 'tallerclaro.pending-payment.v1'
 const COMPLETED_PAYMENT_KEY = 'tallerclaro.completed-payment.v1'
+let workshopAuthorization = null
+
+export function getWorkshopCredentials() {
+  return workshopAuthorization
+}
+
+export function setWorkshopCredentials(username, password) {
+  const normalizedUsername = String(username || '').trim()
+  const rawPassword = String(password || '')
+  if (!normalizedUsername || normalizedUsername.includes(':') || !rawPassword) {
+    throw new Error('Enter a valid workshop username and password.')
+  }
+
+  const bytes = new TextEncoder().encode(`${normalizedUsername}:${rawPassword}`)
+  let binary = ''
+  for (let index = 0; index < bytes.length; index += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000))
+  }
+  workshopAuthorization = btoa(binary)
+  return workshopAuthorization
+}
+
+export function clearWorkshopCredentials() {
+  workshopAuthorization = null
+}
 
 export function getSession() {
   try {

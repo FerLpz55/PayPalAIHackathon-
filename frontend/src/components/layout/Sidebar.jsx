@@ -1,9 +1,11 @@
 import { useEffect, useRef } from 'react'
 import Icon from '../ui/Icon.jsx'
 import { NAV_ITEMS } from '../../utils/constants.js'
+import { isDemoMode } from '../../services/apiClient.js'
 
 function Sidebar({ active, open, onClose, go, triggerRef }) {
   const sidebarRef = useRef(null)
+  const navItems = NAV_ITEMS.filter((item) => item.id !== 'receipts' || isDemoMode)
 
   useEffect(() => {
     if (!open) return undefined
@@ -49,7 +51,7 @@ function Sidebar({ active, open, onClose, go, triggerRef }) {
         </div>
         <div className="nav-caption">Workspace</div>
         <nav id="workshop-navigation" aria-label="Workshop navigation">
-          {NAV_ITEMS.map((item) => (
+          {navItems.map((item) => (
             <a
               key={item.id}
               href={`#/${item.id}`}

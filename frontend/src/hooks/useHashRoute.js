@@ -14,8 +14,9 @@ const ROUTE_TITLES = {
   'customer/payment/cancel': 'PayPal Payment Cancelled',
 }
 
-function readRoute() {
-  return window.location.hash.replace(/^#\/?/, '').split('?')[0] || 'dashboard'
+function readLocation() {
+  const [path = '', query = ''] = window.location.hash.replace(/^#\/?/, '').split('?')
+  return { route: path || 'dashboard', query }
 }
 
 function titleForRoute(route) {
@@ -25,14 +26,15 @@ function titleForRoute(route) {
 }
 
 export function useHashRoute(onRouteChange) {
-  const [route, setRoute] = useState(readRoute)
+  const [location, setLocation] = useState(readLocation)
+  const { route, query } = location
 
   useEffect(() => {
     const handleHashChange = () => {
-      const nextRoute = readRoute()
-      setRoute(nextRoute)
-      document.title = `${titleForRoute(nextRoute)} · TallerClaro`
-      trackPageView(nextRoute)
+      const nextLocation = readLocation()
+      setLocation(nextLocation)
+      document.title = `${titleForRoute(nextLocation.route)} · TallerClaro`
+      trackPageView(nextLocation.route)
       onRouteChange?.()
     }
 
@@ -44,8 +46,7 @@ export function useHashRoute(onRouteChange) {
   const go = useCallback((target) => {
     const next = target.replace(/^#\/?/, '')
     window.location.hash = `#/${next}`
-    setRoute(next)
   }, [])
 
-  return { route, go }
+  return { route, query, go }
 }

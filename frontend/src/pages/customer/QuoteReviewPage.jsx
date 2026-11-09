@@ -1,20 +1,43 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Button from '../../components/ui/Button.jsx'
 import DataLine from '../../components/ui/DataLine.jsx'
+import DemoNotice from '../../components/ui/DemoNotice.jsx'
 import PayPalCheckout from '../../components/customer/PayPalCheckout.jsx'
 import EmptyState from '../../components/ui/EmptyState.jsx'
 import LoadingState from '../../components/ui/LoadingState.jsx'
 import PageHeading from '../../components/ui/PageHeading.jsx'
-import { apiClient, isConfigurationMissing } from '../../services/apiClient.js'
+import { apiClient, isConfigurationMissing, isDemoMode } from '../../services/apiClient.js'
 import { isSafeExternalUrl } from '../../utils/security.js'
 import { formatMoney } from '../../utils/format.js'
 
 function QuoteReviewPage({ quote, orders, loading, go, mutate, refresh }) {
   const [busy, setBusy] = useState(false)
   const [additionalInfo, setAdditionalInfo] = useState('')
-  const [catalogSearch, setCatalogSearch] = useState('')
-  const [searchLoading, setSearchLoading] = useState(false)
-  const [activeSuggestions, setActiveSuggestions] = useState(() => quote?.suggestedProducts || [])
+  const quoteId = quote?.numericId || quote?.id
+  const [catalogState, setCatalogState] = useState(() => ({
+    quoteId,
+    search: '',
+    loading: false,
+    error: '',
+    suggestions: quote?.suggestedProducts || [],
+  }))
+  const catalogRequestId = useRef(0)
+  const catalogStateForQuote = String(catalogState.quoteId) === String(quoteId)
+    ? catalogState
+    : { quoteId, search: '', loading: false, error: '', suggestions: quote?.suggestedProducts || [] }
+  const { search: catalogSearch, loading: searchLoading, error: catalogError, suggestions: activeSuggestions } = catalogStateForQuote
+
+  useEffect(() => {
+    catalogRequestId.current += 1
+    return () => { catalogRequestId.current += 1 }
+  }, [quoteId])
+
+  const updateCatalogState = (patch) => {
+    setCatalogState((current) => {
+      const base = String(current.quoteId) === String(quoteId) ? current : catalogStateForQuote
+      return { ...base, ...patch, quoteId }
+    })
+  }
 
   if (loading) return <div className="customer-page"><LoadingState /></div>
   if (isConfigurationMissing) return <div className="customer-page"><EmptyState title="Backend connection not configured" text="Quotes and payment actions are unavailable until VITE_API_BASE_URL is configured." /></div>
@@ -24,6 +47,18 @@ function QuoteReviewPage({ quote, orders, loading, go, mutate, refresh }) {
 
   const approved = quote.status === 'approved'
   const isNeedsInfo = quote.status === 'needs_information'
+  const isDraft = quote.status === 'draft'
+  const isRejected = quote.status === 'rejected'
+  const missingInfo = Array.isArray(quote.missing_info)
+    ? quote.missing_info.filter((item) => typeof item === 'string' && item.trim())
+    : []
+  const statusLabel = {
+    draft: 'Draft · not validated',
+    needs_information: 'Information needed',
+    pending_review: 'Ready for review',
+    approved: 'Approved',
+    rejected: 'Rejected',
+  }[quote.status] || 'Status unavailable'
   const order = orders.find((item) => String(item.quoteId || item.id) === String(quote.numericId || quote.id))
   const items = quote.items || []
   const materials = items.filter((item) => item.kind === 'material')
@@ -31,20 +66,33 @@ function QuoteReviewPage({ quote, orders, loading, go, mutate, refresh }) {
   const otherItems = items.filter((item) => item.kind !== 'material' && item.kind !== 'labor')
 
   // Búsqueda en vivo de materiales en Channel3
-  const handleCatalogSearch = async (e) => {
-    e?.preventDefault()
-    if (!catalogSearch.trim()) return
-    setSearchLoading(true)
-    try {
-      const refreshed = await apiClient.getQuote(quote.numericId || quote.id, { query: catalogSearch.trim() })
-      if (refreshed?.suggestedProducts?.length) {
-        setActiveSuggestions(refreshed.suggestedProducts)
-      }
-    } catch {
-      // Degradación silenciosa
-    } finally {
-      setSearchLoading(false)
+  const searchCatalog = async (term) => {
+    if (isDemoMode) {
+      updateCatalogState({ error: 'Store search is unavailable in DEMO mode. No catalog request was sent.' })
+      return
     }
+    const normalizedTerm = term.trim()
+    if (!normalizedTerm) return
+    const requestId = ++catalogRequestId.current
+    updateCatalogState({ loading: true, error: '' })
+    try {
+      const refreshed = await apiClient.getQuote(quoteId, { query: normalizedTerm })
+      if (requestId !== catalogRequestId.current) return
+      if (refreshed?.suggestedProducts?.length) {
+        updateCatalogState({ suggestions: refreshed.suggestedProducts })
+      } else {
+        updateCatalogState({ suggestions: [], error: 'No products were returned for this search.' })
+      }
+    } catch (error) {
+      if (requestId === catalogRequestId.current) updateCatalogState({ error: error?.message || 'The catalog could not be searched.' })
+    } finally {
+      if (requestId === catalogRequestId.current) updateCatalogState({ loading: false })
+    }
+  }
+
+  const handleCatalogSearch = (e) => {
+    e?.preventDefault()
+    void searchCatalog(catalogSearch)
   }
 
   const applyProductToQuote = async (prod) => {
@@ -67,11 +115,11 @@ function QuoteReviewPage({ quote, orders, loading, go, mutate, refresh }) {
     e.preventDefault()
     if (!additionalInfo.trim()) return
     setBusy(true)
-    await mutate(
+    const submitted = await mutate(
       () => apiClient.submitMissingInfo(quote.numericId || quote.id, additionalInfo.trim()),
       'Additional information submitted successfully.'
     )
-    setAdditionalInfo('')
+    if (submitted !== false) setAdditionalInfo('')
     setBusy(false)
   }
 
@@ -81,12 +129,19 @@ function QuoteReviewPage({ quote, orders, loading, go, mutate, refresh }) {
     setBusy(false)
   }
 
+  const retryGeneration = async () => {
+    setBusy(true)
+    await mutate(() => apiClient.retryQuoteGeneration(quote), 'The workshop returned an updated quote.')
+    setBusy(false)
+  }
+
   const measurementsText = `${quote.measurements?.width ?? '-'} wide · ${quote.measurements?.height ?? '-'} tall · ${quote.measurements?.depth ?? '-'} deep`
 
   return (
     <div className="customer-page">
-      <PageHeading title="Your quote is ready" description={`Review the custom estimate for ${quote.customer}.`} />
-      
+      {isDemoMode && <DemoNotice text="Demo estimate only. It is not generated or validated by the workshop backend or an AI provider." />}
+      <PageHeading title="Quote review" description={`Review the estimate for ${quote.customer}.`} />
+
       <div className="quote-review-grid">
         <section className="panel quote-breakdown">
           <div className="quote-title-row">
@@ -95,9 +150,18 @@ function QuoteReviewPage({ quote, orders, loading, go, mutate, refresh }) {
               <p>{measurementsText}</p>
             </div>
             <span className={`status ${approved ? 'status-paid' : 'status-pending'}`}>
-              {approved ? 'Approved' : isNeedsInfo ? 'Details requested' : 'Ready for review'}
+              {statusLabel}
             </span>
           </div>
+
+          {isNeedsInfo && missingInfo.length > 0 && (
+            <section className="status-help" aria-labelledby="quote-missing-info-heading" role="status" style={{ margin: '12px 0', padding: 14 }}>
+              <h3 id="quote-missing-info-heading" className="field-label" style={{ margin: '0 0 8px' }}>Information requested by the workshop</h3>
+              <ul style={{ margin: 0, paddingLeft: 20 }}>
+                {missingInfo.map((item, index) => <li key={`${item}-${index}`}>{item}</li>)}
+              </ul>
+            </section>
+          )}
 
           {/* Desglose de partidas */}
           <h3 className="field-label">Materials</h3>
@@ -105,7 +169,7 @@ function QuoteReviewPage({ quote, orders, loading, go, mutate, refresh }) {
             materials.map((item) => (
               <DataLine
                 key={item.id || item.label}
-                label={`${item.label} (${item.quantity} ${item.unit} @ $${item.unitAmount?.toFixed(2) || item.amount.toFixed(2)})`}
+                label={formatQuoteItem(item)}
                 value={formatMoney(item.amount)}
               />
             ))
@@ -118,7 +182,7 @@ function QuoteReviewPage({ quote, orders, loading, go, mutate, refresh }) {
             labor.map((item) => (
               <DataLine
                 key={item.id || item.label}
-                label={`${item.label} (${item.quantity} ${item.unit} @ $${item.unitAmount?.toFixed(2) || item.amount.toFixed(2)})`}
+                label={formatQuoteItem(item)}
                 value={formatMoney(item.amount)}
               />
             ))
@@ -132,14 +196,14 @@ function QuoteReviewPage({ quote, orders, loading, go, mutate, refresh }) {
               {otherItems.map((item) => (
                 <DataLine
                   key={item.id || item.label}
-                  label={`${item.label} (${item.quantity} ${item.unit})`}
+                  label={formatQuoteItem(item)}
                   value={formatMoney(item.amount)}
                 />
               ))}
             </>
           )}
 
-          <div className="quote-total"><span>Estimated total</span><strong>{formatMoney(quote.total)}</strong></div>
+          <div className="quote-total"><span>{quote.total == null ? 'Total unavailable' : 'Estimated total'}</span><strong>{formatMoney(quote.total)}</strong></div>
 
           {/* PANEL DE PRODUCTOS SUGERIDOS Y BÚSQUEDA EN VIVO */}
           <div className="product-suggestions-section" style={{ marginTop: '24px', paddingTop: '18px', borderTop: '1px solid var(--line)' }}>
@@ -147,7 +211,7 @@ function QuoteReviewPage({ quote, orders, loading, go, mutate, refresh }) {
               <div>
                 <h3 style={{ margin: 0, fontSize: 15, fontWeight: 600 }}>Market Material References & Store Products</h3>
                 <p style={{ margin: '4px 0 0', color: 'var(--muted)', fontSize: 12 }}>
-                  Live retail prices grounded via Channel3. Use these products to calibrate or refine your quote.
+                  {isDemoMode ? 'Store pricing is not available in this local demo.' : 'Search the configured catalog for material references.'}
                 </p>
               </div>
             </div>
@@ -160,10 +224,10 @@ function QuoteReviewPage({ quote, orders, loading, go, mutate, refresh }) {
                 type="text"
                 placeholder="Search lumber, hardware, finishes (e.g. solid oak, soft-close hinges)..."
                 value={catalogSearch}
-                onChange={(e) => setCatalogSearch(e.target.value)}
+                onChange={(e) => updateCatalogState({ search: e.target.value })}
                 style={{ flex: 1, minWidth: 220, padding: '0 12px', minHeight: 44, borderRadius: 8, border: '1px solid var(--line)', fontSize: 13 }}
               />
-              <Button type="submit" variant="secondary" disabled={searchLoading || !catalogSearch.trim()}>
+              <Button type="submit" variant="secondary" disabled={isDemoMode || searchLoading || !catalogSearch.trim()}>
                 {searchLoading ? 'Searching…' : 'Search Store Catalog'}
               </Button>
             </form>
@@ -175,11 +239,10 @@ function QuoteReviewPage({ quote, orders, loading, go, mutate, refresh }) {
                   key={term}
                   type="button"
                   className="assistant-chip"
+                  disabled={isDemoMode || searchLoading}
                   onClick={() => {
-                    setCatalogSearch(term)
-                    apiClient.getQuote(quote.numericId || quote.id, { query: term }).then((res) => {
-                      if (res?.suggestedProducts?.length) setActiveSuggestions(res.suggestedProducts)
-                    })
+                    updateCatalogState({ search: term, error: '' })
+                    void searchCatalog(term)
                   }}
                 >
                   {term}
@@ -189,6 +252,7 @@ function QuoteReviewPage({ quote, orders, loading, go, mutate, refresh }) {
 
             {/* Grid de productos sugeridos */}
             <div aria-live="polite">
+            {catalogError && <p className="inline-error" role="alert">{catalogError}</p>}
             {activeSuggestions.length > 0 ? (
               <div className="product-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 12 }}>
                 {activeSuggestions.map((prod, idx) => (
@@ -207,7 +271,9 @@ function QuoteReviewPage({ quote, orders, loading, go, mutate, refresh }) {
                       {prod.title}
                     </strong>
                     <div style={{ marginTop: 'auto', display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 8 }}>
-                      <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--navy)' }}>${prod.priceUsd.toFixed(2)} USD</span>
+                      <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--navy)' }}>
+                        {prod.priceUsd == null ? 'Price unavailable' : `$${Number(prod.priceUsd).toFixed(2)} USD`}
+                      </span>
                       {prod.url && isSafeExternalUrl(prod.url) && (
                         <a
                           href={prod.url}
@@ -224,7 +290,7 @@ function QuoteReviewPage({ quote, orders, loading, go, mutate, refresh }) {
                       variant="subtle"
                       aria-label={`+ Apply to Quote: ${prod.title}`}
                       style={{ minHeight: 44, fontSize: 12, padding: '0 10px' }}
-                      disabled={busy}
+                      disabled={busy || prod.priceUsd == null}
                       onClick={() => applyProductToQuote(prod)}
                     >
                       + Apply to Quote
@@ -233,7 +299,7 @@ function QuoteReviewPage({ quote, orders, loading, go, mutate, refresh }) {
                 ))}
               </div>
             ) : (
-              <p className="status-help">No specific store suggestions loaded yet. Use the search box above to query live merchant pricing.</p>
+              <p className="status-help">{isDemoMode ? 'No catalog results are included in this local demo.' : 'No products were returned. Search again or try a different material.'}</p>
             )}
             </div>
           </div>
@@ -254,7 +320,7 @@ function QuoteReviewPage({ quote, orders, loading, go, mutate, refresh }) {
           <div style={{ marginTop: '20px', padding: '16px', background: '#fff', borderRadius: '8px', border: '1px solid var(--line)' }}>
             <h3 style={{ margin: '0 0 6px', fontSize: 14, fontWeight: 600 }}>Customize or Refine Estimate</h3>
             <p style={{ margin: '0 0 10px', fontSize: 12, color: 'var(--muted)' }}>
-              Need different wood, extra shelves, or custom hardware? Tell the AI to recalculate your quote:
+              {isDemoMode ? 'Estimate refinement is unavailable in this local demo.' : 'Need different wood, extra shelves, or custom hardware? Add details for the workshop to review:'}
             </p>
             <form onSubmit={handleMissingInfoSubmit}>
               <label htmlFor="refine-estimate-textarea" className="sr-only">Additional project details to recalculate estimate</label>
@@ -264,11 +330,11 @@ function QuoteReviewPage({ quote, orders, loading, go, mutate, refresh }) {
                 value={additionalInfo}
                 onChange={(e) => setAdditionalInfo(e.target.value)}
                 placeholder="e.g. Change wood to solid walnut and add soft-close hinges..."
-                disabled={busy}
+                disabled={busy || isDemoMode}
                 style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid var(--line)', marginBottom: '10px', fontSize: 13 }}
               />
               <Button type="submit" variant="secondary" disabled={busy || !additionalInfo.trim()}>
-                {busy ? 'Recalculating with AI…' : 'Recalculate Estimate'}
+                {busy ? 'Submitting…' : isDemoMode ? 'Refinement unavailable in DEMO' : 'Send additional details'}
               </Button>
             </form>
           </div>
@@ -278,7 +344,7 @@ function QuoteReviewPage({ quote, orders, loading, go, mutate, refresh }) {
         <aside className="panel payment-plan">
           <h2>Payment schedule</h2>
           <div className="payment-amount">
-            <span>50% Advance deposit</span>
+            <span>Advance deposit</span>
             <strong>{formatMoney(quote.deposit)}</strong>
             <small>Locks in workshop materials and scheduling.</small>
           </div>
@@ -288,10 +354,33 @@ function QuoteReviewPage({ quote, orders, loading, go, mutate, refresh }) {
             <small>Due upon workshop completion before delivery.</small>
           </div>
 
-          {!approved && quote.status !== 'rejected' && (
+          {isDraft && !isDemoMode && (
+            <p className="status-help" role="status">This request is still a draft. It cannot be approved until the workshop generates and validates the estimate.</p>
+          )}
+
+          {quote.generationError && (
+            <div className="inline-error" role="alert">
+              <p>{quote.generationError}</p>
+              {quote.status === 'draft' && !isDemoMode && (
+                <Button variant="secondary" disabled={busy} onClick={retryGeneration}>
+                  {busy ? 'Retrying generation…' : 'Retry quote generation'}
+                </Button>
+              )}
+            </div>
+          )}
+
+          {isNeedsInfo && (
+            <p className="status-help" role="status">The workshop needs more information before this quote can be reviewed.</p>
+          )}
+
+          {isDemoMode && isDraft && (
+            <p className="status-help" role="status">This action only advances the local demo. It does not approve a real quote or start a payment.</p>
+          )}
+
+          {!approved && !isRejected && (quote.status === 'pending_review' || isDemoMode && isDraft) && (
             <div style={{ display: 'grid', gap: 10 }}>
-              <Button variant="paypal" className="full approve-button" disabled={busy} onClick={approve}>
-                {busy ? 'Processing approval…' : 'Approve Quote & Proceed to Deposit'}
+              <Button variant={isDemoMode ? 'secondary' : 'paypal'} className="full approve-button" disabled={busy || quote.total == null || items.length === 0} onClick={approve}>
+                {busy ? 'Processing approval…' : isDemoMode ? 'Simulate demo approval' : 'Approve quote'}
               </Button>
               <Button variant="subtle" className="full" disabled={busy} onClick={reject} style={{ color: '#aa3737' }}>
                 Reject / Cancel Quote
@@ -299,24 +388,38 @@ function QuoteReviewPage({ quote, orders, loading, go, mutate, refresh }) {
             </div>
           )}
 
-          {quote.status === 'rejected' && (
+          {isRejected && (
             <div style={{ padding: 14, borderRadius: 8, background: '#fdf2f2', border: '1px solid #f9d6d6', textAlign: 'center' }}>
               <strong style={{ color: '#aa3737', display: 'block', marginBottom: 4 }}>Quote Cancelled</strong>
               <small style={{ color: 'var(--muted)' }}>This quote was cancelled and cannot be approved.</small>
             </div>
           )}
 
-          {approved && order?.orderId && (
+          {approved && !isDemoMode && order?.orderId && (
             <PayPalCheckout orderId={order.orderId} type="deposit" refresh={refresh} />
           )}
 
-          {approved && !order && (
+          {approved && isDemoMode && (
+            <p className="status-help" role="status">The demo approval created a sample order. Payment is not available in DEMO mode.</p>
+          )}
+
+          {approved && !isDemoMode && !order && (
             <p className="status-help" style={{ textAlign: 'center' }}>Creating order details…</p>
           )}
         </aside>
       </div>
     </div>
   )
+}
+
+function formatQuoteItem(item) {
+  const label = item.label || 'Unspecified item'
+  const quantity = item.quantity != null && item.unit ? `${item.quantity} ${item.unit}` : null
+  const unitAmount = item.unitAmount != null && Number.isFinite(Number(item.unitAmount))
+    ? `@ ${formatMoney(item.unitAmount)}`
+    : null
+  const details = [quantity, unitAmount].filter(Boolean).join(' ')
+  return details ? `${label} (${details})` : label
 }
 
 export default QuoteReviewPage

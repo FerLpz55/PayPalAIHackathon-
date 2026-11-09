@@ -2,6 +2,7 @@ export const NAV_ITEMS = [
   { id: 'dashboard', label: 'Dashboard', icon: 'grid' },
   { id: 'orders', label: 'Orders', icon: 'clipboard' },
   { id: 'quotes', label: 'Quotes', icon: 'file' },
+  { id: 'receipts', label: 'Receipts · DEMO', icon: 'file' },
   { id: 'accounting', label: 'Accounting', icon: 'chart' },
 ]
 
@@ -13,6 +14,19 @@ export const STATUS_LABELS = {
   ready_to_finish: 'Ready to finish',
   delivered: 'Delivered',
   cancelled: 'Cancelled',
+}
+
+// Keep fixture-only lifecycle labels out of filters that query the backend.
+export const REAL_ORDER_STATUS_LABELS = {
+  pending: 'Pending',
+  paid: 'Paid',
+  in_progress: 'In production',
+  delivered: 'Delivered',
+  cancelled: 'Cancelled',
+}
+
+export function getOrderStatusLabels(demoMode) {
+  return demoMode ? STATUS_LABELS : REAL_ORDER_STATUS_LABELS
 }
 
 export const ORDER_STATUSES = Object.keys(STATUS_LABELS)

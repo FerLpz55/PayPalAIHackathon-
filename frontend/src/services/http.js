@@ -2,12 +2,22 @@
  * Capa de transporte HTTP y manejo de errores para TallerClaro.
  */
 
-import { getSession } from './sessionStore.js'
+import { clearWorkshopCredentials, getSession, getWorkshopCredentials } from './sessionStore.js'
 
 export const API_BASE_URL = (import.meta.env?.VITE_API_BASE_URL || '').trim().replace(/\/+$/, '')
 export const isDemoMode = String(import.meta.env?.VITE_APP_MODE || '').trim().toLowerCase() === 'demo'
 export const isConnectedMode = !isDemoMode && Boolean(API_BASE_URL)
 export const isConfigurationMissing = !isDemoMode && !API_BASE_URL
+
+export function isSecureWorkshopTransport() {
+  if (!API_BASE_URL) return false
+  try {
+    const { protocol, hostname } = new URL(API_BASE_URL)
+    return protocol === 'https:' || (protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(hostname))
+  } catch {
+    return false
+  }
+}
 
 export class ApiError extends Error {
   constructor(message, status, payload = null) {
@@ -26,26 +36,38 @@ export async function apiRequest(path, options = {}) {
     )
   }
   const session = getSession()
+  const workshopRoute = Boolean(options.workshopAuth || options.isWorkshopRoute)
+  if (workshopRoute && !isSecureWorkshopTransport()) {
+    throw new ApiError('Workshop credentials require HTTPS. HTTP is allowed only for a loopback development backend.', 0)
+  }
   const headers = {
     'Content-Type': 'application/json',
     ...options.headers,
   }
 
-  const customerToken = options.customerToken || session.customerToken
+  const customerToken = options.customerToken || (workshopRoute ? null : session.customerToken)
   if (customerToken && !headers['X-Customer-Token']) {
     headers['X-Customer-Token'] = customerToken
   }
 
-  if (options.workshopAuth || options.isWorkshopRoute) {
-    const creds = session.workshopCredentials || btoa('taller:demo-password')
+  if (workshopRoute) {
     if (!headers['Authorization']) {
-      headers['Authorization'] = `Basic ${creds}`
+      const credentials = getWorkshopCredentials()
+      if (!credentials) {
+        throw new ApiError('Workshop sign-in is not configured in this browser. No request was sent.', 401)
+      }
+      headers['Authorization'] = `Basic ${credentials}`
     }
   }
 
   const cleanPath = path.startsWith('/') ? path : `/${path}`
   const url = `${API_BASE_URL}${cleanPath}`
   const response = await fetch(url, { ...options, headers })
+
+  if (response.status === 401 && workshopRoute && getWorkshopCredentials()) {
+    clearWorkshopCredentials()
+    window.dispatchEvent(new Event('tallerclaro:workshop-auth-lost'))
+  }
 
   if (!response.ok) {
     let errorDetail = null

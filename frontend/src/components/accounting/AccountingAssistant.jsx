@@ -2,6 +2,7 @@ import Button from '../ui/Button.jsx'
 import Icon from '../ui/Icon.jsx'
 import { useAccountingAssistant } from '../../hooks/useAccountingAssistant.js'
 import { formatMoney } from '../../utils/format.js'
+import { isDemoMode } from '../../services/apiClient.js'
 
 const SUGGESTIONS = [
   'How much have I collected so far?',
@@ -25,7 +26,7 @@ function AccountingAssistant() {
         <span className="assistant-icon" aria-hidden="true">AI</span>
         <div>
           <h2 id="assistant-title">Ask TallerClaro about your money</h2>
-          <p>Totals are calculated from verified PayPal payments; the AI only explains them in plain words.</p>
+          <p>{isDemoMode ? 'This assistant returns illustrative answers from local sample orders.' : 'The backend provides payment totals; the assistant explains its response in plain words.'}</p>
         </div>
       </div>
 
@@ -71,7 +72,7 @@ function AccountingAssistant() {
         </Button>
       </form>
       {error && <p id="assistant-error" className="inline-error" role="alert">{error}</p>}
-      <p className="fine-print">Financial answers are calculated from verified workshop totals without disclosing sensitive customer records.</p>
+      <p className="fine-print">{isDemoMode ? 'Demo answers are simulated and are not financial records.' : 'Answers may use workshop totals returned by the backend; verify important figures against transaction records.'}</p>
     </section>
   )
 }

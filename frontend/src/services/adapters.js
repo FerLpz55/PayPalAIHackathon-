@@ -6,6 +6,12 @@ import { getSession } from './sessionStore.js'
 
 const codeToNumericId = new Map()
 
+function numberOrNull(value) {
+  if (value == null || typeof value === 'string' && value.trim() === '') return null
+  const number = Number(value)
+  return Number.isFinite(number) ? number : null
+}
+
 export function parseNumericId(id) {
   if (id == null) return null
   if (typeof id === 'number') return id
@@ -21,17 +27,15 @@ export function parseNumericId(id) {
 }
 
 export function extractMeasurements(text) {
-  if (!text) {
-    return { width: '1.20 m', height: '1.80 m', depth: '0.55 m', unit: 'm' }
-  }
-  const widthMatch = text.match(/(\d+(?:[.,]\d+)?\s*(?:m|cm|mm))\s*(?:de\s*)?anch[oa]/i)
-  const heightMatch = text.match(/(\d+(?:[.,]\d+)?\s*(?:m|cm|mm))\s*(?:de\s*)?alt[oa]/i)
-  const depthMatch = text.match(/(\d+(?:[.,]\d+)?\s*(?:m|cm|mm))\s*(?:de\s*)?profund[a-z]*/i)
+  if (!text) return { width: null, height: null, depth: null, unit: 'm' }
+  const widthMatch = text.match(/(\d+(?:[.,]\d+)?\s*(?:m|cm|mm))\s*(?:(?:de\s*)?anch[oa]|wide)\b/i)
+  const heightMatch = text.match(/(\d+(?:[.,]\d+)?\s*(?:m|cm|mm))\s*(?:(?:de\s*)?alt[oa]|tall|high)\b/i)
+  const depthMatch = text.match(/(\d+(?:[.,]\d+)?\s*(?:m|cm|mm))\s*(?:(?:de\s*)?profund[a-z]*|deep)\b/i)
 
   return {
-    width: widthMatch ? widthMatch[1] : '1.20 m',
-    height: heightMatch ? heightMatch[1] : '1.80 m',
-    depth: depthMatch ? depthMatch[1] : '0.55 m',
+    width: widthMatch?.[1] || null,
+    height: heightMatch?.[1] || null,
+    depth: depthMatch?.[1] || null,
     unit: 'm',
   }
 }
@@ -42,19 +46,19 @@ export function adaptQuoteResponse(data, fallbackCustomer = {}) {
   const customerName = fallbackCustomer.name || fallbackCustomer.customer || session.customerName || data.customer_name || 'Cliente'
   const customerEmail = fallbackCustomer.email || session.customerEmail || data.customer_email || ''
 
-  const total = Number(data.total ?? 0)
-  const deposit = Number(data.deposit_amount ?? (total ? Math.round(total * 0.5 * 100) / 100 : 0))
-  const balance = Number(data.balance_amount ?? (total ? total - deposit : 0))
+  const total = numberOrNull(data.total)
+  const deposit = numberOrNull(data.deposit_amount)
+  const balance = numberOrNull(data.balance_amount)
 
   const items = Array.isArray(data.items)
     ? data.items.map((item, index) => ({
         id: item.id || `item-${index}`,
         label: item.description || item.label || 'Item',
         kind: (item.type || item.kind || 'material').toLowerCase(),
-        amount: Number(item.amount ?? 0),
-        quantity: Number(item.quantity ?? 1),
-        unitAmount: Number(item.unit_amount ?? item.unitAmount ?? item.amount ?? 0),
-        unit: item.unit || 'unit',
+        amount: numberOrNull(item.amount),
+        quantity: numberOrNull(item.quantity),
+        unitAmount: numberOrNull(item.unit_amount ?? item.unitAmount),
+        unit: item.unit || null,
       }))
     : []
 
@@ -64,7 +68,7 @@ export function adaptQuoteResponse(data, fallbackCustomer = {}) {
     ? (data.suggested_products || data.suggestedProducts).map((prod, idx) => ({
         id: prod.id || `sugg-${idx}`,
         title: prod.title || 'Material verificado',
-        priceUsd: Number(prod.price_usd ?? prod.priceUsd ?? 0),
+        priceUsd: numberOrNull(prod.price_usd ?? prod.priceUsd),
         source: prod.source || 'Store',
         url: prod.url || null,
         imageUrl: prod.image_url || prod.imageUrl || null,
@@ -96,9 +100,12 @@ export function adaptQuoteResponse(data, fallbackCustomer = {}) {
 
 export function adaptOrderResponse(order) {
   if (!order) return null
-  const total = Number(order.total ?? order.amount ?? 0)
-  const deposit = Number(order.deposit_amount ?? order.deposit ?? (total ? Math.round(total * 0.5 * 100) / 100 : 0))
-  const balance = Number(order.balance_amount ?? order.balance ?? (total ? total - deposit : 0))
+  const totalValue = order.total ?? order.amount
+  const total = numberOrNull(totalValue)
+  const depositValue = order.deposit_amount ?? order.deposit
+  const balanceValue = order.balance_amount ?? order.balance
+  const deposit = numberOrNull(depositValue)
+  const balance = numberOrNull(balanceValue)
   const numericOrderId = parseNumericId(order.id)
   const resolvedId = order.code || (order.id ? (String(order.id).startsWith('TC-') ? String(order.id) : `TC-${order.id}`) : 'TC-Order')
   if (numericOrderId != null && resolvedId) {
@@ -115,29 +122,45 @@ export function adaptOrderResponse(order) {
     amount: total,
     deposit,
     balance,
-    remainingBalance: order.remaining_balance == null ? null : Number(order.remaining_balance),
+    remainingBalance: numberOrNull(order.remaining_balance),
     status: order.status || 'pending',
     date: order.created_at ? order.created_at.slice(0, 10) : (order.date || new Date().toISOString().slice(0, 10)),
-    paid: Number(order.paid_amount ?? order.paid ?? 0),
-    spent: Number(order.spent ?? 0),
+    paid: numberOrNull(order.paid_amount ?? order.paid),
+    spent: numberOrNull(order.spent),
     receipts: Array.isArray(order.receipts) ? order.receipts : [],
     payments: Array.isArray(order.payments) ? order.payments : [],
   }
 }
 
+export function getRemainingBalance(order) {
+  if (!order) return null
+  if (order.remainingBalance != null) {
+    const remaining = numberOrNull(order.remainingBalance)
+    return remaining == null ? null : Math.max(remaining, 0)
+  }
+  if (order.amount == null || order.paid == null) return null
+  const amount = numberOrNull(order.amount)
+  const paid = numberOrNull(order.paid)
+  return amount == null || paid == null ? null : Math.max(amount - paid, 0)
+}
+
 export function adaptAccountingSummary(summary = {}) {
+  const firstNumber = (...values) => {
+    const value = values.find((candidate) => candidate != null)
+    return numberOrNull(value)
+  }
   return {
     currency: summary.currency || 'USD',
-    ordersCount: Number(summary.orders_count ?? summary.ordersCount ?? 0),
-    activeOrdersCount: Number(summary.active_orders_count ?? summary.activeOrdersCount ?? 0),
-    deliveredOrdersCount: Number(summary.delivered_orders_count ?? summary.deliveredOrdersCount ?? 0),
-    awaitingDeposit: Number(summary.orders_awaiting_deposit ?? summary.awaitingDeposit ?? 0),
-    ordersWithBalanceDue: Number(summary.orders_with_balance_due ?? summary.ordersWithBalanceDue ?? 0),
-    totalContracted: Number(summary.total_contracted ?? summary.totalContracted ?? 0),
-    collectedTotal: Number(summary.collected_total ?? summary.collectedTotal ?? 0),
-    collectedDeposits: Number(summary.collected_deposits ?? summary.collectedDeposits ?? 0),
-    collectedBalances: Number(summary.collected_balances ?? summary.collectedBalances ?? 0),
-    pendingToCollect: Number(summary.pending_to_collect ?? summary.pendingToCollect ?? 0),
-    averageOrderValue: Number(summary.average_order_value ?? summary.averageOrderValue ?? 0),
+    ordersCount: firstNumber(summary.orders_count, summary.ordersCount),
+    activeOrdersCount: firstNumber(summary.active_orders_count, summary.activeOrdersCount),
+    deliveredOrdersCount: firstNumber(summary.delivered_orders_count, summary.deliveredOrdersCount),
+    awaitingDeposit: firstNumber(summary.orders_awaiting_deposit, summary.awaitingDeposit),
+    ordersWithBalanceDue: firstNumber(summary.orders_with_balance_due, summary.ordersWithBalanceDue),
+    totalContracted: firstNumber(summary.total_contracted, summary.totalContracted),
+    collectedTotal: firstNumber(summary.collected_total, summary.collectedTotal),
+    collectedDeposits: firstNumber(summary.collected_deposits, summary.collectedDeposits),
+    collectedBalances: firstNumber(summary.collected_balances, summary.collectedBalances),
+    pendingToCollect: firstNumber(summary.pending_to_collect, summary.pendingToCollect),
+    averageOrderValue: firstNumber(summary.average_order_value, summary.averageOrderValue),
   }
 }
