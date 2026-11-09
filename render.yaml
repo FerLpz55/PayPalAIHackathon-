@@ -1,0 +1,42 @@
+services:
+  - type: web
+    name: tallerclaro-backend
+    runtime: python
+    rootDir: Backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn tallerclaro.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.10
+      - key: DATABASE_URL
+        sync: false
+      - key: TALLERCLARO_WORKSHOP_PASSWORD_HASH
+        sync: false
+      - key: TALLERCLARO_CUSTOMER_TOKEN_SECRET
+        sync: false
+      - key: TALLERCLARO_CORS_ORIGINS
+        sync: false
+      - key: TALLERCLARO_AI_PROVIDER
+        sync: false
+      - key: TALLERCLARO_AI_API_KEY
+        sync: false
+      - key: TALLERCLARO_AI_MODEL
+        sync: false
+      - key: TALLERCLARO_AI_BASE_URL
+        sync: false
+      - key: TALLERCLARO_PRICE_LOOKUP_PROVIDER
+        sync: false
+      - key: TALLERCLARO_PRICE_LOOKUP_API_KEY
+        sync: false
+      - key: TALLERCLARO_PAYPAL_MODE
+        sync: false
+      - key: TALLERCLARO_PAYPAL_CLIENT_ID
+        sync: false
+      - key: TALLERCLARO_PAYPAL_CLIENT_SECRET
+        sync: false
+      - key: TALLERCLARO_PAYPAL_RETURN_URL
+        sync: false
+      - key: TALLERCLARO_PAYPAL_CANCEL_URL
+        sync: false
