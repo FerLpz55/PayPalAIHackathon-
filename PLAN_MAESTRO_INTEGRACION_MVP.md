@@ -57,6 +57,6 @@ El usuario eligió Basic en memoria. La UI, comprobación read-only de acceso, l
 
 ### Verificacion local para preparar publicacion — 9 de noviembre de 2026
 
-- Desde `Backend/`, Python 3.11.10: `.venv/Scripts/python.exe -m pytest -v -p no:cacheprovider --basetemp=.pytest-tmp-publication-full` -> **314 passed**. El directorio temporal quedo bajo `Backend/`; las pruebas no usaron PostgreSQL ni servicios externos.
+- Desde `Backend/`, Python 3.11.10 y `UV_NO_SYNC=1`: `uv run pytest tests/unit/test_repository_contracts.py -v` -> **15 passed in 0.38s**; después `uv run pytest -v` -> **314 passed in 9.05s**. UV no sincronizó dependencias; las pruebas no usaron PostgreSQL ni servicios externos.
 - Frontend: ESLint directo -> exit 0; `vite build` directo -> exit 0, 62 modulos transformados. `pnpm run test/lint/build` no pudo adquirir el lock del store global en el sandbox. Vitest no esta instalado; no se instalaron dependencias.
 - Se consultaron issues y PR públicos vía API: #24–#26 son PRs fusionados y no había PR abierto antes de esta publicación. El CLI `gh` tiene un token inválido y la sesión web está cerrada; la creación del PR sigue pendiente de autenticación interactiva.

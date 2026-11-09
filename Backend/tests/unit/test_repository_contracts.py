@@ -132,27 +132,32 @@ def order_row(order):
 
 @pytest.mark.parametrize('kind', ['fake', 'postgres'])
 def test_order_save_lookup_workshop_filter_and_pagination(kind):
-    order = order_entity('TC-1', 2)
+    order = order_entity('TC-1', 2, datetime(2026, 11, 4, tzinfo=timezone.utc))
     conn = ScriptedConnection((7, NOW, NOW))
     repo = FakeOrderRepository() if kind == 'fake' else PostgresOrderRepository(conn)
     saved = repo.save(order)
     if kind == 'fake':
-        repo.save(order_entity('TC-2', 3))
-        repo.save(order_entity('TC-3', 2))
+        repo.save(order_entity('TC-2', 3, datetime(2026, 11, 3, tzinfo=timezone.utc)))
+        repo.save(order_entity('TC-3', 2, datetime(2026, 11, 2, tzinfo=timezone.utc)))
     else:
-        conn.responses.extend([order_row(saved), order_row(saved), [order_row(saved)], (2,)])
+        conn.responses.extend([order_row(saved), order_row(saved), [order_row(saved)], [order_row(saved)], (2,)])
     read = repo.get_by_id(saved.id)
     assert (read.total, read.deposit_amount, read.currency, read.estimated_delivery_date) == (Money('200'), Money('100'), 'USD', date(2026, 12, 1))
     assert repo.get_by_quote_id(5).id == saved.id
-    page = repo.list_by_carpenter(2, 1, 1)
+    page = repo.list_by_carpenter(2, 1, 0)
     assert len(page) == 1 and page[0].carpenter_id == 2 and page[0].id == saved.id
+    next_page = repo.list_by_carpenter(2, 1, 1)
+    assert len(next_page) == 1
+    if kind == 'fake':
+        assert next_page[0].code == 'TC-3'
     assert repo.count_by_carpenter(2) == 2
     if kind == 'postgres':
-        sql, params = conn.calls[-2]
-        assert params == (2, 1, 1)
+        sql, params = conn.calls[-3]
+        assert params == (2, 1, 0)
         assert 'WHERE id_carpintero = %s' in sql
         assert 'ORDER BY fecha_creacion DESC' in sql
         assert 'LIMIT %s OFFSET %s' in sql
+        assert conn.calls[-2][1] == (2, 1, 1)
         assert conn.responses == []
 
 

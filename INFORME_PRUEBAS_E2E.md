@@ -60,6 +60,7 @@ Validación local aislada: credencial ficticia incorrecta -> 401 visible y sigue
 
 ## Verificacion local de publicacion — 9 de noviembre de 2026
 
-- Desde `Backend/`: `.venv/Scripts/python.exe -m pytest -v -p no:cacheprovider --basetemp=.pytest-tmp-publication-full` -> **314 passed in 9.73s**. Es suite local con fakes; no PostgreSQL ni proveedores.
+- Desde `Backend/`, con `UV_NO_SYNC=1` para impedir sincronización/instalación: `uv run pytest tests/unit/test_repository_contracts.py -v` -> **15 passed in 0.38s**.
+- Después: `uv run pytest -v` -> **314 passed in 9.05s**. Ambos son tests locales con fakes/SQL scripted; no PostgreSQL ni proveedores.
 - Frontend ESLint directo -> exit 0. Build Vite 8.3.5 directo -> exit 0 (62 modules transformed). Vitest no pudo ejecutarse: `frontend/node_modules/.bin/vitest.cmd` no existe. Los comandos `pnpm run` encontraron permiso denegado al abrir el lock del store global. No se instalaron dependencias.
 - No se repitio el navegador/stub; se conserva la evidencia de las fases anteriores. Esta comprobacion no convierte los flujos stub en pruebas contra el backend real.
