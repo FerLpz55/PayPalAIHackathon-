@@ -16,7 +16,10 @@ function QuoteReviewPage({ quote, orders, loading, go, mutate, refresh }) {
   const [searchLoading, setSearchLoading] = useState(false)
   const [activeSuggestions, setActiveSuggestions] = useState(() => quote?.suggestedProducts || [])
 
-  if (loading) return <div className="customer-page"><LoadingState /></div>
+  // Solo se muestra la pantalla de carga en la carga inicial. Durante un
+  // refresh los datos ya visibles se conservan para no desmontar el checkout
+  // ni perder mensajes de estado (p. ej. tras cancelar un intento).
+  if (loading && !quote) return <div className="customer-page"><LoadingState /></div>
   if (isConfigurationMissing) return <div className="customer-page"><EmptyState title="Backend connection not configured" text="Quotes and payment actions are unavailable until VITE_API_BASE_URL is configured." /></div>
   if (!quote) {
     return <div className="customer-page"><EmptyState title="No quote is ready yet" text="Describe the piece you want made to prepare an estimate." action={<Button onClick={() => go('customer/new')}>Describe your project</Button>} /></div>
