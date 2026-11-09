@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
 import Button from '../ui/Button.jsx'
-import DemoNotice from '../ui/DemoNotice.jsx'
 import { isConnectedMode, isDemoMode } from '../../services/apiClient.js'
 import Icon from '../ui/Icon.jsx'
 import { useQuoteRequest } from '../../hooks/useQuoteRequest.js'
@@ -34,10 +33,32 @@ function RequestForm({ onQuoteCreated }) {
 
   return (
     <form className="panel request-form" onSubmit={handleSubmit} noValidate>
-      {isConnectedMode
-        ? <p className="demo-notice" role="status"><span className="demo-notice-label">REAL</span><span>Your request is sent to the workshop backend. Submitted requests and generated quotes are subject to server availability.</span></p>
-        : isDemoMode ? <DemoNotice text="Submitting this form creates a fixed example estimate in this browser; it does not send your request to the workshop or an AI service." />
-          : <p className="inline-error" role="status">Backend connection is not configured. This request cannot be submitted.</p>}
+      {!isConnectedMode && !isDemoMode && (
+        <p className="inline-error" role="status">Backend connection is not configured. This request cannot be submitted.</p>
+      )}
+      <div className="quick-suggestions-bar">
+        <span className="field-label" style={{ marginBottom: 6 }}>Popular custom projects:</span>
+        <div className="product-chips" style={{ marginBottom: 14 }}>
+          {[
+            'Solid oak dining table 1.80m x 0.90m with clear finish',
+            'Floating walnut media console 2.00m with soft-close drawers',
+            'Custom cedar 2-door wardrobe 1.20m x 2.00m',
+          ].map((preset) => (
+            <button
+              key={preset}
+              type="button"
+              className="assistant-chip"
+              disabled={isLoading}
+              onClick={() => {
+                updateField('description', preset)
+                setAttemptedSubmit(false)
+              }}
+            >
+              + {preset.split(' ')[0]} {preset.split(' ')[1]} {preset.split(' ')[2]}
+            </button>
+          ))}
+        </div>
+      </div>
       <label className="field-label" htmlFor="project-description">Your request <span className="required-indicator">(required)</span></label>
       <textarea
         ref={descriptionRef}
@@ -54,7 +75,7 @@ function RequestForm({ onQuoteCreated }) {
         disabled={isLoading || !isConnectedMode && !isDemoMode}
       />
       <p id="project-description-hint" className="form-hint">Include the size, materials, and details you already know.</p>
-      {errors.description && <p id="project-description-error" className="field-error">{errors.description}</p>}
+      {errors.description && <p id="project-description-error" className="field-error" role="alert">{errors.description}</p>}
       <div className="request-tools">
         <span className="form-hint" aria-live="polite">{speech.message}</span>
         {speech.isSupported && (
@@ -64,7 +85,7 @@ function RequestForm({ onQuoteCreated }) {
             onClick={speech.isListening ? speech.stop : speech.start}
             disabled={isLoading || !isConnectedMode && !isDemoMode}
             aria-pressed={speech.isListening}
-            aria-label={speech.isListening ? 'Stop voice input' : 'Start voice input'}
+            aria-label={speech.isListening ? 'Stop voice input' : 'Speak to use voice input'}
           >
             <Icon name="mic" size={14} /> {speech.isListening ? 'Stop' : 'Speak'}
           </button>
@@ -74,17 +95,17 @@ function RequestForm({ onQuoteCreated }) {
         <label>
           <span>Full name <span className="required-indicator">(required)</span></span>
           <input ref={nameRef} id="customer-name" name="name" autoComplete="name" required value={form.customerName} onChange={(event) => { setAttemptedSubmit(false); updateField('customerName', event.target.value) }} className={errors.customerName ? 'has-error' : ''} aria-invalid={Boolean(errors.customerName)} aria-describedby={errors.customerName ? 'customer-name-error' : undefined} disabled={isLoading || !isConnectedMode && !isDemoMode} />
-          {errors.customerName && <span id="customer-name-error" className="field-error">{errors.customerName}</span>}
+          {errors.customerName && <span id="customer-name-error" className="field-error" role="alert">{errors.customerName}</span>}
         </label>
         <label>
           <span>Email for your quote <span className="required-indicator">(required)</span></span>
           <input ref={emailRef} id="customer-email" name="email" autoComplete="email" type="email" required value={form.customerEmail} onChange={(event) => { setAttemptedSubmit(false); updateField('customerEmail', event.target.value) }} className={errors.customerEmail ? 'has-error' : ''} aria-invalid={Boolean(errors.customerEmail)} aria-describedby={errors.customerEmail ? 'customer-email-error' : undefined} disabled={isLoading || !isConnectedMode && !isDemoMode} />
-          {errors.customerEmail && <span id="customer-email-error" className="field-error">{errors.customerEmail}</span>}
+          {errors.customerEmail && <span id="customer-email-error" className="field-error" role="alert">{errors.customerEmail}</span>}
         </label>
       </div>
       {submitError && <p className="inline-error" role="alert">{submitError}</p>}
       <Button type="submit" disabled={isLoading || !isConnectedMode && !isDemoMode} className="full">
-        {isLoading ? 'Preparing your demo estimate…' : 'Get my quote'} <Icon name="arrow" size={16} />
+        {isLoading ? 'Generating AI estimate & searching live material prices…' : 'Generate instant estimate'} <Icon name="arrow" size={16} />
       </Button>
     </form>
   )

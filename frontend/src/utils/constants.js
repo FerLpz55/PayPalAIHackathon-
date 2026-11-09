@@ -2,7 +2,6 @@ export const NAV_ITEMS = [
   { id: 'dashboard', label: 'Dashboard', icon: 'grid' },
   { id: 'orders', label: 'Orders', icon: 'clipboard' },
   { id: 'quotes', label: 'Quotes', icon: 'file' },
-  { id: 'receipts', label: 'Receipts', icon: 'receipt' },
   { id: 'accounting', label: 'Accounting', icon: 'chart' },
 ]
 
@@ -13,19 +12,17 @@ export const STATUS_LABELS = {
   in_progress: 'In production',
   ready_to_finish: 'Ready to finish',
   delivered: 'Delivered',
+  cancelled: 'Cancelled',
 }
 
 export const ORDER_STATUSES = Object.keys(STATUS_LABELS)
 
-// Backend-supported order transitions considered by the demo workflow.
-// Manual `paid` updates are omitted, and the demo blocks `delivered` because it
-// cannot establish the backend-verified full-payment prerequisite. Legacy demo
-// statuses remain display-only.
 export const ORDER_STATUS_TRANSITIONS = {
-  pending: ['in_progress'],
-  paid: ['in_progress'],
-  in_progress: ['delivered'],
+  pending: ['in_progress', 'cancelled'],
+  paid: ['in_progress', 'cancelled'],
+  in_progress: ['delivered', 'cancelled'],
   delivered: [],
+  cancelled: [],
 }
 
 export const PROGRESS_STATUSES = ['quote_sent', 'paid', 'in_progress', 'ready_to_finish', 'delivered']
@@ -44,9 +41,8 @@ export const TOPBAR_LABELS = {
 }
 
 export const HOW_IT_WORKS_STEPS = [
-  ['Describe your piece', 'Share the size, materials and details you know, by text or voice.'],
-  ['Review a clear estimate', 'See an illustrative material and labor breakdown.'],
-  ['Try a simulated 50% deposit', 'No PayPal checkout is started and no charge is made.'],
-  ['Review sample receipt entries', 'File names are kept in local demo data only.'],
-  ['Pay the balance when finished', 'A real final invoice requires backend and PayPal setup.'],
+  ['Describe your custom piece', 'Share dimensions, preferred woods, and project details by text or voice.'],
+  ['AI estimate & market prices', 'Receive an instant breakdown of lumber, hardware, and workshop labor grounded in real merchant rates.'],
+  ['Approve & 50% PayPal deposit', 'Lock in workshop scheduling with a secure, verified PayPal advance payment.'],
+  ['Track workshop build & delivery', 'Follow live carpentry progress and settle the final balance upon completion.'],
 ]

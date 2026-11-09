@@ -19,6 +19,7 @@ from tallerclaro.application.interfaces import (
     OrderRepository,
     PaymentProcessor,
     PaymentRepository,
+    PriceLookupService,
     QuoteRepository,
 )
 from tallerclaro.infrastructure.db.repositories import (
@@ -30,6 +31,10 @@ from tallerclaro.infrastructure.db.repositories import (
     PostgresQuoteRepository,
 )
 from tallerclaro.infrastructure.security.token_service import CustomerTokenService
+from tallerclaro.infrastructure.ai.price_lookup import (
+    HttpxChannel3PriceLookupService,
+    UnconfiguredPriceLookupService,
+)
 from tallerclaro.infrastructure.ai.accounting_service import OpenAIAccountingAssistant, UnconfiguredAccountingAssistant
 from tallerclaro.infrastructure.ai.service import OpenAIAIService, UnconfiguredAIService
 from tallerclaro.infrastructure.payment.paypal_processor import PayPalPaymentProcessor, UnconfiguredPaymentProcessor
@@ -43,6 +48,7 @@ from tests.fakes import (
     FakeOrderRepository,
     FakePaymentProcessor,
     FakePaymentRepository,
+    FakePriceLookupService,
     FakeQuoteRepository,
 )
 
@@ -85,6 +91,9 @@ def _parameters(target: object, method: str) -> list[str]:
         (AccountingAssistant, FakeAccountingAssistant),
         (AccountingAssistant, OpenAIAccountingAssistant),
         (AccountingAssistant, UnconfiguredAccountingAssistant),
+        (PriceLookupService, FakePriceLookupService),
+        (PriceLookupService, UnconfiguredPriceLookupService),
+        (PriceLookupService, HttpxChannel3PriceLookupService),
     ],
 )
 def test_implementation_matches_protocol_method_signatures(protocol, implementation):

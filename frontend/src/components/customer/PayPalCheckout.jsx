@@ -77,31 +77,61 @@ function PayPalCheckout({ orderId, type, refresh }) {
     }
   }
 
+  const [capturing, setCapturing] = useState(false)
+
+  const verifyAndCapture = async () => {
+    if (!payment?.paymentId) return
+    setCapturing(true)
+    setError('')
+    setMessage('Verifying payment capture with PayPal and workshop backend…')
+    try {
+      const result = await apiClient.capturePayment(payment.paymentId)
+      if (String(result?.status || '').toLowerCase() === 'completed') {
+        setCompleted(true)
+        setMessage('Payment successfully verified and confirmed by PayPal.')
+        apiClient.clearPendingPayment(payment.paymentId)
+        setPayment({ ...payment, status: 'completed' })
+        void refresh?.()
+      } else {
+        setMessage('Capture pending confirmation from PayPal. Please try again.')
+      }
+    } catch (caught) {
+      setError(paymentError(caught, 'verify and capture payment'))
+    } finally {
+      setCapturing(false)
+    }
+  }
+
   const redirectToPayPal = () => {
     if (!isSafePayPalUrl(payment?.approvalUrl)) {
       setError('The PayPal checkout URL is invalid or untrusted. Redirect cancelled.')
       return
     }
-    setMessage('Redirecting to PayPal…')
-    window.location.assign(payment.approvalUrl)
+    setMessage('Opening PayPal Checkout in a secure window. Complete your payment and click "Verify & Confirm Payment" below.')
+    window.open(payment.approvalUrl, '_blank', 'noopener,noreferrer')
   }
 
   return (
     <section className="paypal-checkout" aria-labelledby={`paypal-${type}-heading`}>
       <h3 id={`paypal-${type}-heading`}>{type === 'deposit' ? 'Pay deposit with PayPal' : 'Pay remaining balance with PayPal'}</h3>
-      {payment && formatServerAmount(payment.amount, payment.currency) && <p>Backend payment amount: <strong>{formatServerAmount(payment.amount, payment.currency)}</strong></p>}
-      {!payment && !completed && <Button variant="paypal" className="full" disabled={busy || Boolean(apiClient.getPendingPayment(orderId, type)?.unresolved)} onClick={startPayment}>{busy ? 'Starting checkout…' : 'Start PayPal checkout'}</Button>}
+      {payment && formatServerAmount(payment.amount, payment.currency) && <p>Amount to authorize: <strong>{formatServerAmount(payment.amount, payment.currency)}</strong></p>}
+      {!payment && !completed && <Button variant="paypal" className="full" disabled={busy || Boolean(apiClient.getPendingPayment(orderId, type)?.unresolved)} onClick={startPayment}>{busy ? 'Connecting to PayPal…' : 'Start PayPal Checkout'}</Button>}
       {payment && !completed && payment.approvalUrl && !['failed', 'cancelled'].includes(String(payment.status || '').toLowerCase()) && (
-        <>
-          <Button variant="paypal" className="full" disabled={busy} onClick={redirectToPayPal}>Continue to PayPal</Button>
-          <p className="status-help">After PayPal returns you here, the app checks and captures through the backend. Returning from PayPal alone does not confirm payment.</p>
-        </>
+        <div style={{ display: 'grid', gap: 10 }}>
+          <Button variant="paypal" className="full" disabled={busy || capturing} onClick={redirectToPayPal}>
+            1. Open PayPal Checkout ↗
+          </Button>
+          <Button variant="success" className="full" disabled={capturing} onClick={verifyAndCapture}>
+            {capturing ? 'Verifying with PayPal…' : '2. Verify & Confirm Payment'}
+          </Button>
+          <p className="status-help">After completing authorization in the PayPal window, click "Verify & Confirm Payment" to record the confirmed transaction on your order.</p>
+        </div>
       )}
       {payment && !completed && !payment.approvalUrl && <p role="alert" className="status-help">PayPal checkout is unavailable because the backend did not return a safe approval URL.</p>}
-      {payment && !completed && ['failed', 'cancelled'].includes(String(payment.status || '').toLowerCase()) && <Button variant="paypal" className="full" disabled={busy} onClick={() => { setPayment(null); setMessage('Starting a new attempt after the backend reported a terminal state.'); void startPayment() }}>Start a new payment attempt</Button>}
+      {payment && !completed && ['failed', 'cancelled'].includes(String(payment.status || '').toLowerCase()) && <Button variant="paypal" className="full" disabled={busy} onClick={() => { setPayment(null); setMessage('Starting a new attempt.'); void startPayment() }}>Start a new payment attempt</Button>}
       {message && <p role="status" className="status-help">{message}</p>}
       {error && <p role="alert" className="error-message">{error}</p>}
-      {completed && <p role="status" className="status-paid">Payment confirmed by the backend.</p>}
+      {completed && <p role="status" className="status-paid">Payment verified & confirmed by workshop.</p>}
     </section>
   )
 }

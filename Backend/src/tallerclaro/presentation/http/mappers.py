@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from tallerclaro.application.dtos import OrderDetailResult
+from tallerclaro.application.dtos import MarketPriceReference, OrderDetailResult
 from tallerclaro.domain.accounting import WorkshopFinancialSummary
 from tallerclaro.domain.entities import Order, Payment, Quote, QuoteLineItem
 from tallerclaro.presentation.http.schemas.accounting import FinancialSummaryResponse
@@ -15,7 +15,18 @@ from tallerclaro.presentation.http.schemas.payments import PaymentResponse
 from tallerclaro.presentation.http.schemas.quotes import (
     QuoteLineItemResponse,
     QuoteResponse,
+    SuggestedProductResponse,
 )
+
+
+def to_suggested_product_response(ref: MarketPriceReference) -> SuggestedProductResponse:
+    return SuggestedProductResponse(
+        title=ref.title,
+        price_usd=float(ref.price_usd),
+        source=ref.source,
+        url=ref.url,
+        image_url=ref.image_url,
+    )
 
 
 def to_line_item_response(item: QuoteLineItem) -> QuoteLineItemResponse:
@@ -34,6 +45,7 @@ def to_quote_response(
     quote: Quote,
     include_missing: bool = False,
     customer_token: str | None = None,
+    suggested_products: list[MarketPriceReference] | None = None,
 ) -> QuoteResponse:
     deposit = float(quote.deposit_amount.amount) if quote.deposit_amount is not None else None
     balance = float(quote.balance_amount.amount) if quote.balance_amount is not None else None
@@ -42,6 +54,10 @@ def to_quote_response(
         if quote.missing_info is not None
         else ([] if include_missing else None)
     )
+    products = [
+        to_suggested_product_response(p)
+        for p in (suggested_products or [])
+    ]
     return QuoteResponse(
         id=str(quote.id) if quote.id is not None else "",
         customer_id=str(quote.customer_id),
@@ -57,12 +73,18 @@ def to_quote_response(
         customer_token=customer_token,
         assumptions=list(quote.assumptions) if quote.assumptions else None,
         missing_info=missing_info,
+        suggested_products=products,
         created_at=quote.created_at.isoformat() if quote.created_at else None,
         updated_at=quote.updated_at.isoformat() if quote.updated_at else None,
     )
 
 
-def to_order_response(order: Order) -> OrderResponse:
+def to_order_response(
+    order: Order,
+    customer_name: str | None = None,
+    customer_email: str | None = None,
+    project_request: str | None = None,
+) -> OrderResponse:
     return OrderResponse(
         id=str(order.id),
         quote_id=str(order.quote_id),
@@ -73,6 +95,9 @@ def to_order_response(order: Order) -> OrderResponse:
         currency=order.currency,
         status=order.status,
         estimated_delivery_date=order.estimated_delivery_date,
+        customer_name=customer_name,
+        customer_email=customer_email,
+        project_request=project_request,
         created_at=order.created_at.isoformat() if order.created_at else None,
         updated_at=order.updated_at.isoformat() if order.updated_at else None,
     )

@@ -24,6 +24,12 @@ from tallerclaro.domain.entities import (
     QuoteId,
 )
 from tallerclaro.domain.exceptions import DomainError
+from tallerclaro.infrastructure.ai.price_lookup import (
+    Channel3ResponseParser,
+    UnconfiguredPriceLookupService,
+    HttpxChannel3PriceLookupService,
+    build_price_lookup_service,
+)
 from tallerclaro.infrastructure.ai.service import (
     AIProposalParser,
     OpenAIAIService,
@@ -62,6 +68,30 @@ def test_srp_ai_proposal_parser_isolated_from_http_client():
     assert result.line_items[0].description == "Roble"
     assert result.line_items[0].unit_price == Decimal("200")
     assert result.assumptions == ["Barniz mate"]
+
+
+def test_srp_channel3_response_parser_isolated_from_network():
+    """Channel3ResponseParser extracts MarketPriceReference DTOs safely without I/O."""
+    payload = {
+        "products": [
+            {
+                "title": "Minwax Polyurethane Varnish",
+                "offers": [
+                    {
+                        "domain": "acehardware.com",
+                        "url": "https://buy.trychannel3.com/item123",
+                        "price": {"price": "14.99", "currency": "USD"},
+                    }
+                ],
+            }
+        ]
+    }
+    refs = Channel3ResponseParser.parse(payload)
+    assert len(refs) == 1
+    assert refs[0].title == "Minwax Polyurethane Varnish"
+    assert refs[0].price_usd == Decimal("14.99")
+    assert refs[0].source == "acehardware.com"
+    assert refs[0].url == "https://buy.trychannel3.com/item123"
 
 
 def test_srp_auth_extraction_and_verification_helpers():
@@ -108,8 +138,9 @@ def test_domain_symbolic_constants_expose_editable_and_transition_rules():
     """Domain state rules are declared as immutable symbolic constants."""
     assert "draft" in QUOTE_EDITABLE_STATUSES
     assert "approved" not in QUOTE_EDITABLE_STATUSES
-    assert ORDER_STATUS_TRANSITIONS["in_progress"] == frozenset({"delivered"})
+    assert ORDER_STATUS_TRANSITIONS["in_progress"] == frozenset({"delivered", "cancelled"})
     assert ORDER_STATUS_TRANSITIONS["delivered"] == frozenset()
+    assert ORDER_STATUS_TRANSITIONS["cancelled"] == frozenset()
 
 
 # ==============================================================================
@@ -146,6 +177,18 @@ def test_ocp_payment_processor_factory_extensibility():
     with pytest.raises(DomainError) as exc:
         unknown_proc.create_order("100.00", "USD")
     assert "Unknown PayPal mode" in str(exc.value)
+
+
+def test_ocp_price_lookup_service_factory_extensibility():
+    """build_price_lookup_service dispatches via provider registry and handles unconfigured smoothly."""
+    s_none = Settings(price_lookup_provider="none")
+    assert isinstance(build_price_lookup_service(s_none), UnconfiguredPriceLookupService)
+
+    s_c3 = Settings(price_lookup_provider="channel3", price_lookup_api_key="c3-test")
+    assert isinstance(build_price_lookup_service(s_c3), HttpxChannel3PriceLookupService)
+
+    s_unknown = Settings(price_lookup_provider="unknown-provider")
+    assert isinstance(build_price_lookup_service(s_unknown), UnconfiguredPriceLookupService)
 
 
 # ==============================================================================

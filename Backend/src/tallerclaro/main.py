@@ -6,6 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from tallerclaro.bootstrap.settings import Settings
+from tallerclaro.infrastructure.ai.price_lookup import build_price_lookup_service
 from tallerclaro.infrastructure.ai.accounting_service import build_accounting_assistant
 from tallerclaro.infrastructure.ai.service import build_ai_service
 from tallerclaro.infrastructure.db.connection import Database
@@ -38,6 +39,8 @@ async def lifespan(app: FastAPI):
         )
     if getattr(app.state, "ai_service", None) is None:
         app.state.ai_service = build_ai_service(settings)
+    if getattr(app.state, "price_lookup_service", None) is None:
+        app.state.price_lookup_service = build_price_lookup_service(settings)
     if getattr(app.state, "accounting_assistant", None) is None:
         app.state.accounting_assistant = build_accounting_assistant(settings)
     if getattr(app.state, "payment_processor", None) is None:
@@ -52,6 +55,7 @@ def create_app(
     ai_service=None,
     payment_processor=None,
     accounting_assistant=None,
+    price_lookup_service=None,
 ) -> FastAPI:
     settings = settings if settings is not None else Settings()
     app = FastAPI(title=settings.app_name, lifespan=lifespan)
@@ -64,6 +68,8 @@ def create_app(
         app.state.payment_processor = payment_processor
     if accounting_assistant is not None:
         app.state.accounting_assistant = accounting_assistant
+    if price_lookup_service is not None:
+        app.state.price_lookup_service = price_lookup_service
 
     app.add_middleware(
         CORSMiddleware,

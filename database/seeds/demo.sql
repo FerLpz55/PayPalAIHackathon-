@@ -158,13 +158,20 @@ CREATE TABLE IF NOT EXISTS tallerclaro.pedido (
     CONSTRAINT ck_pedido_anticipo_no_negativo CHECK (monto_anticipo >= 0 AND monto_anticipo = monto_anticipo),
     CONSTRAINT ck_pedido_anticipo_no_superior_total CHECK (monto_anticipo <= monto_total),
     CONSTRAINT ck_pedido_moneda CHECK (moneda = 'USD'),
-    CONSTRAINT ck_pedido_estado CHECK (estado IN ('pending', 'paid', 'in_progress', 'delivered'))
+    CONSTRAINT ck_pedido_estado CHECK (estado IN ('pending', 'paid', 'in_progress', 'delivered', 'cancelled', 'deleted'))
 );
+
+ALTER TABLE tallerclaro.pedido
+    DROP CONSTRAINT IF EXISTS ck_pedido_estado;
+
+ALTER TABLE tallerclaro.pedido
+    ADD CONSTRAINT ck_pedido_estado
+    CHECK (estado IN ('pending', 'paid', 'in_progress', 'delivered', 'cancelled', 'deleted'));
 
 COMMENT ON TABLE tallerclaro.pedido IS 'Encargo confirmado a partir de una cotizacion aprobada.';
 COMMENT ON COLUMN tallerclaro.pedido.monto_total IS 'Importe acordado copiado de la cotizacion aprobada.';
 COMMENT ON COLUMN tallerclaro.pedido.monto_anticipo IS 'Importe del anticipo exigido por politica de negocio.';
-COMMENT ON COLUMN tallerclaro.pedido.estado IS 'pending | paid | in_progress | delivered.';
+COMMENT ON COLUMN tallerclaro.pedido.estado IS 'pending | paid | in_progress | delivered | cancelled | deleted.';
 
 -- ---------------------------------------------------------------------------
 -- 6. pago

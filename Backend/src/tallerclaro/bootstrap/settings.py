@@ -38,6 +38,11 @@ class Settings(BaseSettings):
     ai_model: str | None = None
     ai_base_url: str | None = None
 
+    # Búsqueda de precios de materiales en vivo
+    price_lookup_provider: str = "none"  # none | channel3 | web
+    price_lookup_api_key: str | None = None
+    price_lookup_base_url: str | None = None
+
     # PayPal
     paypal_mode: str = "none"  # none | sandbox | live
     paypal_client_id: str | None = None

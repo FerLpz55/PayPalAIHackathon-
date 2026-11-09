@@ -4,10 +4,19 @@
 
 import { getSession } from './sessionStore.js'
 
+const codeToNumericId = new Map()
+
 export function parseNumericId(id) {
   if (id == null) return null
   if (typeof id === 'number') return id
-  const digits = String(id).replace(/\D/g, '')
+  if (typeof id === 'object') {
+    return parseNumericId(id.orderId ?? id.numericId ?? id.id)
+  }
+  const str = String(id).trim()
+  if (codeToNumericId.has(str)) {
+    return codeToNumericId.get(str)
+  }
+  const digits = str.replace(/\D/g, '')
   return digits ? parseInt(digits, 10) : id
 }
 
@@ -51,6 +60,17 @@ export function adaptQuoteResponse(data, fallbackCustomer = {}) {
 
   const measurements = data.measurements || extractMeasurements(data.request || data.description)
 
+  const suggestedProducts = Array.isArray(data.suggested_products || data.suggestedProducts)
+    ? (data.suggested_products || data.suggestedProducts).map((prod, idx) => ({
+        id: prod.id || `sugg-${idx}`,
+        title: prod.title || 'Material verificado',
+        priceUsd: Number(prod.price_usd ?? prod.priceUsd ?? 0),
+        source: prod.source || 'Store',
+        url: prod.url || null,
+        imageUrl: prod.image_url || prod.imageUrl || null,
+      }))
+    : []
+
   return {
     id: data.code || (data.id ? (String(data.id).startsWith('TC-') ? String(data.id) : `TC-${data.id}`) : 'TC-New'),
     numericId: parseNumericId(data.id),
@@ -67,6 +87,7 @@ export function adaptQuoteResponse(data, fallbackCustomer = {}) {
     status: data.status || 'draft',
     assumptions: Array.isArray(data.assumptions) ? data.assumptions : [],
     missing_info: Array.isArray(data.missing_info) ? data.missing_info : [],
+    suggestedProducts,
     customer_token: data.customer_token || session.customerToken || null,
     createdAt: data.created_at || new Date().toISOString(),
     isDemo: false,
@@ -78,10 +99,15 @@ export function adaptOrderResponse(order) {
   const total = Number(order.total ?? order.amount ?? 0)
   const deposit = Number(order.deposit_amount ?? order.deposit ?? (total ? Math.round(total * 0.5 * 100) / 100 : 0))
   const balance = Number(order.balance_amount ?? order.balance ?? (total ? total - deposit : 0))
+  const numericOrderId = parseNumericId(order.id)
+  const resolvedId = order.code || (order.id ? (String(order.id).startsWith('TC-') ? String(order.id) : `TC-${order.id}`) : 'TC-Order')
+  if (numericOrderId != null && resolvedId) {
+    codeToNumericId.set(String(resolvedId), numericOrderId)
+  }
 
   return {
-    id: order.code || (order.id ? (String(order.id).startsWith('TC-') ? String(order.id) : `TC-${order.id}`) : 'TC-Order'),
-    orderId: parseNumericId(order.id),
+    id: resolvedId,
+    orderId: numericOrderId,
     quoteId: parseNumericId(order.quote_id),
     customer: order.customer_name || order.customer || 'Cliente',
     email: order.customer_email || order.email || '',
@@ -103,9 +129,15 @@ export function adaptAccountingSummary(summary = {}) {
   return {
     currency: summary.currency || 'USD',
     ordersCount: Number(summary.orders_count ?? summary.ordersCount ?? 0),
+    activeOrdersCount: Number(summary.active_orders_count ?? summary.activeOrdersCount ?? 0),
+    deliveredOrdersCount: Number(summary.delivered_orders_count ?? summary.deliveredOrdersCount ?? 0),
     awaitingDeposit: Number(summary.orders_awaiting_deposit ?? summary.awaitingDeposit ?? 0),
+    ordersWithBalanceDue: Number(summary.orders_with_balance_due ?? summary.ordersWithBalanceDue ?? 0),
     totalContracted: Number(summary.total_contracted ?? summary.totalContracted ?? 0),
     collectedTotal: Number(summary.collected_total ?? summary.collectedTotal ?? 0),
+    collectedDeposits: Number(summary.collected_deposits ?? summary.collectedDeposits ?? 0),
+    collectedBalances: Number(summary.collected_balances ?? summary.collectedBalances ?? 0),
     pendingToCollect: Number(summary.pending_to_collect ?? summary.pendingToCollect ?? 0),
+    averageOrderValue: Number(summary.average_order_value ?? summary.averageOrderValue ?? 0),
   }
 }

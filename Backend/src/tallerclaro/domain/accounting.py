@@ -12,6 +12,8 @@ from dataclasses import dataclass
 from decimal import Decimal
 
 from tallerclaro.domain.entities import (
+    ORDER_STATUS_CANCELLED,
+    ORDER_STATUS_DELETED,
     ORDER_STATUS_DELIVERED,
     PAYMENT_STATUS_COMPLETED,
     PAYMENT_TYPE_BALANCE,
@@ -66,7 +68,9 @@ def summarize_workshop_finances(
     nunca se considera dinero cobrado.
     """
 
-    order_list = list(orders)
+    order_list = [
+        o for o in orders if o.status not in {ORDER_STATUS_CANCELLED, ORDER_STATUS_DELETED}
+    ]
     total_contracted = Money.zero()
     collected_total = Money.zero()
     collected_deposits = Money.zero()

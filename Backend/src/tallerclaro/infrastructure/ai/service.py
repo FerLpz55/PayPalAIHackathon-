@@ -13,20 +13,28 @@ import json
 import httpx
 
 from tallerclaro.application.dtos import QuoteLineItemInput, QuoteProposalResult
-from tallerclaro.application.interfaces import AIService
+from tallerclaro.application.interfaces import AIService, PriceLookupService
 from tallerclaro.bootstrap.settings import Settings
 from tallerclaro.domain.exceptions import DomainError
+from tallerclaro.infrastructure.ai.price_lookup import (
+    PriceContextFormatter,
+    build_price_lookup_service,
+)
 
 SYSTEM_PROMPT = (
-    "You are a carpentry estimator for TallerClaro. The shop only accepts USD. "
+    "You are an expert carpentry and furniture estimator for TallerClaro. The shop only accepts USD.\n"
     "Respond in JSON with this exact structure:\n"
     '{"needs_information": bool, "missing_info": [string], "description": string, '
     '"items": [{"type": "material"|"labor"|"other", "description": string, '
     '"unit": string, "quantity": number, "unit_price": number}], '
-    '"assumptions": [string]}.\n'
-    "If the request lacks enough detail, set needs_information=true and list missing_info. "
-    "Otherwise provide line items and a clear description. "
-    "Prices are in USD. Do not include totals; the server calculates them."
+    '"assumptions": [string]}.\n\n'
+    "RULES:\n"
+    "1. PROACTIVE ESTIMATION: For any woodworking request (tables, cabinets, shelves, desks, doors, furniture, etc.), ALWAYS generate a complete, priced proposal with 'needs_information': false. "
+    "Do NOT ask for clarification unless the request is completely incomprehensible or unrelated to woodwork. "
+    "If dimensions, wood species, or finish details are omitted, assume standard professional carpentry specifications (e.g. standard table 1.80m x 0.90m, pine/oak, polyurethane finish) and clearly document these choices in 'assumptions'.\n"
+    "2. LINE ITEMS: Provide granular items across 'material' (lumber, boards), 'labor' (fabrication, sanding, assembly, finishing), and 'other' (hardware, hinges, delivery, consumables).\n"
+    "3. PRICES: Use realistic market USD rates and ground them on verified merchant price references when provided. Do not include totals; the server calculates them.\n"
+    "4. DESCRIPTIONS: Write a clear, professional description in Spanish of the piece to be crafted."
 )
 
 
@@ -45,8 +53,17 @@ class AIProposalParser:
 
     @staticmethod
     def parse(content: str) -> QuoteProposalResult:
+        clean_content = content.strip()
+        if clean_content.startswith("```"):
+            lines = clean_content.splitlines()
+            if lines[0].startswith("```"):
+                lines = lines[1:]
+            if lines and lines[-1].startswith("```"):
+                lines = lines[:-1]
+            clean_content = "\n".join(lines).strip()
+
         try:
-            data = json.loads(content)
+            data = json.loads(clean_content)
         except (json.JSONDecodeError, TypeError) as exc:
             raise DomainError(
                 code="AI_RESPONSE_INVALID",
@@ -180,6 +197,8 @@ class OpenAIAIService:
         settings: Settings,
         client: httpx.Client | None = None,
         parser: AIProposalParser | None = None,
+        price_lookup: PriceLookupService | None = None,
+        price_formatter: PriceContextFormatter | None = None,
     ) -> None:
         self._settings = settings
         self._client = client or httpx.Client(timeout=60.0)
@@ -187,32 +206,60 @@ class OpenAIAIService:
         self._api_key = settings.ai_api_key
         self._model = settings.ai_model or "gpt-4o-mini"
         self._parser = parser or AIProposalParser()
+        self._price_lookup = (
+            price_lookup
+            if price_lookup is not None
+            else build_price_lookup_service(settings)
+        )
+        self._price_formatter = price_formatter or PriceContextFormatter()
 
     def generate_quote_proposal(self, request: str) -> QuoteProposalResult:
         if not self._api_key:
             raise DomainError(code="SERVICE_UNAVAILABLE", message="AI API key is missing")
 
-        prompt = self._build_prompt(request)
+        prompt, market_prices = self._build_prompt(request)
         content = self._request_completion(prompt)
-        return self._parse_proposal(content)
+        proposal = self._parse_proposal(content)
+        # Adjuntar referencias de mercado al resultado para su exposición
+        if market_prices:
+            return QuoteProposalResult(
+                description=proposal.description,
+                line_items=proposal.line_items,
+                assumptions=proposal.assumptions,
+                needs_information=proposal.needs_information,
+                missing_info=proposal.missing_info,
+                raw_response=proposal.raw_response,
+                suggested_products=market_prices,
+            )
+        return proposal
 
     def _request_completion(self, prompt: dict[str, str]) -> str:
+        base_payload = {
+            "model": self._model,
+            "messages": [
+                {"role": "system", "content": prompt["system"]},
+                {"role": "user", "content": prompt["user"]},
+            ],
+        }
+        headers = {
+            "Authorization": f"Bearer {self._api_key}",
+            "Content-Type": "application/json",
+        }
+        url = f"{self._base_url}/chat/completions"
+
         try:
             response = self._client.post(
-                f"{self._base_url}/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {self._api_key}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": self._model,
-                    "messages": [
-                        {"role": "system", "content": prompt["system"]},
-                        {"role": "user", "content": prompt["user"]},
-                    ],
-                    "response_format": {"type": "json_object"},
-                },
+                url,
+                headers=headers,
+                json={**base_payload, "response_format": {"type": "json_object"}},
             )
+            # Reintento sin response_format si el proveedor devuelve 400 por no soportar el formato
+            if response.status_code == 400 and "response_format" in response.text.lower():
+                response = self._client.post(
+                    url,
+                    headers=headers,
+                    json=base_payload,
+                )
             response.raise_for_status()
             payload = response.json()
             return payload["choices"][0]["message"]["content"]
@@ -225,8 +272,25 @@ class OpenAIAIService:
         """Delega el parseo de la propuesta al parser especializado (Single Responsibility)."""
         return self._parser.parse(content)
 
-    def _build_prompt(self, request: str) -> dict[str, str]:
-        return {"system": SYSTEM_PROMPT, "user": request}
+    def _build_prompt(self, request: str) -> tuple[dict[str, str], list[MarketPriceReference]]:
+        user_content = request
+        market_prices: list[MarketPriceReference] = []
+        try:
+            market_prices = self._price_lookup.lookup_prices(request)
+            formatted_context = self._price_formatter.format(market_prices)
+            if formatted_context:
+                user_content = (
+                    f"{request}\n\n"
+                    f"--- MARKET PRICE REFERENCES ---\n"
+                    f"{formatted_context}\n"
+                    f"Please base your line item unit prices on these real market rates when applicable, "
+                    f"and cite the store/source in the assumptions list."
+                )
+        except Exception:
+            # Degradación elegante: el fallo en la búsqueda de precios no detiene la cotización
+            pass
+
+        return {"system": SYSTEM_PROMPT, "user": user_content}, market_prices
 
 
 # Registro extensible de proveedores (Open/Closed Principle)

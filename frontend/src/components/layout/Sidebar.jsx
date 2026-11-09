@@ -1,7 +1,6 @@
 import { useEffect, useRef } from 'react'
 import Icon from '../ui/Icon.jsx'
 import { NAV_ITEMS } from '../../utils/constants.js'
-import { isConnectedMode, isDemoMode } from '../../services/apiClient.js'
 
 function Sidebar({ active, open, onClose, go, triggerRef }) {
   const sidebarRef = useRef(null)
@@ -66,15 +65,14 @@ function Sidebar({ active, open, onClose, go, triggerRef }) {
         <div className="workshop-block">
           <div className="nav-caption">Your workshop</div>
           <div className="workshop">
-            <span className="workshop-avatar">{isDemoMode ? 'M' : 'W'}</span>
-            <span><strong>{isDemoMode ? 'Madera Norte' : 'Workshop account'}</strong><small>{isDemoMode ? 'Carpentry studio' : isConnectedMode ? 'REAL mode' : 'Backend not configured'}</small></span>
+            <span className="workshop-avatar" aria-hidden="true">T</span>
+            <span><strong>TallerClaro Studio</strong><small>Custom Woodworking</small></span>
           </div>
         </div>
         <div className="sidebar-bottom">
-          <h3>Need a hand?</h3>
-          <p>Ask the AI assistant about your money.</p>
-          <button className="button button-subtle full" onClick={() => go('accounting')}>Ask TallerClaro</button>
-          {isDemoMode && <div className="demo-pill"><span /> Demo workspace</div>}
+          <strong className="sidebar-cta-title">Customer Portal</strong>
+          <p>Create quotes and review estimates.</p>
+          <button type="button" className="button button-subtle full" onClick={() => { window.location.hash = '#/customer/request' }}>New Quote ↗</button>
         </div>
       </aside>
     </>

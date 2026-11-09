@@ -1,23 +1,24 @@
 import { useState } from 'react'
 import Button from '../../components/ui/Button.jsx'
 import DataLine from '../../components/ui/DataLine.jsx'
-import DemoNotice from '../../components/ui/DemoNotice.jsx'
 import PayPalCheckout from '../../components/customer/PayPalCheckout.jsx'
 import EmptyState from '../../components/ui/EmptyState.jsx'
-import Icon from '../../components/ui/Icon.jsx'
 import LoadingState from '../../components/ui/LoadingState.jsx'
 import PageHeading from '../../components/ui/PageHeading.jsx'
-import { apiClient, isConnectedMode, isDemoMode, isConfigurationMissing } from '../../services/apiClient.js'
+import { apiClient, isConfigurationMissing } from '../../services/apiClient.js'
 import { formatMoney } from '../../utils/format.js'
 
 function QuoteReviewPage({ quote, orders, loading, go, mutate, refresh }) {
   const [busy, setBusy] = useState(false)
   const [additionalInfo, setAdditionalInfo] = useState('')
+  const [catalogSearch, setCatalogSearch] = useState('')
+  const [searchLoading, setSearchLoading] = useState(false)
+  const [activeSuggestions, setActiveSuggestions] = useState(() => quote?.suggestedProducts || [])
 
   if (loading) return <div className="customer-page"><LoadingState /></div>
-  if (isConfigurationMissing) return <div className="customer-page"><EmptyState title="Backend connection not configured" text="Quotes and payment actions are unavailable until VITE_API_BASE_URL is configured. No sample quote is being shown as real." /></div>
+  if (isConfigurationMissing) return <div className="customer-page"><EmptyState title="Backend connection not configured" text="Quotes and payment actions are unavailable until VITE_API_BASE_URL is configured." /></div>
   if (!quote) {
-    return <div className="customer-page"><EmptyState title="No quote is ready yet" text="Describe the piece you want made to prepare an illustrative estimate." action={<Button onClick={() => go('customer/new')}>Describe your project</Button>} /></div>
+    return <div className="customer-page"><EmptyState title="No quote is ready yet" text="Describe the piece you want made to prepare an estimate." action={<Button onClick={() => go('customer/new')}>Describe your project</Button>} /></div>
   }
 
   const approved = quote.status === 'approved'
@@ -26,12 +27,33 @@ function QuoteReviewPage({ quote, orders, loading, go, mutate, refresh }) {
   const items = quote.items || []
   const materials = items.filter((item) => item.kind === 'material')
   const labor = items.filter((item) => item.kind === 'labor')
+  const otherItems = items.filter((item) => item.kind !== 'material' && item.kind !== 'labor')
 
-  const payDepositDemo = async () => {
+  // Búsqueda en vivo de materiales en Channel3
+  const handleCatalogSearch = async (e) => {
+    e?.preventDefault()
+    if (!catalogSearch.trim()) return
+    setSearchLoading(true)
+    try {
+      const refreshed = await apiClient.getQuote(quote.numericId || quote.id, { query: catalogSearch.trim() })
+      if (refreshed?.suggestedProducts?.length) {
+        setActiveSuggestions(refreshed.suggestedProducts)
+      }
+    } catch {
+      // Degradación silenciosa
+    } finally {
+      setSearchLoading(false)
+    }
+  }
+
+  const applyProductToQuote = async (prod) => {
+    const textToAdd = `Using ${prod.title} (priced at $${prod.priceUsd} from ${prod.source})`
     setBusy(true)
-    await mutate(() => apiClient.simulatePayment('deposit'), 'Demo only: no PayPal payment was sent and no money was charged.')
+    await mutate(
+      () => apiClient.submitMissingInfo(quote.numericId || quote.id, textToAdd),
+      `Updated quote with ${prod.title}`
+    )
     setBusy(false)
-    go('customer/tracking')
   }
 
   const approve = async () => {
@@ -52,14 +74,18 @@ function QuoteReviewPage({ quote, orders, loading, go, mutate, refresh }) {
     setBusy(false)
   }
 
+  const reject = async () => {
+    setBusy(true)
+    await mutate(() => apiClient.rejectQuote(quote.numericId || quote.id), 'The quote was rejected/cancelled.')
+    setBusy(false)
+  }
+
   const measurementsText = `${quote.measurements?.width ?? '-'} wide · ${quote.measurements?.height ?? '-'} tall · ${quote.measurements?.depth ?? '-'} deep`
 
   return (
     <div className="customer-page">
-      <PageHeading title="Your quote is ready" description={`Review the estimate for ${quote.customer}. Workshop review and approval required before order confirmation.`} />
-      {isConnectedMode
-        ? <p className="demo-notice" role="status"><span className="demo-notice-label">REAL</span><span>Quote and order information come from the backend. Payments require server verification.</span></p>
-        : <DemoNotice text="This quote, its approval, and payment actions are simulated in this browser. No order or payment is persisted by a server." />}
+      <PageHeading title="Your quote is ready" description={`Review the custom estimate for ${quote.customer}.`} />
+      
       <div className="quote-review-grid">
         <section className="panel quote-breakdown">
           <div className="quote-title-row">
@@ -67,64 +93,155 @@ function QuoteReviewPage({ quote, orders, loading, go, mutate, refresh }) {
               <h2>{quote.project}</h2>
               <p>{measurementsText}</p>
             </div>
-            <span className={`status ${approved ? 'status-paid' : isNeedsInfo ? 'status-pending' : 'status-pending'}`}>
-              {approved ? 'Approved' : isNeedsInfo ? 'Information needed' : 'Workshop review required'}
+            <span className={`status ${approved ? 'status-paid' : 'status-pending'}`}>
+              {approved ? 'Approved' : isNeedsInfo ? 'Details requested' : 'Ready for review'}
             </span>
           </div>
 
-          {isNeedsInfo && (
-            <div className="info-callout" style={{ borderColor: '#ead8a7', background: '#fffaf0', margin: '0 0 18px' }}>
-              <strong style={{ color: '#8a5a00' }}>Additional details required</strong>
-              <p style={{ margin: '6px 0 10px', color: 'var(--text)' }}>
-                The workshop needs more details to accurately estimate your project:
-              </p>
-              {quote.missing_info && quote.missing_info.length > 0 && (
-                <ul style={{ margin: '0 0 14px', paddingLeft: '20px', color: '#52677f' }}>
-                  {quote.missing_info.map((item, idx) => (
-                    <li key={idx}>{item}</li>
-                  ))}
-                </ul>
-              )}
-              <form onSubmit={handleMissingInfoSubmit}>
-                <label className="field-label" htmlFor="additional-info-input" style={{ marginBottom: '6px' }}>
-                  Provide missing details
-                </label>
-                <textarea
-                  id="additional-info-input"
-                  rows="3"
-                  value={additionalInfo}
-                  onChange={(e) => setAdditionalInfo(e.target.value)}
-                  placeholder="Provide dimensions, materials, or details requested above..."
-                  disabled={busy}
-                  style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid var(--line)', marginBottom: '10px' }}
-                />
-                <Button type="submit" disabled={busy || !additionalInfo.trim()}>
-                  {busy ? 'Submitting…' : 'Send missing information'}
-                </Button>
-              </form>
-            </div>
-          )}
-
+          {/* Desglose de partidas */}
           <h3 className="field-label">Materials</h3>
           {materials.length > 0 ? (
-            materials.map((item) => <DataLine key={item.id || item.label} label={item.label} value={formatMoney(item.amount)} />)
+            materials.map((item) => (
+              <DataLine
+                key={item.id || item.label}
+                label={`${item.label} (${item.quantity} ${item.unit} @ $${item.unitAmount?.toFixed(2) || item.amount.toFixed(2)})`}
+                value={formatMoney(item.amount)}
+              />
+            ))
           ) : (
-            <p className="status-help" style={{ margin: '4px 0 12px' }}>{isNeedsInfo ? 'Materials will be estimated once missing details are provided.' : 'No material line items.'}</p>
+            <p className="status-help" style={{ margin: '4px 0 12px' }}>No material line items.</p>
           )}
 
-          <h3 className="field-label labor-label">Labor</h3>
+          <h3 className="field-label labor-label">Workshop Labor</h3>
           {labor.length > 0 ? (
-            labor.map((item) => <DataLine key={item.id || item.label} label={item.label} value={formatMoney(item.amount)} />)
+            labor.map((item) => (
+              <DataLine
+                key={item.id || item.label}
+                label={`${item.label} (${item.quantity} ${item.unit} @ $${item.unitAmount?.toFixed(2) || item.amount.toFixed(2)})`}
+                value={formatMoney(item.amount)}
+              />
+            ))
           ) : (
-            <p className="status-help" style={{ margin: '4px 0 12px' }}>{isNeedsInfo ? 'Labor will be calculated once project scope is confirmed.' : 'No labor line items.'}</p>
+            <p className="status-help" style={{ margin: '4px 0 12px' }}>No labor line items.</p>
+          )}
+
+          {otherItems.length > 0 && (
+            <>
+              <h3 className="field-label labor-label">Hardware, Finishes & Delivery</h3>
+              {otherItems.map((item) => (
+                <DataLine
+                  key={item.id || item.label}
+                  label={`${item.label} (${item.quantity} ${item.unit})`}
+                  value={formatMoney(item.amount)}
+                />
+              ))}
+            </>
           )}
 
           <div className="quote-total"><span>Estimated total</span><strong>{formatMoney(quote.total)}</strong></div>
 
+          {/* PANEL DE PRODUCTOS SUGERIDOS Y BÚSQUEDA EN VIVO */}
+          <div className="product-suggestions-section" style={{ marginTop: '24px', paddingTop: '18px', borderTop: '1px solid var(--line)' }}>
+            <div className="section-head" style={{ marginBottom: 10 }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: 15, fontWeight: 600 }}>Market Material References & Store Products</h3>
+                <p style={{ margin: '4px 0 0', color: 'var(--muted)', fontSize: 12 }}>
+                  Live retail prices grounded via Channel3. Use these products to calibrate or refine your quote.
+                </p>
+              </div>
+            </div>
+
+            {/* Buscador en vivo de productos */}
+            <form onSubmit={handleCatalogSearch} className="product-search-form" style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
+              <label htmlFor="catalog-search-input" className="sr-only">Search store catalog for lumber, hardware, or finishes</label>
+              <input
+                id="catalog-search-input"
+                type="text"
+                placeholder="Search lumber, hardware, finishes (e.g. solid oak, soft-close hinges)..."
+                value={catalogSearch}
+                onChange={(e) => setCatalogSearch(e.target.value)}
+                style={{ flex: 1, minWidth: 220, padding: '0 12px', minHeight: 44, borderRadius: 8, border: '1px solid var(--line)', fontSize: 13 }}
+              />
+              <Button type="submit" variant="secondary" disabled={searchLoading || !catalogSearch.trim()}>
+                {searchLoading ? 'Searching…' : 'Search Store Catalog'}
+              </Button>
+            </form>
+
+            {/* Chips de búsqueda rápida */}
+            <div className="product-chips" style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 14 }}>
+              {['Solid Oak Lumber', 'Pine Board', 'Soft Close Hinges', 'Drawer Slides', 'Polyurethane Varnish', 'Walnut Slab'].map((term) => (
+                <button
+                  key={term}
+                  type="button"
+                  className="assistant-chip"
+                  onClick={() => {
+                    setCatalogSearch(term)
+                    apiClient.getQuote(quote.numericId || quote.id, { query: term }).then((res) => {
+                      if (res?.suggestedProducts?.length) setActiveSuggestions(res.suggestedProducts)
+                    })
+                  }}
+                >
+                  {term}
+                </button>
+              ))}
+            </div>
+
+            {/* Grid de productos sugeridos */}
+            <div aria-live="polite">
+            {activeSuggestions.length > 0 ? (
+              <div className="product-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 12 }}>
+                {activeSuggestions.map((prod, idx) => (
+                  <div key={prod.id || idx} className="product-card" style={{ padding: 12, border: '1px solid var(--line)', borderRadius: 10, background: '#fff', display: 'flex', flexDirection: 'column' }}>
+                    {prod.imageUrl ? (
+                      <img src={prod.imageUrl} alt={prod.title} style={{ width: '100%', height: 110, objectFit: 'cover', borderRadius: 6, marginBottom: 8 }} />
+                    ) : (
+                      <div aria-hidden="true" style={{ width: '100%', height: 110, borderRadius: 6, background: 'var(--soft-blue)', display: 'grid', placeItems: 'center', color: 'var(--navy)', marginBottom: 8, fontSize: 13, fontWeight: 600 }}>
+                        {prod.source || 'Store Item'}
+                      </div>
+                    )}
+                    <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: 'var(--blue)', marginBottom: 4 }}>
+                      {prod.source || 'Retail Merchant'}
+                    </span>
+                    <strong style={{ fontSize: 12, lineHeight: 1.35, color: 'var(--text)', marginBottom: 6, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                      {prod.title}
+                    </strong>
+                    <div style={{ marginTop: 'auto', display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 8 }}>
+                      <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--navy)' }}>${prod.priceUsd.toFixed(2)} USD</span>
+                      {prod.url && (
+                        <a
+                          href={prod.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          aria-label={`Store ↗ — View ${prod.title} at ${prod.source || 'merchant'} (opens in new tab)`}
+                          style={{ fontSize: 12, color: 'var(--blue)', textDecoration: 'none', minHeight: 28, display: 'inline-flex', alignItems: 'center' }}
+                        >
+                          Store ↗
+                        </a>
+                      )}
+                    </div>
+                    <Button
+                      variant="subtle"
+                      aria-label={`+ Apply to Quote: ${prod.title}`}
+                      style={{ minHeight: 44, fontSize: 12, padding: '0 10px' }}
+                      disabled={busy}
+                      onClick={() => applyProductToQuote(prod)}
+                    >
+                      + Apply to Quote
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="status-help">No specific store suggestions loaded yet. Use the search box above to query live merchant pricing.</p>
+            )}
+            </div>
+          </div>
+
+          {/* Supuestos */}
           {quote.assumptions && quote.assumptions.length > 0 && (
-            <div style={{ marginTop: '16px', padding: '14px', background: '#f8fbff', borderRadius: '8px', border: '1px solid var(--line)' }}>
-              <h3 className="field-label" style={{ margin: '0 0 6px', color: 'var(--navy)' }}>Estimate assumptions</h3>
-              <ul style={{ margin: 0, paddingLeft: '18px', color: 'var(--muted)', fontSize: '10px', lineHeight: '1.6' }}>
+            <div style={{ marginTop: '20px', padding: '14px', background: '#f8fbff', borderRadius: '8px', border: '1px solid var(--line)' }}>
+              <h3 className="field-label" style={{ margin: '0 0 6px', color: 'var(--navy)' }}>Estimate specifications & assumptions</h3>
+              <ul style={{ margin: 0, paddingLeft: '18px', color: 'var(--muted)', fontSize: 12, lineHeight: '1.6' }}>
                 {quote.assumptions.map((assumption, idx) => (
                   <li key={idx}>{assumption}</li>
                 ))}
@@ -132,34 +249,68 @@ function QuoteReviewPage({ quote, orders, loading, go, mutate, refresh }) {
             </div>
           )}
 
-          <p className="fine-print">A workshop must review and approve the proposal before the deposit can be paid.</p>
+          {/* Formulario de refinamiento / información adicional */}
+          <div style={{ marginTop: '20px', padding: '16px', background: '#fff', borderRadius: '8px', border: '1px solid var(--line)' }}>
+            <h3 style={{ margin: '0 0 6px', fontSize: 14, fontWeight: 600 }}>Customize or Refine Estimate</h3>
+            <p style={{ margin: '0 0 10px', fontSize: 12, color: 'var(--muted)' }}>
+              Need different wood, extra shelves, or custom hardware? Tell the AI to recalculate your quote:
+            </p>
+            <form onSubmit={handleMissingInfoSubmit}>
+              <label htmlFor="refine-estimate-textarea" className="sr-only">Additional project details to recalculate estimate</label>
+              <textarea
+                id="refine-estimate-textarea"
+                rows="2"
+                value={additionalInfo}
+                onChange={(e) => setAdditionalInfo(e.target.value)}
+                placeholder="e.g. Change wood to solid walnut and add soft-close hinges..."
+                disabled={busy}
+                style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid var(--line)', marginBottom: '10px', fontSize: 13 }}
+              />
+              <Button type="submit" variant="secondary" disabled={busy || !additionalInfo.trim()}>
+                {busy ? 'Recalculating with AI…' : 'Recalculate Estimate'}
+              </Button>
+            </form>
+          </div>
         </section>
 
+        {/* Panel lateral de pago / aprobación */}
         <aside className="panel payment-plan">
-          <h2>Payment plan</h2>
+          <h2>Payment schedule</h2>
           <div className="payment-amount">
-            <span>Today · 50% deposit</span>
+            <span>50% Advance deposit</span>
             <strong>{formatMoney(quote.deposit)}</strong>
-            <small>Deposit required to start production.</small>
+            <small>Locks in workshop materials and scheduling.</small>
           </div>
           <div className="payment-amount balance-amount">
-            <span>When finished · balance</span>
+            <span>Remaining balance</span>
             <strong>{formatMoney(quote.balance)}</strong>
-            <small>Remaining balance due upon delivery readiness.</small>
+            <small>Due upon workshop completion before delivery.</small>
           </div>
-          {isDemoMode && quote.paymentDemo ? (
-            <Button variant="success" className="full" onClick={() => go('customer/tracking')}>View demo order <Icon name="arrow" size={15} /></Button>
-          ) : (
-            <Button variant="paypal" className="full" disabled={isConnectedMode || busy || !approved || isNeedsInfo} onClick={payDepositDemo}>
-              {busy ? 'Updating…' : isConnectedMode ? 'PayPal checkout below' : approved ? `Simulate ${formatMoney(quote.deposit)} deposit` : isNeedsInfo ? 'Waiting for information' : 'Waiting for workshop approval'}
-            </Button>
+
+          {!approved && quote.status !== 'rejected' && (
+            <div style={{ display: 'grid', gap: 10 }}>
+              <Button variant="paypal" className="full approve-button" disabled={busy} onClick={approve}>
+                {busy ? 'Processing approval…' : 'Approve Quote & Proceed to Deposit'}
+              </Button>
+              <Button variant="subtle" className="full" disabled={busy} onClick={reject} style={{ color: '#aa3737' }}>
+                Reject / Cancel Quote
+              </Button>
+            </div>
           )}
-          {isConnectedMode && approved && order?.orderId && <PayPalCheckout orderId={order.orderId} type="deposit" refresh={refresh} />}
-          {isDemoMode && <p className="secure-note">Simulation only. No PayPal transaction is created and no money is charged.</p>}
-          {!order && (
-            <Button variant="secondary" className="full approve-button" disabled={busy || approved || isNeedsInfo} onClick={approve}>
-              {approved ? 'Approved' : isNeedsInfo ? 'Information needed' : 'Approve quote'}
-            </Button>
+
+          {quote.status === 'rejected' && (
+            <div style={{ padding: 14, borderRadius: 8, background: '#fdf2f2', border: '1px solid #f9d6d6', textAlign: 'center' }}>
+              <strong style={{ color: '#aa3737', display: 'block', marginBottom: 4 }}>Quote Cancelled</strong>
+              <small style={{ color: 'var(--muted)' }}>This quote was cancelled and cannot be approved.</small>
+            </div>
+          )}
+
+          {approved && order?.orderId && (
+            <PayPalCheckout orderId={order.orderId} type="deposit" refresh={refresh} />
+          )}
+
+          {approved && !order && (
+            <p className="status-help" style={{ textAlign: 'center' }}>Creating order details…</p>
           )}
         </aside>
       </div>

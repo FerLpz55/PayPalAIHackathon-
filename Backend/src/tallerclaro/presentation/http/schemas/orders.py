@@ -15,6 +15,9 @@ class OrderResponse(BaseModel):
     currency: str
     status: str
     estimated_delivery_date: date | None = None
+    customer_name: str | None = None
+    customer_email: str | None = None
+    project_request: str | None = None
     created_at: str | None = None
     updated_at: str | None = None
 

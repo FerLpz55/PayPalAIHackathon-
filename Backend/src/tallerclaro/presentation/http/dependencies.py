@@ -17,6 +17,7 @@ from tallerclaro.application.interfaces import (
     AccountingAssistant,
     AIService,
     PaymentProcessor,
+    PriceLookupService,
     UnitOfWork,
 )
 from tallerclaro.application.use_cases import VerifyCustomerToken
@@ -48,11 +49,21 @@ def get_accounting_assistant(request: Request) -> AccountingAssistant:
     return request.app.state.accounting_assistant
 
 
+def get_price_lookup_service(request: Request) -> PriceLookupService:
+    service = getattr(request.app.state, "price_lookup_service", None)
+    if service is None:
+        from tallerclaro.infrastructure.ai.price_lookup import build_price_lookup_service
+        service = build_price_lookup_service(request.app.state.settings)
+        request.app.state.price_lookup_service = service
+    return service
+
+
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 UnitOfWorkDep = Annotated[UnitOfWork, Depends(get_unit_of_work)]
 AIServiceDep = Annotated[AIService, Depends(get_ai_service)]
 PaymentProcessorDep = Annotated[PaymentProcessor, Depends(get_payment_processor)]
 AccountingAssistantDep = Annotated[AccountingAssistant, Depends(get_accounting_assistant)]
+PriceLookupServiceDep = Annotated[PriceLookupService, Depends(get_price_lookup_service)]
 
 
 # --- Funciones auxiliares de autenticación (Single Responsibility Principle) ---

@@ -38,6 +38,27 @@ class ListOrders:
             total = self._uow.orders.count_by_carpenter(carpenter_id)
             return orders, total
 
+    def execute_with_context(
+        self, carpenter_id: CarpenterId, limit: int = 20, offset: int = 0
+    ) -> tuple[list[tuple[Order, str | None, str | None, str | None]], int]:
+        with self._uow:
+            orders = self._uow.orders.list_by_carpenter(carpenter_id, limit, offset)
+            total = self._uow.orders.count_by_carpenter(carpenter_id)
+            enriched: list[tuple[Order, str | None, str | None, str | None]] = []
+            for order in orders:
+                cust_name = None
+                cust_email = None
+                proj_req = None
+                quote = self._uow.quotes.get_by_id(order.quote_id)
+                if quote:
+                    proj_req = quote.request
+                    customer = self._uow.customers.get_by_id(quote.customer_id)
+                    if customer:
+                        cust_name = customer.name
+                        cust_email = customer.email
+                enriched.append((order, cust_name, cust_email, proj_req))
+            return enriched, total
+
 
 class GetOrder:
     def __init__(self, uow: UnitOfWork) -> None:

@@ -1,8 +1,10 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useId, useRef } from 'react'
 import Button from './Button.jsx'
 import Icon from './Icon.jsx'
 
 function ConfirmDialog({ title, text, confirmLabel, onConfirm, onClose }) {
+  const titleId = useId()
+  const descId = useId()
   const dialogRef = useRef(null)
   const closeRef = useRef(null)
   const onCloseRef = useRef(onClose)
@@ -44,10 +46,10 @@ function ConfirmDialog({ title, text, confirmLabel, onConfirm, onClose }) {
 
   return (
     <div className="dialog-scrim" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
-      <section ref={dialogRef} className="dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title" aria-describedby="dialog-description" tabIndex="-1">
+      <section ref={dialogRef} className="dialog" role="dialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={descId} tabIndex="-1">
         <button ref={closeRef} className="icon-button dialog-close" type="button" aria-label="Close dialog" onClick={onClose}><Icon name="close" /></button>
-        <h2 id="dialog-title">{title}</h2>
-        <p id="dialog-description">{text}</p>
+        <h2 id={titleId}>{title}</h2>
+        <p id={descId}>{text}</p>
         <div className="dialog-actions">
           <Button variant="secondary" onClick={onClose}>Cancel</Button>
           <Button variant="success" onClick={onConfirm}>{confirmLabel}</Button>

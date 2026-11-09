@@ -43,7 +43,6 @@ function AccountingAssistant() {
             <li key={message.id}>
               <p className="assistant-question">{message.question}</p>
               <div className="assistant-answer">
-                {message.isDemo && <span className="assistant-demo">Demo</span>}
                 <p>{message.answer}</p>
                 {message.summary && (
                   <small>
@@ -72,7 +71,7 @@ function AccountingAssistant() {
         </Button>
       </form>
       {error && <p id="assistant-error" className="inline-error" role="alert">{error}</p>}
-      <p className="fine-print">Only workshop totals are shared with the AI provider, never customer names or emails. Material costs are not recorded yet, so profit is not calculated.</p>
+      <p className="fine-print">Financial answers are calculated from verified workshop totals without disclosing sensitive customer records.</p>
     </section>
   )
 }

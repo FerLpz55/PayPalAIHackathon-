@@ -29,6 +29,14 @@ class QuoteLineItemResponse(BaseModel):
     amount: float
 
 
+class SuggestedProductResponse(BaseModel):
+    title: str
+    price_usd: float
+    source: str
+    url: str | None = None
+    image_url: str | None = None
+
+
 class QuoteResponse(BaseModel):
     id: str
     customer_id: str
@@ -44,6 +52,7 @@ class QuoteResponse(BaseModel):
     customer_token: str | None = None
     assumptions: list[str] | None = None
     missing_info: list[str] | None = None
+    suggested_products: list[SuggestedProductResponse] = Field(default_factory=list)
     created_at: str | None = None
     updated_at: str | None = None
 
@@ -62,3 +71,4 @@ class QuoteGenerateResponse(BaseModel):
     total: float | None
     assumptions: list[str] | None = None
     missing_info: list[str] | None = None
+    suggested_products: list[SuggestedProductResponse] = Field(default_factory=list)

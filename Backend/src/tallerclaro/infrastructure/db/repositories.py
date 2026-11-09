@@ -491,7 +491,7 @@ class PostgresOrderRepository:
             f"""
             SELECT {_ORDER_SELECT_COLUMNS}
             FROM tallerclaro.pedido
-            WHERE id_carpintero = %s
+            WHERE id_carpintero = %s AND estado <> 'deleted'
             ORDER BY fecha_creacion DESC
             LIMIT %s OFFSET %s
             """,
@@ -504,7 +504,7 @@ class PostgresOrderRepository:
             """
             SELECT COUNT(*)
             FROM tallerclaro.pedido
-            WHERE id_carpintero = %s
+            WHERE id_carpintero = %s AND estado <> 'deleted'
             """,
             (carpenter_id,),
         ).fetchone()

@@ -6,7 +6,7 @@ from fastapi import APIRouter, Query
 
 from tallerclaro.application.dtos import AccessPrincipal, UpdateOrderInput
 from tallerclaro.application.use_cases import GetOrder, ListOrders, UpdateOrder
-from tallerclaro.domain.entities import CarpenterId, OrderId
+from tallerclaro.domain.entities import ORDER_STATUS_DELETED, CarpenterId, OrderId
 from tallerclaro.presentation.http.dependencies import (
     PrincipalDep,
     UnitOfWorkDep,
@@ -40,9 +40,20 @@ def list_orders(
     offset: int = Query(0, ge=0),
 ) -> OrderListResponse:
     carpenter_id = _resolve_carpenter_id(principal)
-    orders, total = ListOrders(uow).execute(carpenter_id, limit, offset)
+    enriched_orders, total = ListOrders(uow).execute_with_context(carpenter_id, limit, offset)
+
+    order_responses = [
+        _to_order_response(
+            order,
+            customer_name=cust_name,
+            customer_email=cust_email,
+            project_request=proj_req,
+        )
+        for order, cust_name, cust_email, proj_req in enriched_orders
+    ]
+
     return OrderListResponse(
-        orders=[_to_order_response(order) for order in orders],
+        orders=order_responses,
         total=total,
         limit=limit,
         offset=offset,
@@ -74,5 +85,20 @@ def update_order(
             status=body.status,
             estimated_delivery_date=body.estimated_delivery_date,
         ),
+    )
+    return _to_order_response(order)
+
+
+@router.delete("/orders/{order_id}", include_in_schema=False)
+def delete_order(
+    order_id: int,
+    principal: WorkshopCarpenterDep,
+    uow: UnitOfWorkDep,
+) -> OrderResponse:
+    carpenter_id = _resolve_carpenter_id(principal)
+    order = UpdateOrder(uow).execute(
+        OrderId(order_id),
+        carpenter_id,
+        UpdateOrderInput(status=ORDER_STATUS_DELETED),
     )
     return _to_order_response(order)

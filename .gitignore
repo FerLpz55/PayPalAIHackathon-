@@ -222,9 +222,15 @@ __marimo__/
 node_modules/
 
 # Local environment variants; only sanitized templates may be committed
+.env
+**/.env
 .env.*
+**/.env.*
+*.env
 !.env.example
+!**/.env.example
 !.env.template
+!**/.env.template
 .envrc.*
 
 # Credentials, private keys, and local service configuration
@@ -258,6 +264,7 @@ skills-lock.json
 *mcp*.json
 .mcp/
 .gemini/
+sbp_*
 *.token
 *.tokens
 .codex/

@@ -12,6 +12,11 @@ from tallerclaro.infrastructure.ai.accounting_service import (
     build_accounting_assistant,
     register_accounting_assistant,
 )
+from tallerclaro.infrastructure.ai.price_lookup import (
+    _PRICE_LOOKUP_FACTORIES,
+    build_price_lookup_service,
+    register_price_lookup_provider,
+)
 from tallerclaro.infrastructure.ai.service import (
     _AI_FACTORIES,
     build_ai_service,
@@ -82,11 +87,26 @@ def test_registering_accounting_assistant_requires_no_use_case_change():
         _ASSISTANT_FACTORIES.pop(provider, None)
 
 
+def test_registering_price_lookup_provider_requires_no_use_case_change():
+    class TestLookup:
+        def lookup_prices(self, request: str):
+            return []
+
+    lookup = TestLookup()
+    provider = "test-lookup-provider"
+    try:
+        register_price_lookup_provider(provider, lambda settings: lookup)
+        assert build_price_lookup_service(Settings(price_lookup_provider=provider)) is lookup
+    finally:
+        _PRICE_LOOKUP_FACTORIES.pop(provider, None)
+
+
 def test_composition_uses_registries_for_providers():
     """La composición se realiza mediante factorías registradas, no con isinstance."""
     payment_source = (SRC_ROOT / "infrastructure" / "payment" / "paypal_processor.py").read_text()
     ai_source = (SRC_ROOT / "infrastructure" / "ai" / "service.py").read_text()
     accounting_source = (SRC_ROOT / "infrastructure" / "ai" / "accounting_service.py").read_text()
+    price_source = (SRC_ROOT / "infrastructure" / "ai" / "price_lookup.py").read_text()
 
     assert "_PAYMENT_PROCESSOR_FACTORIES" in payment_source
     assert "register_payment_processor" in payment_source
@@ -94,3 +114,5 @@ def test_composition_uses_registries_for_providers():
     assert "register_ai_provider" in ai_source
     assert "_ASSISTANT_FACTORIES" in accounting_source
     assert "register_accounting_assistant" in accounting_source
+    assert "_PRICE_LOOKUP_FACTORIES" in price_source
+    assert "register_price_lookup_provider" in price_source

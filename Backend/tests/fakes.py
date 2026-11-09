@@ -10,6 +10,7 @@ from decimal import Decimal
 
 from tallerclaro.application.dtos import (
     CapturedPayment,
+    MarketPriceReference,
     PaymentIntent,
     QuoteLineItemInput,
     QuoteProposalResult,
@@ -138,12 +139,20 @@ class FakeOrderRepository:
     def list_by_carpenter(
         self, carpenter_id: CarpenterId, limit: int, offset: int
     ) -> list[Order]:
-        items = [o for o in self._store.values() if o.carpenter_id == carpenter_id]
+        items = [
+            o
+            for o in self._store.values()
+            if o.carpenter_id == carpenter_id and o.status != "deleted"
+        ]
         items.sort(key=lambda o: o.created_at or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
         return items[offset : offset + limit]
 
     def count_by_carpenter(self, carpenter_id: CarpenterId) -> int:
-        return sum(1 for o in self._store.values() if o.carpenter_id == carpenter_id)
+        return sum(
+            1
+            for o in self._store.values()
+            if o.carpenter_id == carpenter_id and o.status != "deleted"
+        )
 
 
 class FakePaymentRepository:
@@ -398,3 +407,15 @@ class FakeAccountingAssistant:
         if self._uow is not None:
             self.open_transactions_at_call.append(len(self._uow._frames))
         return self._answer
+
+
+class FakePriceLookupService:
+    """Buscador de precios determinista para pruebas."""
+
+    def __init__(self, references: list[MarketPriceReference] | None = None) -> None:
+        self.references = references or []
+        self.calls: list[str] = []
+
+    def lookup_prices(self, request: str) -> list[MarketPriceReference]:
+        self.calls.append(request)
+        return list(self.references)

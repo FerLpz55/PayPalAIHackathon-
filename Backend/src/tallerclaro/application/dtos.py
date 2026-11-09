@@ -115,6 +115,7 @@ class QuoteProposalResult:
     needs_information: bool = False
     missing_info: list[str] | None = None
     raw_response: str | None = None
+    suggested_products: list[MarketPriceReference] | None = None
 
 
 @dataclass
@@ -160,3 +161,12 @@ class AccountingAnswer:
     question: str
     answer: str
     summary: WorkshopFinancialSummary
+
+
+@dataclass(frozen=True)
+class MarketPriceReference:
+    title: str
+    price_usd: Decimal
+    source: str
+    url: str | None = None
+    image_url: str | None = None

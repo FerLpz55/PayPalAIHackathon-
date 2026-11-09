@@ -67,17 +67,28 @@ export const mockApi = {
     return delay(state.quote)
   },
   async updateStatus(id, status) {
-    const order = state.orders.find((item) => item.id === id)
+    const order = state.orders.find((item) => item.id === id || String(item.orderId) === String(id))
     if (!order) throw new Error('This order could not be found.')
+    if (status === 'deleted') {
+      state.orders = state.orders.filter((item) => item.id !== order.id)
+      persist()
+      return delay({ ...order, status: 'deleted' })
+    }
     if (status === 'delivered') {
       throw new Error('Delivery requires backend-verified full payment and is unavailable in the demo.')
     }
-    if (!ORDER_STATUS_TRANSITIONS[order.status]?.includes(status)) {
+    if (status !== 'cancelled' && !ORDER_STATUS_TRANSITIONS[order.status]?.includes(status)) {
       throw new Error(`The demo does not allow changing ${order.status} to ${status}.`)
     }
     order.status = status
     persist()
     return delay(order)
+  },
+  async cancelOrder(id) {
+    return this.updateStatus(id, 'cancelled')
+  },
+  async deleteOrder(id) {
+    return this.updateStatus(id, 'deleted')
   },
   async recordDemoCompletionNote(id) {
     const order = state.orders.find((item) => item.id === id)

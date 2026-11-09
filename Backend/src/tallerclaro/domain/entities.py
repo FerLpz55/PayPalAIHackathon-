@@ -36,13 +36,16 @@ ORDER_STATUS_PENDING = "pending"
 ORDER_STATUS_PAID = "paid"
 ORDER_STATUS_IN_PROGRESS = "in_progress"
 ORDER_STATUS_DELIVERED = "delivered"
+ORDER_STATUS_CANCELLED = "cancelled"
+ORDER_STATUS_DELETED = "deleted"
 OrderStatus = str
 
 ORDER_STATUS_TRANSITIONS: dict[OrderStatus, frozenset[OrderStatus]] = {
-    ORDER_STATUS_PENDING: frozenset({ORDER_STATUS_PAID, ORDER_STATUS_IN_PROGRESS}),
-    ORDER_STATUS_PAID: frozenset({ORDER_STATUS_IN_PROGRESS}),
-    ORDER_STATUS_IN_PROGRESS: frozenset({ORDER_STATUS_DELIVERED}),
+    ORDER_STATUS_PENDING: frozenset({ORDER_STATUS_PAID, ORDER_STATUS_IN_PROGRESS, ORDER_STATUS_CANCELLED}),
+    ORDER_STATUS_PAID: frozenset({ORDER_STATUS_IN_PROGRESS, ORDER_STATUS_CANCELLED}),
+    ORDER_STATUS_IN_PROGRESS: frozenset({ORDER_STATUS_DELIVERED, ORDER_STATUS_CANCELLED}),
     ORDER_STATUS_DELIVERED: frozenset(),
+    ORDER_STATUS_CANCELLED: frozenset(),
 }
 
 PAYMENT_TYPE_DEPOSIT = "deposit"
@@ -185,6 +188,12 @@ class Order:
             raise ValidationDomainError("Deposit cannot exceed total")
 
     def update_status(self, new_status: OrderStatus, estimated_delivery_date: date | None = None) -> None:
+        if new_status == ORDER_STATUS_DELETED:
+            self.status = ORDER_STATUS_DELETED
+            return
+        if new_status == self.status and estimated_delivery_date is not None:
+            self.estimated_delivery_date = estimated_delivery_date
+            return
         allowed_next_statuses = ORDER_STATUS_TRANSITIONS.get(self.status, frozenset())
         if new_status not in allowed_next_statuses:
             raise ConflictError(f"Cannot transition order from {self.status} to {new_status}")

@@ -1,10 +1,5 @@
-function DemoNotice({ text }) {
-  return (
-    <p className="demo-notice">
-      <span className="demo-notice-label">DEMO</span>
-      <span>{text}</span>
-    </p>
-  )
+function DemoNotice() {
+  return null
 }
 
 export default DemoNotice

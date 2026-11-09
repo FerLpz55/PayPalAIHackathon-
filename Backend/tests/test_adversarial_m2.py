@@ -1047,3 +1047,57 @@ def test_adversarial_openai_item_validation_boundary_conditions():
     assert len(result.line_items) == 2
     assert result.line_items[1].unit_price == Decimal("0")
     assert result.assumptions == ["Incluye acabado mate"]
+
+
+def test_ai_proposal_parser_handles_markdown_code_blocks():
+    from tallerclaro.infrastructure.ai.service import AIProposalParser
+
+    markdown_payload = (
+        "```json\n"
+        '{\n'
+        '  "description": "Estantería de cedro",\n'
+        '  "items": [\n'
+        '    {"type": "material", "description": "Cedro 2x4", "quantity": 3, "unit_price": 25.0}\n'
+        '  ],\n'
+        '  "assumptions": ["Barniz brillante"]\n'
+        '}\n'
+        "```"
+    )
+    result = AIProposalParser.parse(markdown_payload)
+    assert not result.needs_information
+    assert result.description == "Estantería de cedro"
+    assert len(result.line_items) == 1
+    assert result.line_items[0].unit_price == Decimal("25.0")
+    assert result.assumptions == ["Barniz brillante"]
+
+
+def test_openai_service_fallback_when_response_format_rejected():
+    settings = Settings(ai_api_key="nvapi-test", ai_provider="openai")
+    mock_client = MagicMock()
+
+    # Primera respuesta: 400 rechazando response_format
+    resp_400 = MagicMock()
+    resp_400.status_code = 400
+    resp_400.text = "Error: 'response_format' is not supported by this model"
+
+    # Segunda respuesta (fallback sin response_format): 200 OK
+    resp_200 = MagicMock()
+    resp_200.status_code = 200
+    resp_200.raise_for_status.return_value = None
+    resp_200.json.return_value = {
+        "choices": [
+            {
+                "message": {
+                    "content": '{"description": "Silla", "items": [{"type": "material", "description": "Pino", "quantity": 1, "unit_price": 10}], "assumptions": []}'
+                }
+            }
+        ]
+    }
+    mock_client.post.side_effect = [resp_400, resp_200]
+
+    service = OpenAIAIService(settings=settings, client=mock_client)
+    res = service.generate_quote_proposal("Fabricar una silla")
+    assert res.description == "Silla"
+    assert len(res.line_items) == 1
+    assert mock_client.post.call_count == 2
+

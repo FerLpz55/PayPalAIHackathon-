@@ -15,6 +15,7 @@ from typing import Protocol
 
 from tallerclaro.application.dtos import (
     CapturedPayment,
+    MarketPriceReference,
     PaymentIntent,
     QuoteProposalResult,
 )
@@ -242,4 +243,16 @@ class PaymentProcessor(Protocol):
         ...
 
     def capture_order(self, paypal_order_id: str) -> CapturedPayment:
+        ...
+
+
+class PriceLookupService(Protocol):
+    """Consulta referencias de precios reales de materiales e insumos en USD.
+
+    Degrada con elegancia devolviendo lista vacía si el servicio externo no está
+    configurado o presenta fallos de red; nunca lanza excepciones que interrumpan
+    la cotización.
+    """
+
+    def lookup_prices(self, request: str) -> list[MarketPriceReference]:
         ...

@@ -8,7 +8,7 @@ import OrdersTable from '../components/orders/OrdersTable.jsx'
 import { isConnectedMode, isDemoMode, isConfigurationMissing } from '../services/apiClient.js'
 import { STATUS_LABELS } from '../utils/constants.js'
 
-function OrdersPage({ orders, loading, go, error }) {
+function OrdersPage({ orders, loading, go, mutate, error }) {
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState('all')
   const [sort, setSort] = useState('newest')
@@ -50,7 +50,7 @@ function OrdersPage({ orders, loading, go, error }) {
         </label>
         <span className="results-count" role="status" aria-live="polite" aria-atomic="true">{filtered.length} orders</span>
       </div>
-      <div className="panel table-panel">{loading ? <LoadingState /> : isConfigurationMissing ? <p role="status" className="status-help">Backend connection not configured. No sample orders are being shown. Set VITE_API_BASE_URL, or explicitly select VITE_APP_MODE=demo.</p> : isConnectedMode && error ? <p role="alert" className="inline-error">The backend connection failed. No demo orders are being shown as real orders.</p> : <OrdersTable orders={filtered} go={go} emptyTitle={query || filter !== 'all' ? 'No matching orders' : 'No orders yet'} emptyText={query || filter !== 'all' ? 'Try changing your search or status filter.' : isConnectedMode ? 'The backend returned no orders.' : 'Orders created in the local demo will appear here.'} emptyAction={isDemoMode && !query && filter === 'all'} />}</div>
+      <div className="panel table-panel">{loading ? <LoadingState /> : isConfigurationMissing ? <p role="status" className="status-help">Backend connection not configured. No sample orders are being shown. Set VITE_API_BASE_URL, or explicitly select VITE_APP_MODE=demo.</p> : isConnectedMode && error ? <p role="alert" className="inline-error">The backend connection failed. No demo orders are being shown as real orders.</p> : <OrdersTable orders={filtered} go={go} mutate={mutate} emptyTitle={query || filter !== 'all' ? 'No matching orders' : 'No orders yet'} emptyText={query || filter !== 'all' ? 'Try changing your search or status filter.' : isConnectedMode ? 'The backend returned no orders.' : 'Orders created in the local demo will appear here.'} emptyAction={isDemoMode && !query && filter === 'all'} />}</div>
     </div>
   )
 }

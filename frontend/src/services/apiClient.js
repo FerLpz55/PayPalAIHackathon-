@@ -46,10 +46,10 @@ export const apiClient = {
     }
     const data = await apiRequest('/api/orders', { isWorkshopRoute: true })
     const list = Array.isArray(data?.orders) ? data.orders : (Array.isArray(data) ? data : [])
-    return list.map(adaptOrderResponse)
+    return list.map(adaptOrderResponse).filter((order) => order && order.status !== 'deleted')
   },
 
-  async getQuote(quoteId) {
+  async getQuote(quoteId, options = {}) {
     if (isDemoMode) {
       return mockApi.getQuote(quoteId)
     }
@@ -58,7 +58,10 @@ export const apiClient = {
     if (!targetId) return null
 
     try {
-      const data = await apiRequest(`/api/quotes/${targetId}`)
+      const queryParam = options?.query ? `?q=${encodeURIComponent(options.query)}` : ''
+      const data = await apiRequest(`/api/quotes/${targetId}${queryParam}`, {
+        customerToken: options?.customerToken || session.customerToken,
+      })
       return adaptQuoteResponse(data)
     } catch (err) {
       if (err.status === 404) return null
@@ -317,6 +320,24 @@ export const apiClient = {
 
   async updateStatus(orderId, status) {
     return this.updateOrderStatus(orderId, status)
+  },
+
+  async cancelOrder(orderId) {
+    return this.updateOrderStatus(orderId, 'cancelled')
+  },
+
+  async deleteOrder(orderId) {
+    if (isDemoMode) {
+      return mockApi.deleteOrder(orderId)
+    }
+
+    const targetId = parseNumericId(orderId)
+    const data = await apiRequest(`/api/orders/${targetId}`, {
+      method: 'PATCH',
+      isWorkshopRoute: true,
+      body: JSON.stringify({ status: 'deleted' }),
+    })
+    return adaptOrderResponse(data)
   },
 
   async simulatePayment(orderIdOrKind, amount, type) {

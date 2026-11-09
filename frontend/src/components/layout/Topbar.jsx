@@ -11,10 +11,10 @@ function Topbar({ route, onMenu, menuOpen, menuButtonRef }) {
         <Icon name={menuOpen ? 'close' : 'menu'} />
       </button>
       <div>
-        <div className="breadcrumb">{section} <span>/</span> TallerClaro</div>
+        <div className="breadcrumb">{section} <span aria-hidden="true">/</span> TallerClaro</div>
         <div className="topbar-title">{heading}</div>
       </div>
-      <div className="user-menu"><span>{isDemoMode ? 'Alex' : 'Workshop'}</span><span className="user-avatar">{isDemoMode ? 'A' : 'W'}</span></div>
+      <div className="user-menu"><span>{isDemoMode ? 'Alex' : 'Workshop'}</span><span className="user-avatar" aria-hidden="true">{isDemoMode ? 'A' : 'W'}</span></div>
     </header>
   )
 }
