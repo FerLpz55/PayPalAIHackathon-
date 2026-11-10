@@ -94,6 +94,24 @@ class FakeQuoteRepository:
     def get_by_id(self, quote_id: QuoteId) -> Quote | None:
         return self._store.get(quote_id)
 
+    def _filtered(self, carpenter_id, statuses) -> list[Quote]:
+        items = [
+            q
+            for q in self._store.values()
+            if q.carpenter_id == carpenter_id and (not statuses or q.status in statuses)
+        ]
+        items.sort(
+            key=lambda q: (q.created_at or datetime.min.replace(tzinfo=timezone.utc), q.id),
+            reverse=True,
+        )
+        return items
+
+    def list_by_carpenter(self, carpenter_id, statuses, limit: int, offset: int) -> list[Quote]:
+        return self._filtered(carpenter_id, statuses)[offset : offset + limit]
+
+    def count_by_carpenter(self, carpenter_id, statuses) -> int:
+        return len(self._filtered(carpenter_id, statuses))
+
 
 class FakeCaptureReservationRepository:
     """Reserva de captura en memoria con la misma semántica que PostgreSQL."""

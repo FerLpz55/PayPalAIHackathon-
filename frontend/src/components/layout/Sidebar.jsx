@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 import Icon from '../ui/Icon.jsx'
-import { NAV_ITEMS } from '../../utils/constants.js'
+import { NAV_ITEMS, WORKSHOP_PROFILE } from '../../utils/constants.js'
 import { isDemoMode } from '../../services/apiClient.js'
 
 function Sidebar({ active, open, onClose, go, triggerRef }) {
@@ -67,8 +67,8 @@ function Sidebar({ active, open, onClose, go, triggerRef }) {
         <div className="workshop-block">
           <div className="nav-caption">Your workshop</div>
           <div className="workshop">
-            <span className="workshop-avatar" aria-hidden="true">T</span>
-            <span><strong>TallerClaro Studio</strong><small>Custom Woodworking</small></span>
+            <span className="workshop-avatar" aria-hidden="true">{WORKSHOP_PROFILE.name.charAt(0)}</span>
+            <span><strong>{WORKSHOP_PROFILE.name}</strong><small>{WORKSHOP_PROFILE.type}</small></span>
           </div>
         </div>
         <div className="sidebar-bottom">

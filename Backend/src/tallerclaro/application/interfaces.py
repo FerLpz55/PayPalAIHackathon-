@@ -72,6 +72,21 @@ class QuoteRepository(Protocol):
         """Devuelve ``None`` si la cotización no existe."""
         ...
 
+    def list_by_carpenter(
+        self,
+        carpenter_id: CarpenterId,
+        statuses: tuple[str, ...] | None,
+        limit: int,
+        offset: int,
+    ) -> list[Quote]:
+        """Cotizaciones del taller (más recientes primero), filtradas por estado si se indica."""
+        ...
+
+    def count_by_carpenter(
+        self, carpenter_id: CarpenterId, statuses: tuple[str, ...] | None
+    ) -> int:
+        ...
+
 
 class OrderRepository(Protocol):
     """Persistencia de pedidos (sin la reserva de captura)."""

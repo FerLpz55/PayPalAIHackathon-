@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import uuid
-
 from tallerclaro.application.dtos import (
     AccessPrincipal,
     CreatedQuoteResult,
@@ -28,6 +26,8 @@ from tallerclaro.domain.entities import (
     QUOTE_STATUS_DRAFT,
     QUOTE_STATUS_NEEDS_INFORMATION,
     QUOTE_STATUS_PENDING_REVIEW,
+    QUOTE_STATUSES,
+    CarpenterId,
     Customer,
     CustomerId,
     Money,
@@ -117,6 +117,35 @@ class GetQuote:
                 raise NotFoundError("Quote", quote_id)
             _authorize_quote_access(quote, principal)
             return quote
+
+
+class ListQuotes:
+    """Lista las solicitudes/cotizaciones de un taller con el nombre del cliente."""
+
+    def __init__(self, uow: UnitOfWork) -> None:
+        self._uow = uow
+
+    def execute(
+        self,
+        carpenter_id: CarpenterId,
+        statuses: tuple[str, ...] | None = None,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> tuple[list[tuple[Quote, str | None, str | None]], int]:
+        if statuses:
+            unknown = sorted(set(statuses) - QUOTE_STATUSES)
+            if unknown:
+                raise ValidationDomainError(f"Unknown quote status: {', '.join(unknown)}")
+        with self._uow:
+            quotes = self._uow.quotes.list_by_carpenter(carpenter_id, statuses, limit, offset)
+            total = self._uow.quotes.count_by_carpenter(carpenter_id, statuses)
+            enriched: list[tuple[Quote, str | None, str | None]] = []
+            for quote in quotes:
+                customer = self._uow.customers.get_by_id(quote.customer_id)
+                enriched.append(
+                    (quote, customer.name if customer else None, customer.email if customer else None)
+                )
+            return enriched, total
 
 
 class GenerateQuoteProposal:
@@ -283,7 +312,7 @@ class ApproveQuote:
             id=None,
             quote_id=quote.id,
             carpenter_id=quote.carpenter_id,
-            code=f"TC-{uuid.uuid4().hex}",
+            code=Order.code_for_quote(quote.id),
             total=total,
             deposit_amount=deposit,
             currency="USD",

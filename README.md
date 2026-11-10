@@ -13,7 +13,7 @@ This repository contains a React frontend, a FastAPI backend, and PostgreSQL sch
 - Quote creation and generation error states are explicit in the frontend. Generation remains workshop-protected and requires an authorized workshop session; no real AI proposal or full customer journey was verified.
 - The frontend has no server-backed receipt upload or expense ledger. Demo receipt selection stores only a filename.
 - No PayPal webhooks, refunds, backend cancellation route, or background payment reconciliation were found.
-- Local verification: backend fake-backed suite 314 passed; frontend ESLint and production build passed. Vitest could not run because it is absent from local node_modules. No deployed-service request was made.
+- Local verification: backend fake-backed suite 327 passed; frontend Vitest (39), ESLint and production build passed. No deployed-service request was made.
 
 ## Features in source
 
@@ -202,6 +202,7 @@ All routes use the /api prefix. Route source is in Backend/src/tallerclaro/prese
 | Method | Endpoint | Purpose and access |
 |---|---|---|
 | GET | /api/health | HTTP liveness; does not test PostgreSQL |
+| GET | /api/quotes | Workshop inbox (filter `status=draft,needs_information,...`); workshop Basic Auth |
 | POST | /api/quotes | Create customer and draft quote; returns a customer token |
 | GET | /api/quotes/{id} | Read quote; customer token or workshop Basic Auth |
 | POST | /api/quotes/{id}/generate | Generate/refine quote; workshop Basic Auth |
@@ -264,7 +265,7 @@ The backend pytest configuration is in Backend/pyproject.toml. After installing 
 
 Backend tests use fakes and do not establish live PostgreSQL, AI, or PayPal behavior. The SQL acceptance file is database/tests/schema_test.sql; run it only against an isolated test database because it executes SQL, even though the script rolls back its transaction.
 
-No browser E2E script or CI workflow is defined. On November 9, 2026, the fake-backed backend suite passed **314 tests** using a workspace-local pytest temp directory; frontend ESLint and Vite build passed when invoked directly from installed binaries. Vitest did not run because its binary is absent, and `pnpm run` could not acquire the global store lock in the restricted environment. These checks do not verify staging API/DB, AI, Channel3, PayPal Sandbox, or persistence. Reproducible outcomes are recorded in INFORME_PRUEBAS_E2E.md.
+No browser E2E script or CI workflow is defined. On November 9, 2026, the fake-backed backend suite passed **314 tests** using a workspace-local pytest temp directory; frontend ESLint and Vite build passed when invoked directly from installed binaries. Vitest did not run because its binary is absent, and `pnpm run` could not acquire the global store lock in the restricted environment. These checks do not verify staging API/DB, AI, Channel3, PayPal Sandbox, or persistence. Reproducible outcomes are recorded in docs/informes/INFORME_PRUEBAS_E2E.md.
 
 ## Deployment
 
@@ -277,11 +278,11 @@ No browser E2E script or CI workflow is defined. On November 9, 2026, the fake-b
 - [Frontend guide](frontend/README.md)
 - [Backend guide](Backend/BACKENDREADME.md)
 - [Database guide](database/README.md)
-- [MVP integration plan](PLAN_MAESTRO_INTEGRACION_MVP.md)
-- [Frontend/backend matrix](MATRIZ_FUNCIONAL_FRONTEND_BACKEND.md)
-- [Issue acceptance matrix](MATRIZ_ISSUES_Y_CRITERIOS_ACEPTACION.md)
-- [E2E verification report](INFORME_PRUEBAS_E2E.md)
-- [Infrastructure blockers](PENDIENTES_INFRAESTRUCTURA_Y_CREDENCIALES.md)
+- [MVP integration plan](docs/informes/PLAN_MAESTRO_INTEGRACION_MVP.md)
+- [Frontend/backend matrix](docs/informes/MATRIZ_FUNCIONAL_FRONTEND_BACKEND.md)
+- [Issue acceptance matrix](docs/informes/MATRIZ_ISSUES_Y_CRITERIOS_ACEPTACION.md)
+- [E2E verification report](docs/informes/INFORME_PRUEBAS_E2E.md)
+- [Infrastructure blockers](docs/informes/PENDIENTES_INFRAESTRUCTURA_Y_CREDENCIALES.md)
 - [Full MVP flow tracking issue #19](https://github.com/FerLpz55/PayPalAIHackathon-/issues/19)
 - [OWASP review tracking issue #23](https://github.com/FerLpz55/PayPalAIHackathon-/issues/23)
 - [Repository instructions](AGENTS.md)

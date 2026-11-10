@@ -8,6 +8,7 @@ import DemoNotice from '../../components/ui/DemoNotice.jsx'
 import { isConnectedMode, isDemoMode } from '../../services/apiClient.js'
 import { getRemainingBalance } from '../../services/adapters.js'
 import { formatMoney } from '../../utils/format.js'
+import { STATUS_LABELS } from '../../utils/constants.js'
 
 function OrderTrackingPage({ quote, orders, loading, go, refresh }) {
   if (loading) return <div className="customer-page"><LoadingState /></div>
@@ -34,7 +35,7 @@ function OrderTrackingPage({ quote, orders, loading, go, refresh }) {
         <section className="panel detail-panel">
           <h2>Production & Order Status</h2>
           <DataLine label="Order code" value={order.id} />
-          <DataLine label="Current status" value={order.status} />
+          <DataLine label="Current status" value={STATUS_LABELS[order.status] || order.status} />
           <DataLine label="Contracted total" value={formatMoney(order.amount)} />
           <DataLine label={isDemoMode ? 'Sample paid amount' : 'Verified paid'} value={formatMoney(order.paid)} />
           <DataLine label="Remaining balance" value={formatMoney(remainingBalance)} />

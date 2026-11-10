@@ -57,6 +57,18 @@ class QuoteResponse(BaseModel):
     updated_at: str | None = None
 
 
+class QuoteListItemResponse(QuoteResponse):
+    customer_name: str | None = None
+    customer_email: str | None = None
+
+
+class QuoteListResponse(BaseModel):
+    quotes: list[QuoteListItemResponse]
+    total: int
+    limit: int
+    offset: int
+
+
 class GenerateQuoteRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 

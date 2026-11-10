@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 from tests.fakes import FakeDependenciesContainer
 
 
-def _seed_carpenter(deps: FakeDependenciesContainerContainer):
+def _seed_carpenter(deps: FakeDependenciesContainer):
     from tallerclaro.domain.entities import Carpenter, CarpenterId
     with deps.uow:
         deps.uow.carpenters.seed(

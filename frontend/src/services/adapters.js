@@ -26,6 +26,30 @@ export function parseNumericId(id) {
   return digits ? parseInt(digits, 10) : id
 }
 
+/** Código corto compartido por cotización y pedido: TC-(1000 + id de cotización). */
+export function shortCodeForQuote(quoteId) {
+  const numeric = Number(quoteId)
+  return Number.isInteger(numeric) && numeric > 0 ? `TC-${1000 + numeric}` : null
+}
+
+function displayOrderCode(order) {
+  const code = typeof order.code === 'string' ? order.code.trim() : ''
+  // Pedidos antiguos guardaron un UUID (TC-<32 hex>); se muestran con el código corto.
+  if (code && !/^TC-[0-9a-f]{32}$/i.test(code)) return code
+  return shortCodeForQuote(parseNumericId(order.quote_id))
+    || (order.id ? (String(order.id).startsWith('TC-') ? String(order.id) : `TC-${order.id}`) : 'TC-Order')
+}
+
+/** Medidas detectadas como texto legible; vacío si no se detectó ninguna. */
+export function formatMeasurements(measurements) {
+  if (!measurements) return ''
+  return [
+    measurements.width && `${measurements.width} wide`,
+    measurements.height && `${measurements.height} tall`,
+    measurements.depth && `${measurements.depth} deep`,
+  ].filter(Boolean).join(' · ')
+}
+
 export function extractMeasurements(text) {
   if (!text) return { width: null, height: null, depth: null, unit: 'm' }
   const widthMatch = text.match(/(\d+(?:[.,]\d+)?\s*(?:m|cm|mm))\s*(?:(?:de\s*)?anch[oa]|wide)\b/i)
@@ -76,7 +100,7 @@ export function adaptQuoteResponse(data, fallbackCustomer = {}) {
     : []
 
   return {
-    id: data.code || (data.id ? (String(data.id).startsWith('TC-') ? String(data.id) : `TC-${data.id}`) : 'TC-New'),
+    id: data.code || shortCodeForQuote(parseNumericId(data.id)) || (data.id ? String(data.id) : 'TC-New'),
     numericId: parseNumericId(data.id),
     customer: customerName,
     email: customerEmail,
@@ -107,7 +131,7 @@ export function adaptOrderResponse(order) {
   const deposit = numberOrNull(depositValue)
   const balance = numberOrNull(balanceValue)
   const numericOrderId = parseNumericId(order.id)
-  const resolvedId = order.code || (order.id ? (String(order.id).startsWith('TC-') ? String(order.id) : `TC-${order.id}`) : 'TC-Order')
+  const resolvedId = displayOrderCode(order)
   if (numericOrderId != null && resolvedId) {
     codeToNumericId.set(String(resolvedId), numericOrderId)
   }

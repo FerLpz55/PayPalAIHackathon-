@@ -227,14 +227,15 @@ def test_create_payment_and_capture():
 
     CapturePayment(uow, processor).execute(deposit_intent.payment_id)
     updated = GetOrder(uow).execute(order.id)
-    assert updated.status == ORDER_STATUS_PENDING
+    assert updated.status == ORDER_STATUS_IN_PROGRESS
 
     balance_intent = CreateOrderPayment(uow, processor).execute(order.id, "balance")
     assert balance_intent.amount == Decimal("100.00")
     CapturePayment(uow, processor).execute(balance_intent.payment_id)
 
     updated = GetOrder(uow).execute(order.id)
-    assert updated.status == ORDER_STATUS_PAID
+    assert updated.status == ORDER_STATUS_IN_PROGRESS
+    assert updated.remaining_balance.amount == Decimal("0")
 
 
 def test_capture_duplicate_returns_existing():

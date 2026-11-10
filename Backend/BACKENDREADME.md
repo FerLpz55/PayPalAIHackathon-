@@ -6,7 +6,7 @@ FastAPI backend for carpentry quotes, workshop orders, PayPal payments, and work
 
 Source includes domain rules, use cases, PostgreSQL repositories, workshop authentication, customer tokens, OpenAI-compatible AI services, Channel3 price search, and a server-side PayPal REST integration.
 
-Local verification on November 9, 2026 ran the fake-backed pytest suite: **314 passed**. This does not establish PostgreSQL persistence or external availability. PostgreSQL, AI, Channel3, PayPal Sandbox, and a deployed API were not contacted; actual SQL behavior, PayPal idempotency, and concurrent database captures remain unverified.
+Local verification on November 9, 2026 ran the fake-backed pytest suite: **327 passed**. This does not establish PostgreSQL persistence or external availability. PostgreSQL, AI, Channel3, PayPal Sandbox, and a deployed API were not contacted; actual SQL behavior, PayPal idempotency, and concurrent database captures remain unverified.
 
 Important integration gaps:
 
@@ -130,6 +130,7 @@ All routes use the /api prefix.
 | Method | Endpoint | Access | Purpose |
 |---|---|---|---|
 | GET | /api/health | Public | Application liveness; not DB readiness |
+| GET | /api/quotes | Workshop Basic | Workshop inbox; optional `status` filter (repeatable or comma-separated), `limit`, `offset` |
 | POST | /api/quotes | Public | Create customer and draft quote; returns customer_token |
 | GET | /api/quotes/{id} | Customer token or workshop Basic | Read quote; optional q query triggers price lookup |
 | POST | /api/quotes/{id}/generate | Workshop Basic | AI quote generation/refinement |
@@ -168,7 +169,8 @@ The parser/use case validate completed status, order and capture IDs, currency, 
 
 - Currency is USD; monetary values use Decimal and are rounded to two decimals.
 - AI proposes line items; server validates and calculates the total.
-- Quote approval creates at most one order and a 50% deposit.
+- Quote approval creates at most one order (code `TC-<1000 + quote id>`) and a 50% deposit.
+- A confirmed deposit moves a `pending` order to `in_progress`; a full payment on a `pending` order marks it `paid`.
 - A payment counts only after backend verification with PayPal.
 - Delivery requires fully verified payment.
 - Customer token values are stored hashed in PostgreSQL; the plaintext token is returned by quote creation.

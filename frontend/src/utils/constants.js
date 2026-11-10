@@ -1,3 +1,9 @@
+// Perfil único del taller mostrado en el portal del cliente y en el panel del taller.
+export const WORKSHOP_PROFILE = {
+  name: (import.meta.env?.VITE_WORKSHOP_NAME || 'Madera Norte').trim(),
+  type: (import.meta.env?.VITE_WORKSHOP_TYPE || 'Carpentry studio').trim(),
+}
+
 export const NAV_ITEMS = [
   { id: 'dashboard', label: 'Dashboard', icon: 'grid' },
   { id: 'orders', label: 'Orders', icon: 'clipboard' },

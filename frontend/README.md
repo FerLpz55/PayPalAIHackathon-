@@ -127,7 +127,7 @@ The backend is authoritative for pricing and payment verification. The frontend 
 
 ## Testing
 
-Frontend test files are under src/**/__tests__ and are intended to run with `pnpm run test`. In the November 9, 2026 local verification, Node 24.13.1 and pnpm 12.16.1 were available; pnpm commands could not acquire the global store lock in the restricted environment, and Vitest was absent from `node_modules`. Direct local ESLint and Vite build commands passed. There is no browser E2E script in package.json; the manual Chromium/stub evidence is documented in the phase reports and `INFORME_PRUEBAS_E2E.md`.
+Frontend test files are under src/**/__tests__ and are intended to run with `pnpm run test`. In the November 9, 2026 local verification, Node 24.13.1 and pnpm 12.16.1 were available; pnpm commands could not acquire the global store lock in the restricted environment, and Vitest was absent from `node_modules`. Direct local ESLint and Vite build commands passed. There is no browser E2E script in package.json; the manual Chromium/stub evidence is documented in the phase reports and `docs/informes/INFORME_PRUEBAS_E2E.md`.
 
 For REAL integration acceptance, separately verify the configured backend origin, CORS preflight, customer/workshop authorization, quote generation, order detail, PayPal Sandbox capture, and recovery behavior. No live service checks are implied by the local frontend tests.
 

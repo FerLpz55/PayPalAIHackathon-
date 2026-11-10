@@ -23,6 +23,15 @@ QUOTE_STATUS_PENDING_REVIEW = "pending_review"
 QUOTE_STATUS_APPROVED = "approved"
 QUOTE_STATUS_REJECTED = "rejected"
 QuoteStatus = str
+QUOTE_STATUSES: frozenset[QuoteStatus] = frozenset(
+    {
+        QUOTE_STATUS_DRAFT,
+        QUOTE_STATUS_NEEDS_INFORMATION,
+        QUOTE_STATUS_PENDING_REVIEW,
+        QUOTE_STATUS_APPROVED,
+        QUOTE_STATUS_REJECTED,
+    }
+)
 
 QUOTE_EDITABLE_STATUSES: frozenset[QuoteStatus] = frozenset(
     {
@@ -223,6 +232,24 @@ class Order:
 
     def is_fully_paid(self, payments: list[Payment]) -> bool:
         return self.calculate_paid_amount(payments).amount >= self.total.amount
+
+    def advance_after_payment(self, payments: list[Payment]) -> None:
+        """Avanza el estado de un pedido pendiente tras acreditar un pago.
+
+        Pago total ⇒ ``paid``; anticipo completado ⇒ ``in_progress`` (el taller
+        compra materiales y empieza). Otros estados no cambian.
+        """
+        if self.status != ORDER_STATUS_PENDING:
+            return
+        if self.is_fully_paid(payments):
+            self.update_status(ORDER_STATUS_PAID)
+        elif self._completed_deposit_exists(payments):
+            self.update_status(ORDER_STATUS_IN_PROGRESS)
+
+    @staticmethod
+    def code_for_quote(quote_id: int) -> str:
+        """Código corto y legible del pedido, único porque hay un pedido por cotización."""
+        return f"TC-{1000 + int(quote_id)}"
 
     def _completed_deposit_exists(self, payments: list[Payment]) -> bool:
         return any(

@@ -17,6 +17,7 @@ import {
   getSession,
   saveSession,
   clearSession,
+  getWorkshopCredentials,
   readPendingPayment,
   savePendingPayment,
   getPendingPayment,
@@ -42,6 +43,8 @@ export {
 }
 
 const quoteGenerationErrors = new Map()
+
+export const QUOTE_INBOX_STATUSES = ['draft', 'needs_information', 'pending_review']
 
 export const apiClient = {
   async listOrders() {
@@ -70,6 +73,38 @@ export const apiClient = {
       limit: Number.isInteger(data?.limit) ? data.limit : limit,
       offset: Number.isInteger(data?.offset) ? data.offset : offset,
     }
+  },
+
+  /** Bandeja del taller: GET /api/quotes (Basic Auth del taller). */
+  async listQuotes({ statuses = QUOTE_INBOX_STATUSES, limit = 50, offset = 0 } = {}) {
+    if (isDemoMode) {
+      const quote = await mockApi.getQuote()
+      const list = quote ? [quote] : []
+      return { quotes: list, total: list.length, limit, offset }
+    }
+    const params = new URLSearchParams({ limit: String(limit), offset: String(offset) })
+    if (statuses?.length) params.set('status', statuses.join(','))
+    const data = await apiRequest(`/api/quotes?${params}`, { isWorkshopRoute: true })
+    const list = Array.isArray(data?.quotes) ? data.quotes : []
+    const quotes = list.map((item) => adaptQuoteResponse(
+      { ...item, customer_token: null },
+      { name: item.customer_name || 'Customer', email: item.customer_email || '' },
+    ))
+    return { quotes, total: Number(data?.total ?? quotes.length), limit, offset }
+  },
+
+  /** El taller genera (o regenera con datos extra) la cotización con IA. */
+  async generateQuote(quoteId, additionalInfo = '') {
+    if (isDemoMode) throw new Error('AI quote generation is unavailable in DEMO mode.')
+    const targetId = parseNumericId(quoteId)
+    const note = String(additionalInfo || '').trim()
+    await apiRequest(`/api/quotes/${targetId}/generate`, {
+      method: 'POST',
+      isWorkshopRoute: true,
+      body: note ? JSON.stringify({ additional_info: note }) : undefined,
+    })
+    quoteGenerationErrors.delete(String(targetId))
+    return this.getQuote(targetId, { workshop: true })
   },
 
   async getQuote(quoteId, options = {}) {
@@ -131,14 +166,18 @@ export const apiClient = {
       customerEmail,
     })
 
+    // La generación con IA es una acción del taller. Si este navegador no tiene la
+    // sesión del taller, la solicitud queda en la bandeja del taller (GET /api/quotes).
     let generationError = ''
-    try {
-      await apiRequest(`/api/quotes/${quoteId}/generate`, {
-        method: 'POST',
-        isWorkshopRoute: true,
-      })
-    } catch (error) {
-      generationError = error?.message || 'The workshop could not generate this estimate.'
+    if (getWorkshopCredentials()) {
+      try {
+        await apiRequest(`/api/quotes/${quoteId}/generate`, {
+          method: 'POST',
+          isWorkshopRoute: true,
+        })
+      } catch (error) {
+        generationError = error?.message || 'The workshop could not generate this estimate.'
+      }
     }
 
     let fullQuote

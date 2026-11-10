@@ -7,6 +7,8 @@ import EmptyState from '../../components/ui/EmptyState.jsx'
 import LoadingState from '../../components/ui/LoadingState.jsx'
 import PageHeading from '../../components/ui/PageHeading.jsx'
 import { apiClient, isConfigurationMissing, isDemoMode } from '../../services/apiClient.js'
+import { formatMeasurements } from '../../services/adapters.js'
+import { WORKSHOP_PROFILE } from '../../utils/constants.js'
 import { isSafeExternalUrl } from '../../utils/security.js'
 import { formatMoney } from '../../utils/format.js'
 
@@ -53,7 +55,7 @@ function QuoteReviewPage({ quote, orders, loading, go, mutate, refresh }) {
     ? quote.missing_info.filter((item) => typeof item === 'string' && item.trim())
     : []
   const statusLabel = {
-    draft: 'Draft · not validated',
+    draft: 'Waiting for the workshop',
     needs_information: 'Information needed',
     pending_review: 'Ready for review',
     approved: 'Approved',
@@ -129,13 +131,15 @@ function QuoteReviewPage({ quote, orders, loading, go, mutate, refresh }) {
     setBusy(false)
   }
 
+  const goToTracking = () => go('customer/tracking')
+
   const retryGeneration = async () => {
     setBusy(true)
     await mutate(() => apiClient.retryQuoteGeneration(quote), 'The workshop returned an updated quote.')
     setBusy(false)
   }
 
-  const measurementsText = `${quote.measurements?.width ?? '-'} wide · ${quote.measurements?.height ?? '-'} tall · ${quote.measurements?.depth ?? '-'} deep`
+  const measurementsText = formatMeasurements(quote.measurements)
 
   return (
     <div className="customer-page">
@@ -147,7 +151,7 @@ function QuoteReviewPage({ quote, orders, loading, go, mutate, refresh }) {
           <div className="quote-title-row">
             <div>
               <h2>{quote.project}</h2>
-              <p>{measurementsText}</p>
+              {measurementsText && <p>{measurementsText}</p>}
             </div>
             <span className={`status ${approved ? 'status-paid' : 'status-pending'}`}>
               {statusLabel}
@@ -317,7 +321,7 @@ function QuoteReviewPage({ quote, orders, loading, go, mutate, refresh }) {
           )}
 
           {/* Formulario de refinamiento / información adicional */}
-          <div style={{ marginTop: '20px', padding: '16px', background: '#fff', borderRadius: '8px', border: '1px solid var(--line)' }}>
+          {!(isDraft && !isDemoMode) && <div style={{ marginTop: '20px', padding: '16px', background: '#fff', borderRadius: '8px', border: '1px solid var(--line)' }}>
             <h3 style={{ margin: '0 0 6px', fontSize: 14, fontWeight: 600 }}>Customize or Refine Estimate</h3>
             <p style={{ margin: '0 0 10px', fontSize: 12, color: 'var(--muted)' }}>
               {isDemoMode ? 'Estimate refinement is unavailable in this local demo.' : 'Need different wood, extra shelves, or custom hardware? Add details for the workshop to review:'}
@@ -337,7 +341,7 @@ function QuoteReviewPage({ quote, orders, loading, go, mutate, refresh }) {
                 {busy ? 'Submitting…' : isDemoMode ? 'Refinement unavailable in DEMO' : 'Send additional details'}
               </Button>
             </form>
-          </div>
+          </div>}
         </section>
 
         {/* Panel lateral de pago / aprobación */}
@@ -354,8 +358,11 @@ function QuoteReviewPage({ quote, orders, loading, go, mutate, refresh }) {
             <small>Due upon workshop completion before delivery.</small>
           </div>
 
-          {isDraft && !isDemoMode && (
-            <p className="status-help" role="status">This request is still a draft. It cannot be approved until the workshop generates and validates the estimate.</p>
+          {isDraft && !isDemoMode && !quote.generationError && (
+            <div className="status-help" role="status" style={{ display: 'grid', gap: 10 }}>
+              <p style={{ margin: 0 }}>Request received. {WORKSHOP_PROFILE.name} is preparing your quote with AI; it will appear here as soon as the workshop sends it.</p>
+              <Button variant="secondary" disabled={busy} onClick={() => void refresh?.()}>Check for updates</Button>
+            </div>
           )}
 
           {quote.generationError && (
@@ -396,7 +403,7 @@ function QuoteReviewPage({ quote, orders, loading, go, mutate, refresh }) {
           )}
 
           {approved && !isDemoMode && order?.orderId && (
-            <PayPalCheckout orderId={order.orderId} type="deposit" refresh={refresh} />
+            <PayPalCheckout orderId={order.orderId} type="deposit" refresh={refresh} onCompleted={goToTracking} />
           )}
 
           {approved && isDemoMode && (
