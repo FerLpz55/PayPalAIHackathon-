@@ -14,7 +14,6 @@ class OrderResponse(BaseModel):
     balance_amount: float
     currency: str
     status: str
-    financial_status: str | None = None
     estimated_delivery_date: date | None = None
     customer_name: str | None = None
     customer_email: str | None = None

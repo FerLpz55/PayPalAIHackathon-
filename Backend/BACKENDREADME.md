@@ -4,17 +4,17 @@ FastAPI backend for carpentry quotes, workshop orders, PayPal payments, and work
 
 ## Status and verification boundary
 
-Source includes domain rules, layered application use cases, direct PostgreSQL repositories, revocable workshop cookie sessions with CSRF, customer tokens, OpenAI-compatible AI services, Channel3 price search, and a server-side PayPal REST integration with idempotency, webhooks, and reconciliation.
+Source includes domain rules, use cases, PostgreSQL repositories, workshop authentication, customer tokens, OpenAI-compatible AI services, Channel3 price search, and a server-side PayPal REST integration.
 
-Local verification on November 11, 2026 ran the fake-backed pytest suite: **481 passed**. This does not establish PostgreSQL persistence or external availability. PostgreSQL, AI, Channel3, PayPal Sandbox, and a deployed API were not contacted; actual SQL behavior, PayPal idempotency, and concurrent database captures remain unverified.
+Local verification on November 9, 2026 ran the fake-backed pytest suite: **327 passed**. This does not establish PostgreSQL persistence or external availability. PostgreSQL, AI, Channel3, PayPal Sandbox, and a deployed API were not contacted; actual SQL behavior, PayPal idempotency, and concurrent database captures remain unverified.
 
 Important integration gaps:
 
 - Backend startup requires a reachable PostgreSQL database and valid workshop bcrypt hash.
-- Workshop authentication uses revocable `HttpOnly` cookies plus CSRF; Basic compatibility is disabled by default and the frontend does not send it.
-- Customer links can be reissued by the workshop, but automatic email delivery is not included.
-- PayPal webhooks, explicit sync/cancel, and background reconciliation exist; refunds, receipt upload, and an expense ledger are not implemented.
-- Release mode rejects wildcard or insecure CORS origins.
+- Workshop authentication uses HTTP Basic. The frontend now has a sign-in flow that keeps credentials in page memory and validates them through the existing read-only orders endpoint. It was checked only against a local HTTP stub, not FastAPI; quote generation remains workshop-protected when initiated from the customer flow.
+- Customer tokens are returned from quote creation, but no email delivery or cross-device recovery path is included.
+- No webhook, refund, payment-cancel endpoint, background reconciliation, receipt upload, or expense ledger was found. Workshop PATCH can set order status; a manually assigned paid status must not be treated as proof of a PayPal capture.
+- The CORS setting defaults to wildcard in source; set explicit frontend origins for deployments.
 - The current API health route is liveness only; it does not check PostgreSQL.
 
 ## Architecture
@@ -51,7 +51,7 @@ AI and PayPal calls are designed to happen outside SQL transactions. Payment cap
 - A database schema compatible with the checked-in repositories.
 - Optional provider credentials for AI, Channel3 price search, and PayPal.
 
-The project supports Python 3.11 or newer. The local `.python-version` selects Python 3.12 for Vercel's FastAPI runtime; the legacy Render definition still selects Python 3.11.10. Dependency ranges live in `pyproject.toml`, and `requirements.txt` installs the project itself.
+The Render service configuration selects Python 3.11.10. The local .python-version file also specifies 3.11.10. The project dependency ranges are in pyproject.toml; requirements.txt contains an editable project install.
 
 ## Install and start locally
 
@@ -78,7 +78,7 @@ Prepare Backend/.env from Backend/.env.example and configure a real PostgreSQL c
 
 The API is served locally on 127.0.0.1:8000 by FastAPI CLI. Interactive API documentation is available at /docs. The backend fails startup when the workshop password hash is missing/invalid or the initial PostgreSQL connection fails.
 
-To create a bcrypt hash, use an approved local password-management process and place only the hash in TALLERCLARO_WORKSHOP_PASSWORD_HASH. The browser sends credentials only to the login endpoint and never stores the workshop password.
+To create a bcrypt hash, use an approved local password-management process and place only the hash in TALLERCLARO_WORKSHOP_PASSWORD_HASH. Frontend Basic credentials are entered by a workshop user and held only in browser memory; they are not a backend default or a substitute for a properly configured hash.
 
 ## Configuration
 
@@ -113,7 +113,7 @@ The settings are defined in src/tallerclaro/bootstrap/settings.py; the template 
 | TALLERCLARO_PAYPAL_BASE_URL | Optional | Override inferred base URL. |
 | TALLERCLARO_PAYPAL_RETURN_URL / TALLERCLARO_PAYPAL_CANCEL_URL | Required when PayPal is enabled | HTTPS frontend return/cancel routes. |
 
-The legacy Render config declares `PYTHON_VERSION` and expects the host to supply `PORT`. Vercel imports `app/main.py` from the `Backend` project root. Do not expose AI, database, PayPal, or token secrets in `VITE_*` variables.
+The Render config also declares PYTHON_VERSION and the host supplies PORT. Do not expose AI, database, PayPal, or token secrets in VITE_* variables.
 
 ## Database setup
 
@@ -123,86 +123,31 @@ For a new database, see ../database/README.md and apply database/schema.sql usin
 
 The pool disables automatic prepared statements for Supavisor compatibility and the unit of work sets SERIALIZABLE isolation. A successful GET /api/health does not verify the database.
 
-Current endpoints include:
-
-| Método | Endpoint | Descripción |
-| --- | --- | --- |
-| GET | `/health` | Comprobación de vida |
-| POST | `/auth/login` | Iniciar sesión del taller (cookie + CSRF) |
-| GET | `/auth/session` | Consultar la sesión vigente |
-| POST | `/auth/logout` | Revocar la sesión y borrar cookies |
-| GET | `/customer/context` | Cotización, pedido e intentos del cliente autenticado |
-| POST | `/quotes` | Crear cliente y cotización draft |
-| GET | `/quotes/{id}` | Consultar cotización |
-| POST | `/quotes/{id}/generate` | Generar propuesta con IA |
-| POST | `/quotes/{id}/approve` | Aprobar cotización y crear pedido |
-| POST | `/quotes/{id}/reject` | Rechazar cotización |
-| POST | `/quotes/{id}/customer-access` | Reemitir el enlace del cliente (solo taller) |
-| GET | `/orders` | Listar pedidos del taller |
-| GET | `/orders/{id}` | Consultar pedido con pagos y saldo |
-| PATCH | `/orders/{id}` | Actualizar estado/fecha estimada |
-| POST | `/orders/{id}/payments` | Crear intento de pago PayPal |
-| POST | `/payments/{id}/capture` | Capturar pago en PayPal |
-| POST | `/payments/{id}/sync` | Conciliar con PayPal: captura solo si está `APPROVED` |
-| POST | `/payments/{id}/cancel` | Cancelar un intento pendiente sin liberar reservas inciertas |
-| GET | `/payments/{id}` | Consultar intento de pago |
-| POST | `/payments/webhook/paypal` | Webhook de PayPal verificado por firma |
-| GET | `/accounting/summary` | Resumen financiero del taller |
-| POST | `/accounting/assistant` | Preguntar al asistente contable |
-
 ## API routes and access
 
-All routes use the `/api` prefix.
-
-- Sin autenticación: `GET /api/health`, `POST /api/quotes` (devuelve el token del cliente) y `POST /api/payments/webhook/paypal`, que se autentica con la firma de PayPal.
-- Taller: `POST /api/auth/login`, `GET /api/auth/session` y `POST /api/auth/logout`, además de `GET /api/orders`, `PATCH/DELETE /api/orders/{id}`, `POST /api/quotes/{id}/customer-access`, `GET /api/accounting/summary` y `POST /api/accounting/assistant`.
-- El login verifica las credenciales contra `TALLERCLARO_WORKSHOP_PASSWORD_HASH` y emite una sesión opaca de 256 bits. Solo se guarda su SHA-256 en `tallerclaro.sesion_taller`; caduca a los 30 minutos de inactividad o 8 horas absolutas, es revocable y rota en cada login. Cambiar el hash bcrypt invalida las sesiones (huella de credenciales).
-- Cookies: `__Host-tallerclaro_session` (`HttpOnly`, `Secure`, `SameSite` configurable con `TALLERCLARO_WORKSHOP_SESSION_COOKIE_SAMESITE=lax|strict|none`, `Path=/`, sin `Domain`) y `__Host-tallerclaro_csrf` (legible por el JS del mismo origen). Usa `none` cuando el frontend (p. ej. Vercel) y la API estén en sitios distintos; exige HTTPS y CORS con credenciales. Las peticiones autenticadas por cookie que cambian estado exigen `X-CSRF-Token` igual al valor de la cookie CSRF y un `Origin` permitido.
-- Basic está desactivado por defecto; solo se acepta con `TALLERCLARO_ENABLE_WORKSHOP_BASIC_AUTH=true` como compatibilidad explícita.
-- Cliente: crear, consultar, conciliar (`sync`) y cancelar pagos, y `GET /api/customer/context`, requieren `X-Customer-Token` o `Authorization: Bearer`. El frontend no usa `/capture`: reconcilia con `/sync`, que solo captura si PayPal reporta `APPROVED`. La reemisión de acceso solo la puede solicitar el taller autenticado, revoca los tokens anteriores de la cotización y registra el evento; nunca se recupera acceso usando solo el ID.
-- Lectura, aprobación, rechazo y generación de cotizaciones, y detalle de pedido, aceptan token del cliente propietario o sesión del taller mediante `PrincipalDep`, con validación de pertenencia antes y después de la llamada de IA. Un token de cliente inválido nunca concede privilegios del taller.
-
-### Límites de abuso
-
-- Los contadores viven en `tallerclaro.limite_consumo` y se incrementan con `INSERT ... ON CONFLICT DO UPDATE` (atómico, sin `DELETE`). El rechazo responde `429 RATE_LIMITED` con `Retry-After`.
-- Login: 5 fallos por usuario e IP cada 15 minutos; un login correcto reinicia el contador.
-- Creación de cotizaciones: 5 por minuto por IP. Generación: 5 cada 10 minutos por cotización y 100 por hora por taller; si el límite no está disponible no se llama a la IA. Catálogo de precios: 20 por minuto por actor.
-- Los cuerpos JSON se limitan a 64 KiB (`TALLERCLARO_MAX_REQUEST_BODY_BYTES`) antes de procesarlos y responden `413 PAYLOAD_TOO_LARGE`.
-- `X-Forwarded-For` solo se usa con `TALLERCLARO_TRUST_PROXY_HEADERS=true`; por defecto se emplea la IP de la conexión.
+All routes use the /api prefix.
 
 | Method | Endpoint | Access | Purpose |
 |---|---|---|---|
 | GET | /api/health | Public | Application liveness; not DB readiness |
-| GET | /api/quotes | Workshop session | Workshop inbox; optional `status` filter (repeatable or comma-separated), `limit`, `offset` |
+| GET | /api/quotes | Workshop Basic | Workshop inbox; optional `status` filter (repeatable or comma-separated), `limit`, `offset` |
 | POST | /api/quotes | Public | Create customer and draft quote; returns customer_token |
-| GET | /api/quotes/{id} | Customer token or workshop session | Read quote; optional q query triggers price lookup |
-| POST | /api/quotes/{id}/generate | Customer token or workshop session | AI quote generation/refinement |
-| POST | /api/quotes/{id}/approve | Customer token or workshop session | Approve quote and create one order |
-| POST | /api/quotes/{id}/reject | Customer token or workshop session | Reject quote |
-| GET | /api/orders | Workshop session | Paginated workshop order list |
-| GET | /api/orders/{id} | Customer token or workshop session | Order details, payment summaries, paid and remaining amounts |
-| PATCH | /api/orders/{id} | Workshop session | Update status and/or estimated delivery date |
+| GET | /api/quotes/{id} | Customer token or workshop Basic | Read quote; optional q query triggers price lookup |
+| POST | /api/quotes/{id}/generate | Workshop Basic | AI quote generation/refinement |
+| POST | /api/quotes/{id}/approve | Customer token or workshop Basic | Approve quote and create one order |
+| POST | /api/quotes/{id}/reject | Customer token or workshop Basic | Reject quote |
+| GET | /api/orders | Workshop Basic | Paginated workshop order list |
+| GET | /api/orders/{id} | Customer token or workshop Basic | Order details, payment summaries, paid and remaining amounts |
+| PATCH | /api/orders/{id} | Workshop Basic | Update status and/or estimated delivery date |
 | POST | /api/orders/{id}/payments | Customer token | Create a PayPal payment intent |
 | GET | /api/payments/{id} | Customer token | Read payment attempt |
 | POST | /api/payments/{id}/capture | Customer token | Capture and verify payment with PayPal |
-| GET | /api/accounting/summary | Workshop session | Aggregated order/payment totals |
-| POST | /api/accounting/assistant | Workshop session | Ask AI to explain aggregate totals |
+| GET | /api/accounting/summary | Workshop Basic | Aggregated order/payment totals |
+| POST | /api/accounting/assistant | Workshop Basic | Ask AI to explain aggregate totals |
 
-La configuración se define en `bootstrap/settings.py` y la plantilla es `.env.example`.
-Se usa el prefijo `TALLERCLARO_`, con `DATABASE_URL` como alias recomendado para PostgreSQL.
-El hash del taller no tiene un valor predeterminado utilizable. Cambia también el
-secreto de tokens de ejemplo y configura `TALLERCLARO_CORS_ORIGINS` para el frontend.
-Si el frontend y la API están en sitios distintos, usa
-`TALLERCLARO_WORKSHOP_SESSION_COOKIE_SAMESITE=none` (HTTPS y CORS con credenciales);
-en el mismo sitio, el valor por defecto `lax` es suficiente.
+Workshop authentication is HTTP Basic verified against TALLERCLARO_WORKSHOP_PASSWORD_HASH. Customer access uses X-Customer-Token or Authorization: Bearer. Quote and order access is checked against the principal in application use cases. Payment use cases receive the authorized quote scope from the token and validate its relationship to the payment/order.
 
-`TALLERCLARO_ENVIRONMENT` acepta `development`, `test` y `release`. En `release`
-el arranque rechaza secretos de plantilla, CORS con comodines o sin HTTPS,
-PayPal incompleto (incluido `TALLERCLARO_PAYPAL_WEBHOOK_ID`), Live sin
-`TALLERCLARO_ALLOW_LIVE_PAYMENTS=true` y un rol de base de datos superusuario o
-con `DELETE`.
-
-Receipt, expense, and refund endpoints are not implemented.
+No quote-list endpoint, receipt endpoint, expense endpoint, refund endpoint, PayPal webhook endpoint, or payment-cancellation endpoint is present in the current routers.
 
 ## Integrations
 
@@ -218,65 +163,7 @@ The price lookup service uses HTTPX against Channel3 search, with a v0 fallback 
 
 The backend performs OAuth client-credentials and PayPal Orders v2 REST calls. It creates CAPTURE orders, obtains approval links, captures orders, and queries an order after a non-successful capture response. A stable PayPal-Request-Id is derived from the PayPal order ID.
 
-Define `TALLERCLARO_PAYPAL_RETURN_URL` y `TALLERCLARO_PAYPAL_CANCEL_URL` como
-URL HTTPS del frontend, por ejemplo `https://example.org/#/customer/payment/return`
-y `https://example.org/#/customer/payment/cancel`. Se validan al construir el
-procesador; con PayPal habilitado, una URL ausente o inválida impide el arranque.
-`TALLERCLARO_PAYPAL_BRAND_NAME` fija la marca mostrada en PayPal. El checkout se
-configura con `user_action=PAY_NOW` y `shipping_preference=NO_SHIPPING`.
-
-**Idempotencia de creación.** Antes de llamar a PayPal se guarda el intento
-pendiente con `clave_idempotencia` y `huella_solicitud` (SHA-256 de pedido, tipo,
-importe y moneda). La misma clave se envía como `PayPal-Request-Id`. Un POST
-repetido con el mismo contenido devuelve el mismo intento y la misma orden; un
-cambio de importe responde `409`. Pasada `PAYMENT_IDEMPOTENCY_WINDOW` (15 min),
-el intento debe conciliarse o cancelarse. El índice único parcial
-`(id_pedido, tipo) WHERE estado = 'pending'` impide duplicados en PostgreSQL.
-
-**Captura y conciliación.** Antes de capturar se persiste
-`pedido.captura_en_curso`. Otros pagos del pedido quedan bloqueados hasta
-completar y guardar el intento reservado. El POST de captura lleva una clave
-`PayPal-Request-Id` estable por orden PayPal. Tras una respuesta HTTP no exitosa
-se consulta la orden y se valida una captura completada. `POST /sync` consulta el
-estado real: no captura si la orden sigue `CREATED`; persiste la captura si ya
-está `COMPLETED`; captura solo si está `APPROVED` y el intento local sigue
-`pending`; cancela el intento si está `VOIDED`. Si un intento cancelado o fallido
-aparece como `COMPLETED` en PayPal, `sync` acredita esa captura sin volver a
-capturar. Un fallo de transporte mantiene la reserva porque el resultado es
-incierto. `POST /cancel` es local, rechaza pagos completados y no libera una
-reserva de captura en curso.
-
-Un fallo de conexión, timeout o protocolo HTTP se normaliza a
-`PAYMENT_PROVIDER_ERROR` (HTTP 502), sin exponer secretos ni excepciones HTTPX.
-Los errores mantienen la reserva. La recuperación local se probó con dobles, y
-la idempotencia del proveedor y la concurrencia real siguen pendientes de
-validación en Sandbox/PostgreSQL.
-
-**Webhook.** `POST /api/payments/webhook/paypal` recibe el evento sin token de
-cliente y exige `TALLERCLARO_PAYPAL_WEBHOOK_ID`. El backend llama a
-`/v1/notifications/verify-webhook-signature` de PayPal antes de tocar la base:
-sin `verification_status=SUCCESS` responde `401` y no registra nada. Los eventos
-se deduplican en `tallerclaro.evento_paypal` con `ON CONFLICT DO NOTHING`; una
-reentrega procesada responde `200 {"status": "duplicate"}` y un fallo queda como
-`failed` para que la siguiente entrega lo reintente. Solo los eventos
-`CHECKOUT.ORDER.*` y `PAYMENT.CAPTURE.*` provocan conciliación; reembolsos y
-disputas se registran como `ignored`. La conciliación vuelve a consultar a PayPal:
-nunca se acredita un pago usando solo el cuerpo del webhook.
-
-**Conciliación en segundo plano.** Con `TALLERCLARO_PAYPAL_MODE=sandbox|live` y
-`TALLERCLARO_PAYMENT_RECONCILIATION_ENABLED=true`, el `lifespan` inicia un bucle
-que consulta los intentos `pending` con orden de PayPal sin actividad durante
-`TALLERCLARO_PAYMENT_RECONCILIATION_MIN_AGE_SECONDS` (por lotes de
-`TALLERCLARO_PAYMENT_RECONCILIATION_BATCH_SIZE`, cada
-`TALLERCLARO_PAYMENT_RECONCILIATION_INTERVAL_SECONDS`) y los reconcilia con la
-misma lógica de `sync`. Cada pago usa su propia unidad de trabajo y un fallo no
-detiene el lote ni libera una reserva incierta. La tarea se cancela al apagar la
-aplicación.
-
-**Estado financiero y bloqueo.** El pedido expone `financial_status` derivado de
-los pagos completados: `unpaid`, `deposit_paid` o `paid`. No se puede cancelar
-ni borrar un pedido con pagos completados o con una captura en curso; esos casos
-requieren resolución manual (reembolso fuera de este release).
+The parser/use case validate completed status, order and capture IDs, currency, and exact expected amount before persisting a completed payment. A database capture reservation is implemented in source. Live Sandbox behavior, provider idempotency, and concurrent database captures remain unverified. There are no webhooks, refunds, backend cancellation route, background reconciliation, or manual resolution tool.
 
 ## Business rules and persistence
 
@@ -303,10 +190,6 @@ No live-provider integration test or deployment smoke command is defined here. V
 
 ## Deployment
 
-The backend and frontend are separate Vercel projects. Use `Backend` as the backend project root; Vercel detects `app/main.py` and imports the existing `tallerclaro.main:app`. Configure every server-side secret only in the backend project.
+render.yaml sets Backend as the service root, installs requirements.txt, starts Uvicorn on the platform PORT, and uses /api/health as the health-check path. Configure required variables in the Render environment. Do not assume health-check success means PostgreSQL is available.
 
-Serverless instances are not reliable schedulers. Set `TALLERCLARO_PAYMENT_RECONCILIATION_ENABLED=false` on Vercel and rely on the verified PayPal webhook plus explicit customer `sync`; use an external scheduled worker if periodic stale-payment reconciliation is required. The public `/api/health` route is liveness only and does not certify PostgreSQL connectivity.
-
-For cross-site frontend/backend projects, use explicit HTTPS CORS origins and `TALLERCLARO_WORKSHOP_SESSION_COOKIE_SAMESITE=none`. Configure PayPal return/cancel URLs with the frontend origin. The checked-in `render.yaml` remains available for the legacy Render deployment path.
-
-For database setup and migrations, see `../database/README.md`. For the frontend project, see `../frontend/README.md`. No deployed database migration is run automatically.
+For database setup/migrations, see ../database/README.md. For frontend environment and Vercel setup, see ../frontend/README.md. For project overview, see ../README.md.

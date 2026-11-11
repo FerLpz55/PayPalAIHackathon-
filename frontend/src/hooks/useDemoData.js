@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { apiClient, getSession, isConnectedMode, isDemoMode, isConfigurationMissing } from '../services/apiClient.js'
+import { apiClient, getSession, isDemoMode, isConfigurationMissing } from '../services/apiClient.js'
 
 function sessionScopeFingerprint(token) {
   if (!token) return 'anonymous'
@@ -10,11 +10,11 @@ function sessionScopeFingerprint(token) {
   return (hash >>> 0).toString(36)
 }
 
-export function useDemoData({ customerMode = false, quoteId = null, enabled = true } = {}) {
+export function useDemoData({ customerMode = false, quoteId = null, enabled = true, authScope = 0 } = {}) {
   const customerSession = customerMode ? getSession() : null
   const scope = customerMode
     ? `customer:${String(quoteId ?? customerSession.activeQuoteId ?? 'active')}:${sessionScopeFingerprint(customerSession.customerToken)}`
-    : 'workshop'
+    : `workshop:${authScope}`
   const [ordersRecord, setOrdersRecord] = useState({ scope, value: [] })
   const [quoteRecord, setQuoteRecord] = useState({ scope, value: null })
   const [loadingRecord, setLoadingRecord] = useState({ scope, value: true })
@@ -40,22 +40,12 @@ export function useDemoData({ customerMode = false, quoteId = null, enabled = tr
       return
     }
     try {
-      let quoteData
-      let orderData
-      if (customerMode && isConnectedMode && getSession().customerToken) {
-        // El enlace seguro recupera todo el contexto por token; nunca adivina
-        // recursos por el ID que pueda quedar en la URL.
-        const context = await apiClient.getCustomerContext()
-        quoteData = context?.quote || null
-        orderData = context?.order || null
-      } else {
-        quoteData = await apiClient.getQuote(quoteId)
-        orderData = customerMode && quoteData && apiClient.getCustomerOrder
-          ? await apiClient.getCustomerOrder(quoteData.numericId || quoteData.id)
-          : customerMode
-            ? null
-            : await apiClient.listOrders()
-      }
+      const quoteData = await apiClient.getQuote(quoteId)
+      const orderData = customerMode && quoteData && apiClient.getCustomerOrder
+        ? await apiClient.getCustomerOrder(quoteData.numericId || quoteData.id)
+        : customerMode
+          ? null
+          : await apiClient.listOrders()
       const resolvedOrders = Array.isArray(orderData) ? orderData : orderData ? [orderData] : customerMode && isDemoMode ? await apiClient.listOrders() : []
       if (!isCurrentRequest()) return
       setOrdersRecord({ scope, value: resolvedOrders })

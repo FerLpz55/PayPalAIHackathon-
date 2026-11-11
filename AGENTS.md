@@ -21,24 +21,19 @@ Frontend (desde `frontend/`, usar **solo `pnpm`**, nunca `npm`/`yarn`):
 pnpm install
 pnpm run dev
 pnpm run test && pnpm run lint && pnpm run build
-pnpm exec playwright install chromium   # solo la primera vez
-pnpm run test:e2e                       # Playwright; mockea la API, no necesita backend
 ```
 
-`pnpm run test` ejecuta la suite de Vitest (sin navegador ni backend); `pnpm run test:e2e` es una suite Playwright separada (`frontend/e2e/`) que levanta Vite y mockea las rutas `/api/**`.
+`pnpm run test` ejecuta la suite de Vitest (sin navegador ni backend).
 
 `frontend/README.md` documenta modos y despliegue en Vercel; la fuente de verdad del modo sigue siendo `frontend/src/services/apiClient.js`.
 
 ## Modo demo vs API real (frontend)
 
 - El modo se decide en `frontend/src/services/apiClient.js`: `VITE_APP_MODE=demo` ⇒ `mockApi`/`localStorage`; si no es demo y `VITE_API_BASE_URL` (solo origen, las rutas ya incluyen `/api`) no está vacío ⇒ `fetch` al backend; si no es demo y falta la URL, la app muestra "no configurado" y no enseña datos de ejemplo.
-- **En Vercel solo se despliega el frontend** (Root Directory `frontend`; install/build/salida y cabeceras de seguridad en `frontend/vercel.json`); el backend FastAPI y PostgreSQL viven en su propio origen. pnpm fijado por `packageManager` + `pnpm-lock.yaml` versionado (requiere `ENABLE_EXPERIMENTAL_COREPACK=1` en Vercel), Node por `engines.node`. Las variables `VITE_*` se fijan en build.
-- Frontend y API en sitios distintos ⇒ CORS con credenciales y `TALLERCLARO_WORKSHOP_SESSION_COOKIE_SAMESITE=none` en el backend (HTTPS obligatorio). Mismo sitio ⇒ `lax`.
-- El taller se autentica con cookie `HttpOnly` (`POST /api/auth/login`) y CSRF de doble envío: el token se recibe en el cuerpo de login/session y se guarda en `sessionStorage` porque el frontend no puede leer la cookie CSRF del dominio de la API. Las rutas de taller (`#/dashboard`, `#/orders`, `#/quotes`, `#/receipts`, `#/accounting`, `#/order/*`) están detrás de `useWorkshopSession`; no se envían credenciales Basic.
-- El enlace de cliente usa `?token=`; `sessionStore.adoptCustomerAccessFromUrl` lo adopta, limpia la URL y `GET /api/customer/context` recupera cotización, pedido y pagos. Los pagos usan `POST /api/payments/{id}/sync|cancel` (nunca `/capture`).
-- Demo persiste en la clave `localStorage` `tallerclaro.demo.v1`; la sesión (token de cliente, CSRF, credenciales de recuperación de pago) en `sessionStorage` `tallerclaro.session.v1`.
+- Despliegue del frontend en Vercel (Root Directory `frontend`; install/build/salida y cabeceras de seguridad en `frontend/vercel.json`); pnpm fijado por `packageManager` + `pnpm-lock.yaml` versionado (requiere `ENABLE_EXPERIMENTAL_COREPACK=1` en Vercel), Node por `engines.node`. Las variables `VITE_*` se fijan en build.
+- Demo persiste en la clave `localStorage` `tallerclaro.demo.v1`; la sesión (token de cliente, credenciales) en `sessionStorage` `tallerclaro.session.v1`.
 - No hacer fallback silencioso a demo tras un error del backend: el error debe propagarse.
-- Nunca poner secretos de IA/PayPal, el hash del taller ni el secreto de tokens de cliente en variables `VITE_*`; viven solo en `Backend/.env`.
+- Nunca poner secretos de IA/PayPal en variables `VITE_*`; viven solo en `Backend/.env`.
 
 ## Mapa del backend
 
@@ -52,7 +47,7 @@ pnpm run test:e2e                       # Playwright; mockea la API, no necesita
 
 1. **UoW por petición**: `app.state` guarda el pool (`Database`) y `uow_factory` (callable); nunca compartir una instancia mutable entre peticiones. No abrir `with uow:` en `presentation/` — la autorización delegada (p. ej. `VerifyCustomerToken`) sí puede abrirlo desde `application/`. `PostgresUnitOfWork` apila frames y devuelve siempre la conexión; `__exit__` hace `rollback()` si hubo excepción o no se llamó `commit()` (igual en `FakeUnitOfWork`).
 2. **Cero red dentro de transacciones SQL**: las llamadas a IA/PayPal van *fuera* de `with self._uow:`. Patrón obligatorio en 3 fases: (1) abrir UoW, validar entidad/estado/`workshop_id` o token de cliente y salir; (2) llamar al proveedor externo; (3) abrir un UoW nuevo, recargar y revalidar, guardar y `commit()`.
-3. **Captura de pagos estricta e idempotente**: `PayPalPaymentProcessor.capture_order` debe leer `data["id"]`, exigir `purchase_units`/`captures` y `status == "COMPLETED"`. `CapturePayment` contrasta la respuesta con el `Payment` esperado (status, `paypal_order_id`, moneda USD, importe exacto con `Decimal`, `paypal_capture_id` no vacío), valida saldo pendiente y que no se duplique un anticipo; cualquier discrepancia lanza `ConflictError` sin acreditar. `CreateOrderPayment` persiste el intento con `clave_idempotencia` y `huella_solicitud` **antes** de llamar a PayPal, reutiliza la clave en reintentos y responde `409` si cambia el contenido o vence la ventana de 15 min. `POST /payments/{id}/sync` solo captura con estado `APPROVED`; `POST /payments/{id}/cancel` no libera reservas inciertas.
+3. **Captura de pagos estricta**: `PayPalPaymentProcessor.capture_order` debe leer `data["id"]`, exigir `purchase_units`/`captures` y `status == "COMPLETED"`. `CapturePayment` contrasta la respuesta con el `Payment` esperado (status, `paypal_order_id`, moneda USD, importe exacto con `Decimal`, `paypal_capture_id` no vacío), valida saldo pendiente y que no se duplique un anticipo; cualquier discrepancia lanza `ConflictError` sin acreditar.
 4. **Paridad fake/Postgres**: todo campo de dominio (`assumptions`, `missing_info`, `line_items`, etc.) debe persistirse y leerse en ambos. Si una cotización queda sin partidas (`needs_information`), el repositorio SQL desactiva las sobrantes con `UPDATE ... SET activo = false`; el rol `tallerclaro_app` **no tiene `DELETE`**.
 5. **Pureza de capas**: routers/dependencias no calculan dinero ni importan `Decimal`; todo cálculo monetario (USD, `ROUND_HALF_UP`) vive en `domain/`. Prohibido monkey-patching o mutar clases de `application/`/`domain/` desde `presentation/`.
 6. **Higiene y seguridad**: no reintroducir `PROJECT.md`, `.agents/` ni planes internos en la raíz; no commitear archivos de configuración MCP (`mcp_config.json`, `*mcp*.json`), lockfiles de skills (`skills-lock.json`) ni tokens de acceso (`sbp_*`, `*.token`). No documentar comandos (`npm`) o migraciones que no existan en el árbol real.
@@ -67,23 +62,11 @@ pnpm run test:e2e                       # Playwright; mockea la API, no necesita
 
 ## Autorización y contrato HTTP
 
-- Taller: sesión opaca con cookie `__Host-tallerclaro_session` (`HttpOnly`, `Secure`, `SameSite` configurable: `lax` por defecto, `none` para frontend/API en sitios distintos; 30 min de inactividad / 8 h absolutas) en listado/actualización de pedidos y reemisión de acceso de cliente. Login/sesión/logout en `/api/auth/*`; toda petición autenticada por cookie que cambie estado exige `X-CSRF-Token` y `Origin` permitido. Basic solo se acepta con `TALLERCLARO_ENABLE_WORKSHOP_BASIC_AUTH=true`.
-- Cliente: header `X-Customer-Token` (o `Authorization: Bearer`) en pagos y `GET /api/customer/context`. Lecturas/acciones de cotización, generación y detalle de pedido usan `PrincipalDep` (token del cliente propietario **o** sesión/Basic del taller); un token inválido nunca degrada a privilegios del taller.
-- Reemitir el enlace del cliente es exclusivo del taller (`POST /api/quotes/{id}/customer-access`), revoca los tokens previos y audita el evento; no se recupera acceso solo con el ID.
-- Límites persistentes: login 5 fallos/15 min por usuario e IP, creación 5/min por IP, generación 5/10 min por cotización y 100/h por taller, catálogo 20/min por actor. Responden `429` con `Retry-After`. Cuerpos JSON limitados a 64 KiB (`413`).
+- Taller: Basic Auth (`require_workshop_credentials`) en listado/actualización de pedidos y generación de cotizaciones.
+- Cliente: header `X-Customer-Token` (o `Authorization: Bearer`) en pagos. Lecturas/acciones de cotización y detalle de pedido usan `PrincipalDep` (token de cliente **o** Basic del taller).
 - `frontend/docs/API_CONTRACT.md` es una foto del 2026-11-02 y contiene afirmaciones desactualizadas (p. ej. auth de cotizaciones); verificar contra los routers y esquemas actuales.
 
-## Contexto verificado el 2026-11-09 (fases A–D)
-
-- `Backend/.env` se resuelve por ruta absoluta desde el paquete y las variables del proceso tienen prioridad; las pruebas neutralizan el archivo. `TALLERCLARO_ENVIRONMENT=release` rechaza secretos de plantilla, CORS con comodines/HTTP, PayPal incompleto y Live sin `TALLERCLARO_ALLOW_LIVE_PAYMENTS=true`.
-- El pool usa `check_connection`, timeout de adquisición y `max_idle=300`; una indisponibilidad responde `503`. `uow.execute_sql` reintenta solo fases SQL ante `SERIALIZABLE`, nunca operaciones que llamaron a IA/PayPal. En release el rol no puede ser superusuario ni tener `DELETE`.
-- Migraciones 005 (`sesion_taller`), 006 (`limite_consumo`), 007 (idempotencia de pago) y 008 (`evento_paypal`) existen pero **no se han aplicado** contra Supabase. `database/tests/verify_privileges.sql` es de solo lectura.
-- Verificación local: 467 pruebas backend aprobadas con Python 3.14 (1 advertencia de `pytest-asyncio`); frontend sin cambios en esta fase. No se validaron PostgreSQL, IA ni PayPal reales.
-- Fase D: creación idempotente con `PayPal-Request-Id`, orden pendiente única por pedido/tipo, conciliación `sync` sin captura implícita, cancelación segura, bloqueo de cancelar/borrar pedidos con pagos completados o captura en curso y `financial_status` (`unpaid|deposit_paid|paid`).
-- Fase E: `POST /api/payments/webhook/paypal` verifica la firma con PayPal antes de tocar la base, deduplica en `tallerclaro.evento_paypal` (`new`/`retry`/`duplicate`) y reconcilia reconsultando el estado real; los reintentos de un evento `failed` están permitidos. Un worker del `lifespan` concilia intentos `pending` antiguos por lotes cuando `paypal_mode=sandbox|live`. Reembolsos y disputas se registran como `ignored`. En release, PayPal exige `TALLERCLARO_PAYPAL_WEBHOOK_ID`.
-- Fase F: el frontend migró a sesión de taller por cookie + CSRF (sin Basic ni `taller:demo-password`), recupera enlaces de cliente con `?token=` + `GET /api/customer/context`, reemite el enlace desde el detalle del pedido, usa `POST /api/payments/{id}/sync|cancel` (nunca `/capture`) y muestra `financial_status`. La cookie admite `TALLERCLARO_WORKSHOP_SESSION_COOKIE_SAMESITE=lax|strict|none`. Se añadió Playwright (`pnpm run test:e2e`) separado de Vitest.
-
-## Contexto histórico verificado el 2026-11-04 (parcialmente superado)
+## Contexto verificado el 2026-11-04
 
 - El arranque exige hash bcrypt válido en `TALLERCLARO_WORKSHOP_PASSWORD_HASH` y conexión inicial a PostgreSQL. El backend no tiene contraseña de taller predeterminada. PayPal habilitado exige URL HTTPS en `TALLERCLARO_PAYPAL_RETURN_URL` y `TALLERCLARO_PAYPAL_CANCEL_URL`.
 - La migración 003 añade `pedido.captura_en_curso`. Esquema y seed incluyen la columna para tablas nuevas; `CREATE TABLE IF NOT EXISTS` no actualiza una tabla existente. Verificar su presencia antes del despliegue.

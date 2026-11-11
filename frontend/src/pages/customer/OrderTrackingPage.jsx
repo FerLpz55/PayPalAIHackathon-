@@ -7,7 +7,6 @@ import PayPalCheckout from '../../components/customer/PayPalCheckout.jsx'
 import DemoNotice from '../../components/ui/DemoNotice.jsx'
 import { isConnectedMode, isDemoMode } from '../../services/apiClient.js'
 import { getRemainingBalance } from '../../services/adapters.js'
-import { FINANCIAL_STATUS_LABELS } from '../../utils/constants.js'
 import { formatMoney } from '../../utils/format.js'
 import { STATUS_LABELS } from '../../utils/constants.js'
 
@@ -40,7 +39,6 @@ function OrderTrackingPage({ quote, orders, loading, go, refresh }) {
           <DataLine label="Contracted total" value={formatMoney(order.amount)} />
           <DataLine label={isDemoMode ? 'Sample paid amount' : 'Verified paid'} value={formatMoney(order.paid)} />
           <DataLine label="Remaining balance" value={formatMoney(remainingBalance)} />
-          <DataLine label="Payment status" value={FINANCIAL_STATUS_LABELS[order.financialStatus] || order.financialStatus || 'Unknown'} />
           <h3 style={{ marginTop: 20, marginBottom: 8 }}>Transaction History</h3>
           {order.payments?.length ? (
             order.payments.map((payment) => (

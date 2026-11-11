@@ -12,13 +12,12 @@ from tallerclaro.bootstrap.settings import Settings
 
 
 def test_loads_database_url_from_dotenv(tmp_path):
-    dotenv = tmp_path / ".env"
-    dotenv.write_text(
+    (tmp_path / ".env").write_text(
         "DATABASE_URL=postgres://app:example@db.example:5432/workshop\n",
         encoding="utf-8",
     )
 
-    params = conninfo_to_dict(Settings(_env_file=dotenv).database_dsn)
+    params = conninfo_to_dict(Settings().database_dsn)
 
     assert params["host"] == "db.example"
     assert params["dbname"] == "workshop"
@@ -41,16 +40,13 @@ def test_database_url_wins_over_prefixed_alias_in_same_source(monkeypatch, tmp_p
     if source == "environment":
         for name, value in values.items():
             monkeypatch.setenv(name, value)
-        settings = Settings()
     else:
-        dotenv = tmp_path / ".env"
-        dotenv.write_text(
+        (tmp_path / ".env").write_text(
             "".join(f"{name}={value}\n" for name, value in values.items()),
             encoding="utf-8",
         )
-        settings = Settings(_env_file=dotenv)
 
-    assert conninfo_to_dict(settings.database_dsn)["host"] == "primary.example"
+    assert conninfo_to_dict(Settings().database_dsn)["host"] == "primary.example"
 
 
 @pytest.mark.parametrize("name", ["DATABASE_URL", "TALLERCLARO_DATABASE_URL"])

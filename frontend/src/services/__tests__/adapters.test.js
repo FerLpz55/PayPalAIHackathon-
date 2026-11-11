@@ -131,28 +131,3 @@ describe('adaptAccountingSummary', () => {
     expect(summary.totalContracted).toBeNull()
   })
 })
-
-
-describe('adaptOrderResponse financial status', () => {
-  it('preserves the backend financial_status', () => {
-    const order = adaptOrderResponse({
-      id: 4,
-      quote_id: 2,
-      total: 1000,
-      deposit_amount: 500,
-      balance_amount: 500,
-      paid_amount: 500,
-      status: 'in_progress',
-      financial_status: 'deposit_paid',
-    })
-
-    expect(order.financialStatus).toBe('deposit_paid')
-    expect(order.paid).toBe(500)
-  })
-
-  it('derives a value only when the backend omits financial_status', () => {
-    expect(adaptOrderResponse({ id: 1, total: 100, paid_amount: 0 }).financialStatus).toBe('unpaid')
-    expect(adaptOrderResponse({ id: 2, total: 100, paid_amount: 50 }).financialStatus).toBe('deposit_paid')
-    expect(adaptOrderResponse({ id: 3, total: 100, paid_amount: 100 }).financialStatus).toBe('paid')
-  })
-})

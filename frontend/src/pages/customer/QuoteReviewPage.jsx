@@ -8,7 +8,7 @@ import LoadingState from '../../components/ui/LoadingState.jsx'
 import PageHeading from '../../components/ui/PageHeading.jsx'
 import { apiClient, isConfigurationMissing, isDemoMode } from '../../services/apiClient.js'
 import { formatMeasurements } from '../../services/adapters.js'
-import { FINANCIAL_STATUS_LABELS, WORKSHOP_PROFILE } from '../../utils/constants.js'
+import { WORKSHOP_PROFILE } from '../../utils/constants.js'
 import { isSafeExternalUrl } from '../../utils/security.js'
 import { formatMoney } from '../../utils/format.js'
 
@@ -41,10 +41,7 @@ function QuoteReviewPage({ quote, orders, loading, go, mutate, refresh }) {
     })
   }
 
-  // Solo se muestra la pantalla de carga en la carga inicial. Durante un
-  // refresh los datos ya visibles se conservan para no desmontar el checkout
-  // ni perder mensajes de estado (p. ej. tras cancelar un intento).
-  if (loading && !quote) return <div className="customer-page"><LoadingState /></div>
+  if (loading) return <div className="customer-page"><LoadingState /></div>
   if (isConfigurationMissing) return <div className="customer-page"><EmptyState title="Backend connection not configured" text="Quotes and payment actions are unavailable until VITE_API_BASE_URL is configured." /></div>
   if (!quote) {
     return <div className="customer-page"><EmptyState title="No quote is ready yet" text="Describe the piece you want made to prepare an estimate." action={<Button onClick={() => go('customer/new')}>Describe your project</Button>} /></div>
@@ -406,14 +403,7 @@ function QuoteReviewPage({ quote, orders, loading, go, mutate, refresh }) {
           )}
 
           {approved && !isDemoMode && order?.orderId && (
-            <>
-              {order.financialStatus && (
-                <p className="status-help" role="status">
-                  Order financial status: <strong>{FINANCIAL_STATUS_LABELS[order.financialStatus] || order.financialStatus}</strong>
-                </p>
-              )}
-              <PayPalCheckout orderId={order.orderId} type="deposit" refresh={refresh} onCompleted={goToTracking} />
-            </>
+            <PayPalCheckout orderId={order.orderId} type="deposit" refresh={refresh} onCompleted={goToTracking} />
           )}
 
           {approved && isDemoMode && (

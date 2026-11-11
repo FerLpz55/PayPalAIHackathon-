@@ -10,12 +10,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 
-from tallerclaro.application.dtos import (
-    CapturedPayment,
-    PaymentIntent,
-    ProviderOrder,
-    WebhookEvent,
-)
+from tallerclaro.application.dtos import CapturedPayment, PaymentIntent
 from tallerclaro.domain.exceptions import DomainError
 
 
@@ -55,53 +50,6 @@ class PayPalOrderParser:
                 href = link.get("href")
                 return str(href) if href else None
         return None
-
-
-class PayPalOrderStatusParser:
-    """Convierte la respuesta de ``GET /v2/checkout/orders/{id}`` en ``ProviderOrder``.
-
-    No captura ni escribe: solo informa el estado actual. Si la orden ya está
-    ``COMPLETED``, extrae la captura completada para que el caso de uso pueda
-    persistirla sin volver a capturar.
-    """
-
-    @staticmethod
-    def parse(data: object, expected_order_id: str) -> ProviderOrder:
-        if not isinstance(data, dict):
-            raise DomainError(
-                code="PAYMENT_PROVIDER_ERROR",
-                message="Malformed PayPal get order payload",
-            )
-
-        returned_order_id = str(data.get("id") or "").strip()
-        if not returned_order_id:
-            raise DomainError(
-                code="PAYMENT_PROVIDER_ERROR",
-                message="PayPal get order response is missing order id",
-            )
-        if returned_order_id != expected_order_id:
-            raise DomainError(
-                code="PAYMENT_PROVIDER_ERROR",
-                message="PayPal get order id mismatch",
-            )
-
-        status = str(data.get("status") or "").strip().upper()
-        if not status:
-            raise DomainError(
-                code="PAYMENT_PROVIDER_ERROR",
-                message="PayPal get order response is missing status",
-            )
-
-        capture = None
-        if status == "COMPLETED":
-            capture = PayPalCaptureParser.parse(data, expected_order_id)
-
-        return ProviderOrder(
-            paypal_order_id=returned_order_id,
-            status=status,
-            approval_url=PayPalOrderParser._extract_approval_url(data),
-            capture=capture,
-        )
 
 
 class PayPalCaptureParser:
@@ -222,96 +170,3 @@ class PayPalCaptureParser:
         if raw_paid_at.endswith("Z"):
             return raw_paid_at[:-1] + "+00:00"
         return raw_paid_at
-
-
-class PayPalWebhookParser:
-    """Reduce un evento de PayPal verificado a ``WebhookEvent``.
-
-    Solo extrae identificadores y, si el evento trae una captura completada, el
-    DTO con importe y moneda para contrastarlo en la capa de aplicación.
-    """
-
-    _CAPTURE_COMPLETED_EVENTS = {
-        "PAYMENT.CAPTURE.COMPLETED",
-        "PAYMENT.CAPTURE.PENDING",
-        "PAYMENT.CAPTURE.DENIED",
-        "PAYMENT.CAPTURE.REFUNDED",
-        "PAYMENT.CAPTURE.REVERSED",
-    }
-
-    @classmethod
-    def parse(cls, data: object) -> WebhookEvent:
-        if not isinstance(data, dict):
-            raise DomainError(
-                code="VALIDATION_ERROR",
-                message="Malformed PayPal webhook payload",
-            )
-
-        event_id = str(data.get("id") or "").strip()
-        event_type = str(data.get("event_type") or "").strip().upper()
-        if not event_id or not event_type:
-            raise DomainError(
-                code="VALIDATION_ERROR",
-                message="PayPal webhook payload is missing id or event_type",
-            )
-
-        resource = data.get("resource") if isinstance(data.get("resource"), dict) else {}
-        if event_type in cls._CAPTURE_COMPLETED_EVENTS:
-            return cls._parse_capture_event(event_id, event_type, resource)
-
-        order_id = str(resource.get("id") or "").strip()
-        return WebhookEvent(
-            id=event_id,
-            type=event_type,
-            paypal_order_id=order_id or None,
-            summary=event_type,
-        )
-
-    @classmethod
-    def _parse_capture_event(
-        cls, event_id: str, event_type: str, resource: dict
-    ) -> WebhookEvent:
-        order_id = cls._related_order_id(resource)
-        capture = None
-        if (
-            event_type == "PAYMENT.CAPTURE.COMPLETED"
-            and str(resource.get("status") or "").upper() == "COMPLETED"
-        ):
-            capture_id = str(resource.get("id") or "").strip()
-            amount, currency = PayPalCaptureParser._extract_capture_amount(resource)
-            if not capture_id:
-                raise DomainError(
-                    code="PAYMENT_PROVIDER_ERROR",
-                    message="PayPal webhook capture is missing id",
-                )
-            capture = CapturedPayment(
-                payment_id=0,
-                status="completed",
-                paypal_order_id=order_id or "",
-                paypal_capture_id=capture_id,
-                amount=amount,
-                currency=currency,
-                paid_at=PayPalCaptureParser._parse_paid_at(resource),
-            )
-        return WebhookEvent(
-            id=event_id,
-            type=event_type,
-            paypal_order_id=order_id,
-            capture=capture,
-            summary=event_type,
-        )
-
-    @staticmethod
-    def _related_order_id(resource: dict) -> str | None:
-        supplementary = (
-            resource.get("supplementary_data")
-            if isinstance(resource.get("supplementary_data"), dict)
-            else {}
-        )
-        related = (
-            supplementary.get("related_ids")
-            if isinstance(supplementary.get("related_ids"), dict)
-            else {}
-        )
-        order_id = str(related.get("order_id") or "").strip()
-        return order_id or None

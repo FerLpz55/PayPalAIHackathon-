@@ -3,18 +3,13 @@
 **Evidence date:** 2026-11-02
 
 > **Historical snapshot:** The inventory below describes the reviewed checkout,
-> not the current API. As of 2026-11-09, workshop authentication uses revocable
-> `HttpOnly` cookie sessions (`/api/auth/login|session|logout`) with CSRF and an
-> allowed `Origin`; Basic is opt-in behind `TALLERCLARO_ENABLE_WORKSHOP_BASIC_AUTH`.
-> Customer links are recovered with `X-Customer-Token` through
-> `GET /api/customer/context` and reissued by the workshop via
-> `POST /api/quotes/{id}/customer-access`. Payments reconcile with
-> `POST /api/payments/{id}/sync` (capture only when PayPal reports `APPROVED`) and
-> close with `POST /api/payments/{id}/cancel`; `/capture` is no longer used by the
-> frontend. Orders expose `financial_status` (`unpaid|deposit_paid|paid`). Use
-> [the backend guide](../../Backend/BACKENDREADME.md) and current routers/schemas
-> as authority; use [the frontend guide](../README.md) for current integration
-> notes. The older blocker statements below are historical.
+> not the current API. As of 2026-11-04, customer token issuance, shared
+> customer/workshop authorization, clarification fields and configurable PayPal
+> HTTPS return URLs exist. Workshop authentication uses bcrypt; payment capture
+> has a persistent reservation and retry recovery with remaining operational
+> limits. Use [the backend guide](../../Backend/BACKENDREADME.md) and current
+> routers/schemas as authority; use [the frontend guide](../README.md) for current
+> integration gaps. The older blocker statements below are historical.
 
 **Repository evidence:** current checkout branch `feat/issue-22-demo-real-separation`, HEAD `1122c58`; backend route handlers, Pydantic schemas, dependencies, use cases, domain status constants, error handlers, app composition, configuration, and frontend call sites inspected.
 **Scope:** Source-level contract inventory only. Route presence does not prove an endpoint is reachable, configured, deployed, or safe for production use. No backend code was changed.
@@ -48,7 +43,7 @@ The frontend has a partial REAL-mode integration for quote/order retrieval and P
 |---|---|---|---|
 | Health | `GET /api/health` | None | Not exercised from this frontend; response establishes liveness only. |
 | Quotes | `POST/GET /api/quotes`; `POST /api/quotes/{quote_id}/generate`, `/approve`, `/reject` | REAL calls backend directly; DEMO uses local `mockApi`. | Not runtime-verified. AI and database configuration remain unverified. |
-| Orders | `GET /api/orders`, `GET/PATCH /api/orders/{order_id}` | REAL calls these routes; DEMO uses local state. | Not runtime-verified. Superseded: the client now uses the workshop cookie session and sends no Basic credentials. |
+| Orders | `GET /api/orders`, `GET/PATCH /api/orders/{order_id}` | REAL calls these routes; DEMO uses local state. | Not runtime-verified. The client currently has a demo Basic Auth fallback for workshop routes; do not treat it as production authentication. |
 | Payments | `POST /api/orders/{order_id}/payments`, `POST /api/payments/{payment_id}/capture`, `GET /api/payments/{payment_id}` | REAL uses backend create/status/capture and PayPal Sandbox approval redirect; DEMO simulation is local and labeled. | Not E2E-verified. PayPal return/cancel URLs remain hardcoded to `example.com`; browser storage loss cannot recover attempts. |
 
 The detailed request/response, status, authentication, and error notes below remain source-level observations, not frontend guarantees. Issue #22 added no backend endpoint and proposed no backend contract change.

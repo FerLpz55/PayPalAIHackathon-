@@ -48,9 +48,8 @@ def list_orders(
             customer_name=cust_name,
             customer_email=cust_email,
             project_request=proj_req,
-            payments=payments,
         )
-        for order, cust_name, cust_email, proj_req, payments in enriched_orders
+        for order, cust_name, cust_email, proj_req in enriched_orders
     ]
 
     return OrderListResponse(

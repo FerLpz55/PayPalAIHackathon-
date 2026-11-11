@@ -1,8 +1,7 @@
 """Dependencias de la capa de presentación HTTP.
 
 Centraliza la resolución de configuración, unidad de trabajo, servicios de IA,
-procesadores de pago y autenticación (sesión de taller con cookie, token de
-enlace de cliente y Basic solo como compatibilidad explícita).
+procesadores de pago y autenticación (HTTP Basic y token de enlace de cliente).
 """
 
 from __future__ import annotations
@@ -20,16 +19,11 @@ from tallerclaro.application.interfaces import (
     PaymentProcessor,
     PriceLookupService,
     UnitOfWork,
-    WebhookVerifier,
 )
-from tallerclaro.application.use_cases import ResolveWorkshopSession, VerifyCustomerToken
+from tallerclaro.application.use_cases import VerifyCustomerToken
 from tallerclaro.bootstrap.settings import Settings
 from tallerclaro.domain.entities import CarpenterId
 from tallerclaro.infrastructure.security.workshop_auth import verify_workshop_credentials
-from tallerclaro.presentation.http.session_cookies import (
-    enforce_csrf,
-    read_session_token,
-)
 
 security = HTTPBasic(auto_error=False)
 
@@ -51,15 +45,6 @@ def get_payment_processor(request: Request) -> PaymentProcessor:
     return request.app.state.payment_processor
 
 
-def get_webhook_verifier(request: Request) -> WebhookVerifier:
-    verifier = getattr(request.app.state, "webhook_verifier", None)
-    if verifier is None:
-        from tallerclaro.infrastructure.payment.paypal_webhook import build_webhook_verifier
-        verifier = build_webhook_verifier(request.app.state.settings)
-        request.app.state.webhook_verifier = verifier
-    return verifier
-
-
 def get_accounting_assistant(request: Request) -> AccountingAssistant:
     return request.app.state.accounting_assistant
 
@@ -77,7 +62,6 @@ SettingsDep = Annotated[Settings, Depends(get_settings)]
 UnitOfWorkDep = Annotated[UnitOfWork, Depends(get_unit_of_work)]
 AIServiceDep = Annotated[AIService, Depends(get_ai_service)]
 PaymentProcessorDep = Annotated[PaymentProcessor, Depends(get_payment_processor)]
-WebhookVerifierDep = Annotated[WebhookVerifier, Depends(get_webhook_verifier)]
 AccountingAssistantDep = Annotated[AccountingAssistant, Depends(get_accounting_assistant)]
 PriceLookupServiceDep = Annotated[PriceLookupService, Depends(get_price_lookup_service)]
 
@@ -121,10 +105,7 @@ def _unauthorized(detail: str, *, basic_challenge: bool = True) -> HTTPException
     )
 
 
-def authenticate_workshop_credentials(
-    username: str, password: str, settings: Settings
-) -> AccessPrincipal:
-    """Verifica usuario/contraseña y devuelve el actor del taller."""
+def _authenticate_workshop(username: str, password: str, settings: Settings) -> AccessPrincipal:
     if not _verify_workshop_credentials(username, password, settings):
         raise _unauthorized("Invalid workshop credentials")
     return AccessPrincipal(
@@ -140,38 +121,11 @@ def _authenticate_customer_token(token: str, uow: UnitOfWork) -> AccessPrincipal
     return principal
 
 
-def _authenticate_workshop_session(
-    request: Request, uow: UnitOfWork, settings: Settings
-) -> AccessPrincipal | None:
-    """Resuelve la cookie de sesión; aplica CSRF y origen en métodos inseguros."""
-    token = read_session_token(request)
-    if not token:
-        return None
-    enforce_csrf(request, settings)
-    carpenter_id = ResolveWorkshopSession(uow).execute(token)
-    if carpenter_id is None:
-        raise _unauthorized(
-            "Invalid or expired workshop session", basic_challenge=False
-        )
-    return AccessPrincipal(kind="workshop", carpenter_id=carpenter_id)
-
-
-def _authenticate_basic_if_enabled(
-    request: Request,
-    credentials: HTTPBasicCredentials | None,
-    settings: Settings,
-) -> AccessPrincipal | None:
-    """Basic solo se acepta con compatibilidad explícita habilitada."""
-    if not settings.enable_workshop_basic_auth:
-        return None
-    if credentials is not None:
-        return authenticate_workshop_credentials(
-            credentials.username, credentials.password, settings
-        )
+def _read_raw_basic_credentials(request: Request) -> tuple[str, str] | None:
     raw_auth = request.headers.get("authorization", "")
     parsed_basic = _parse_basic_auth_header(raw_auth)
     if parsed_basic is not None:
-        return authenticate_workshop_credentials(*parsed_basic, settings)
+        return parsed_basic
     if raw_auth.lower().startswith("basic "):
         raise _unauthorized("Invalid workshop credentials")
     return None
@@ -181,23 +135,12 @@ def _authenticate_basic_if_enabled(
 
 
 def require_workshop_credentials(
-    request: Request,
     credentials: HTTPBasicCredentials | None = Depends(security),
-    uow: UnitOfWork = Depends(get_unit_of_work),
     settings: Settings = Depends(get_settings),
 ) -> AccessPrincipal:
-    principal = _authenticate_workshop_session(request, uow, settings)
-    if principal is not None:
-        return principal
-
-    basic_principal = _authenticate_basic_if_enabled(request, credentials, settings)
-    if basic_principal is not None:
-        return basic_principal
-
-    raise _unauthorized(
-        "Workshop session required",
-        basic_challenge=settings.enable_workshop_basic_auth,
-    )
+    if credentials is None:
+        raise _unauthorized("Workshop credentials required")
+    return _authenticate_workshop(credentials.username, credentials.password, settings)
 
 
 def require_customer_token(
@@ -218,23 +161,19 @@ def require_quote_or_workshop_principal(
     uow: UnitOfWork = Depends(get_unit_of_work),
     settings: Settings = Depends(get_settings),
 ) -> AccessPrincipal:
-    # Un token de cliente inválido nunca degrada a privilegios del taller.
     token = _extract_customer_token(request)
     if token:
         return _authenticate_customer_token(token, uow)
 
-    principal = _authenticate_workshop_session(request, uow, settings)
-    if principal is not None:
-        return principal
+    if credentials is not None:
+        return _authenticate_workshop(credentials.username, credentials.password, settings)
 
-    basic_principal = _authenticate_basic_if_enabled(request, credentials, settings)
-    if basic_principal is not None:
-        return basic_principal
+    raw_basic = _read_raw_basic_credentials(request)
+    if raw_basic is not None:
+        username, password = raw_basic
+        return _authenticate_workshop(username, password, settings)
 
-    raise _unauthorized(
-        "Authentication required",
-        basic_challenge=settings.enable_workshop_basic_auth,
-    )
+    raise _unauthorized("Authentication required")
 
 
 WorkshopCarpenterDep = Annotated[AccessPrincipal, Depends(require_workshop_credentials)]

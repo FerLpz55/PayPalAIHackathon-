@@ -188,9 +188,6 @@ CREATE TABLE IF NOT EXISTS tallerclaro.pago (
     fecha_creacion          timestamptz NOT NULL DEFAULT now(),
     ultima_actualizacion    timestamptz NOT NULL DEFAULT now(),
     fecha_pago              timestamptz,
-    clave_idempotencia      text,
-    huella_solicitud        text,
-    paypal_approval_url     text,
 
     CONSTRAINT pk_pago PRIMARY KEY (id_pago),
     CONSTRAINT fk_pago_pedido FOREIGN KEY (id_pedido)
@@ -202,9 +199,6 @@ CREATE TABLE IF NOT EXISTS tallerclaro.pago (
     CONSTRAINT ck_pago_estado CHECK (estado IN ('pending', 'completed', 'failed', 'cancelled')),
     CONSTRAINT ck_pago_paypal_order_id_no_vacio CHECK (paypal_order_id IS NULL OR btrim(paypal_order_id) <> ''),
     CONSTRAINT ck_pago_paypal_capture_id_no_vacio CHECK (paypal_capture_id IS NULL OR btrim(paypal_capture_id) <> ''),
-    CONSTRAINT ck_pago_clave_idempotencia_no_vacia CHECK (clave_idempotencia IS NULL OR btrim(clave_idempotencia) <> ''),
-    CONSTRAINT ck_pago_huella_solicitud_no_vacia CHECK (huella_solicitud IS NULL OR btrim(huella_solicitud) <> ''),
-    CONSTRAINT ck_pago_approval_url_no_vacia CHECK (paypal_approval_url IS NULL OR btrim(paypal_approval_url) <> ''),
     CONSTRAINT ck_pago_completed_exige_datos CHECK (
         estado <> 'completed'
         OR (paypal_order_id IS NOT NULL AND paypal_capture_id IS NOT NULL AND fecha_pago IS NOT NULL)
@@ -221,9 +215,6 @@ COMMENT ON TABLE tallerclaro.pago IS 'Intento de pago asociado a un pedido.';
 COMMENT ON COLUMN tallerclaro.pago.estado IS 'pending | completed | failed | cancelled.';
 COMMENT ON COLUMN tallerclaro.pago.paypal_order_id IS 'ID de orden de PayPal; NULL si aun no se obtuvo respuesta.';
 COMMENT ON COLUMN tallerclaro.pago.paypal_capture_id IS 'ID de captura de PayPal; obligatorio solo cuando estado = completed.';
-COMMENT ON COLUMN tallerclaro.pago.clave_idempotencia IS 'Clave enviada como PayPal-Request-Id para deduplicar reintentos.';
-COMMENT ON COLUMN tallerclaro.pago.huella_solicitud IS 'SHA-256 de pedido, tipo, importe y moneda de la solicitud original.';
-COMMENT ON COLUMN tallerclaro.pago.paypal_approval_url IS 'Enlace de aprobacion devuelto por PayPal para reanudar el checkout.';
 
 -- ---------------------------------------------------------------------------
 -- 7. cliente_token (Migracion 001)
@@ -255,74 +246,6 @@ COMMENT ON TABLE tallerclaro.cliente_token IS
     'Tokens de enlace de un solo uso para acceso temporal del cliente.';
 
 -- ---------------------------------------------------------------------------
--- 7b. sesion_taller (Migracion 005)
--- ---------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS tallerclaro.sesion_taller (
-    id_sesion             bigint GENERATED ALWAYS AS IDENTITY,
-    id_carpintero         bigint NOT NULL,
-    token_hash            text NOT NULL,
-    credencial_huella     text NOT NULL,
-    fecha_creacion        timestamptz NOT NULL DEFAULT now(),
-    ultimo_uso            timestamptz NOT NULL DEFAULT now(),
-    fecha_expiracion      timestamptz NOT NULL,
-    revocada_en           timestamptz,
-
-    CONSTRAINT pk_sesion_taller PRIMARY KEY (id_sesion),
-    CONSTRAINT fk_sesion_taller_carpintero FOREIGN KEY (id_carpintero)
-        REFERENCES tallerclaro.carpintero (id_carpintero)
-        ON DELETE RESTRICT ON UPDATE RESTRICT,
-    CONSTRAINT uq_sesion_taller_token_hash UNIQUE (token_hash),
-    CONSTRAINT ck_sesion_taller_token_hash_no_vacio CHECK (btrim(token_hash) <> ''),
-    CONSTRAINT ck_sesion_taller_huella_no_vacia CHECK (btrim(credencial_huella) <> ''),
-    CONSTRAINT ck_sesion_taller_fechas CHECK (fecha_expiracion > fecha_creacion)
-);
-
-COMMENT ON TABLE tallerclaro.sesion_taller IS
-    'Sesiones opacas del taller; se almacena solo el hash del token.';
-
--- ---------------------------------------------------------------------------
--- 7c. limite_consumo (Migracion 006)
--- ---------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS tallerclaro.limite_consumo (
-    clave           text NOT NULL,
-    ventana_inicio  timestamptz NOT NULL,
-    contador        integer NOT NULL DEFAULT 0,
-    expira_en       timestamptz NOT NULL,
-
-    CONSTRAINT pk_limite_consumo PRIMARY KEY (clave, ventana_inicio),
-    CONSTRAINT ck_limite_consumo_contador CHECK (contador >= 0),
-    CONSTRAINT ck_limite_consumo_ventana CHECK (expira_en > ventana_inicio)
-);
-
-COMMENT ON TABLE tallerclaro.limite_consumo IS
-    'Contadores atómicos por clave y ventana para limitar abuso.';
-
--- ---------------------------------------------------------------------------
--- 7d. evento_paypal (Migracion 008)
--- ---------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS tallerclaro.evento_paypal (
-    id_evento       text NOT NULL,
-    tipo            text NOT NULL,
-    estado          text NOT NULL DEFAULT 'received',
-    resultado       text,
-    recibido_en     timestamptz NOT NULL DEFAULT now(),
-    procesado_en    timestamptz,
-
-    CONSTRAINT pk_evento_paypal PRIMARY KEY (id_evento),
-    CONSTRAINT ck_evento_paypal_id_no_vacio CHECK (btrim(id_evento) <> ''),
-    CONSTRAINT ck_evento_paypal_tipo_no_vacio CHECK (btrim(tipo) <> ''),
-    CONSTRAINT ck_evento_paypal_estado CHECK (
-        estado IN ('received', 'processed', 'ignored', 'failed')
-    )
-);
-
-COMMENT ON TABLE tallerclaro.evento_paypal IS
-    'Eventos de webhook de PayPal recibidos, para deduplicacion y auditoria.';
-
-CREATE INDEX IF NOT EXISTS ix_evento_paypal_tipo_recibido
-    ON tallerclaro.evento_paypal (tipo, recibido_en DESC);
-
--- ---------------------------------------------------------------------------
 -- 8. Campos adicionales de cotizacion y detalle (Migracion 002)
 -- ---------------------------------------------------------------------------
 ALTER TABLE tallerclaro.cotizacion
@@ -348,12 +271,6 @@ CREATE INDEX IF NOT EXISTS ix_cotizacion_carpintero_fecha ON tallerclaro.cotizac
 CREATE INDEX IF NOT EXISTS ix_detalle_cotizacion_id_cotizacion ON tallerclaro.detalle_cotizacion (id_cotizacion);
 CREATE INDEX IF NOT EXISTS ix_pedido_carpintero_fecha ON tallerclaro.pedido (id_carpintero, fecha_creacion DESC);
 CREATE INDEX IF NOT EXISTS ix_pago_id_pedido ON tallerclaro.pago (id_pedido);
-CREATE UNIQUE INDEX IF NOT EXISTS uq_pago_clave_idempotencia
-    ON tallerclaro.pago (clave_idempotencia)
-    WHERE clave_idempotencia IS NOT NULL;
-CREATE UNIQUE INDEX IF NOT EXISTS uq_pago_pendiente_por_pedido_tipo
-    ON tallerclaro.pago (id_pedido, tipo)
-    WHERE estado = 'pending';
 CREATE INDEX IF NOT EXISTS ix_cliente_token_hash ON tallerclaro.cliente_token (token_hash);
 
 -- ---------------------------------------------------------------------------
@@ -422,10 +339,7 @@ BEGIN
             tallerclaro.detalle_cotizacion,
             tallerclaro.pedido,
             tallerclaro.pago,
-            tallerclaro.cliente_token,
-            tallerclaro.sesion_taller,
-            tallerclaro.limite_consumo,
-            tallerclaro.evento_paypal
+            tallerclaro.cliente_token
         TO tallerclaro_app;
 
         FOR tabla, columna IN
@@ -436,8 +350,7 @@ BEGIN
                 ('detalle_cotizacion', 'id_detalle'),
                 ('pedido', 'id_pedido'),
                 ('pago', 'id_pago'),
-                ('cliente_token', 'id_token'),
-                ('sesion_taller', 'id_sesion')
+                ('cliente_token', 'id_token')
             ) AS ids(nombre_tabla, nombre_columna)
         LOOP
             secuencia := pg_get_serial_sequence(format('%I.%I', 'tallerclaro', tabla), columna);

@@ -39,7 +39,6 @@ def unmocked_auth_app():
         workshop_password_hash=__import__("bcrypt").hashpw(b"demo-password", __import__("bcrypt").gensalt(rounds=4)).decode(),
         workshop_carpenter_id=1,
         cors_origins=["http://localhost:5173"],
-        enable_workshop_basic_auth=True,
     )
     uow = FakeUnitOfWork()
     with uow:

@@ -48,18 +48,3 @@ class ForbiddenError(DomainError):
     def __init__(self, message: str = "Forbidden") -> None:
         super().__init__(code="FORBIDDEN", message=message)
 
-
-class ServiceUnavailableError(DomainError):
-    """Dependencia externa o infraestructura no disponible."""
-
-    def __init__(self, message: str = "Service temporarily unavailable") -> None:
-        super().__init__(code="SERVICE_UNAVAILABLE", message=message)
-
-
-class RateLimitedError(DomainError):
-    """Se superó un límite de uso; el cliente debe reintentar más tarde."""
-
-    def __init__(self, retry_after: int, message: str = "Too many requests") -> None:
-        self.retry_after = max(1, int(retry_after))
-        super().__init__(code="RATE_LIMITED", message=message)
-

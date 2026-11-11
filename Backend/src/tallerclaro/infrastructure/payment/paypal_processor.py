@@ -12,14 +12,13 @@ from urllib.parse import urlsplit
 
 import httpx
 
-from tallerclaro.application.dtos import CapturedPayment, PaymentIntent, ProviderOrder
+from tallerclaro.application.dtos import CapturedPayment, PaymentIntent
 from tallerclaro.application.interfaces import PaymentProcessor
 from tallerclaro.bootstrap.settings import Settings
 from tallerclaro.domain.exceptions import DomainError
 from tallerclaro.infrastructure.payment.paypal_parsing import (
     PayPalCaptureParser,
     PayPalOrderParser,
-    PayPalOrderStatusParser,
 )
 from tallerclaro.infrastructure.payment.paypal_transport import (
     PayPalHttpTransport,
@@ -33,15 +32,10 @@ class UnconfiguredPaymentProcessor:
     def __init__(self, message: str = "Payment processor is not configured") -> None:
         self._message = message
 
-    def create_order(
-        self, amount: str, currency: str, request_id: str | None = None
-    ) -> PaymentIntent:
+    def create_order(self, amount: str, currency: str) -> PaymentIntent:
         raise DomainError(code="SERVICE_UNAVAILABLE", message=self._message)
 
     def capture_order(self, paypal_order_id: str) -> CapturedPayment:
-        raise DomainError(code="SERVICE_UNAVAILABLE", message=self._message)
-
-    def get_order(self, paypal_order_id: str) -> ProviderOrder:
         raise DomainError(code="SERVICE_UNAVAILABLE", message=self._message)
 
 
@@ -55,21 +49,17 @@ class PayPalPaymentProcessor:
         transport: PayPalHttpTransport | None = None,
         order_parser: PayPalOrderParser | None = None,
         capture_parser: PayPalCaptureParser | None = None,
-        status_parser: PayPalOrderStatusParser | None = None,
     ) -> None:
         self._settings = settings
         self._transport = transport or PayPalHttpTransport(settings, client=client)
         self._order_parser = order_parser or PayPalOrderParser()
         self._capture_parser = capture_parser or PayPalCaptureParser()
-        self._status_parser = status_parser or PayPalOrderStatusParser()
         for name, url in (("return", settings.paypal_return_url), ("cancel", settings.paypal_cancel_url)):
             parts = urlsplit(url or "")
             if parts.scheme != "https" or not parts.hostname or parts.username or parts.password:
                 raise DomainError(code="SERVICE_UNAVAILABLE", message=f"PayPal {name} URL must be an HTTPS URL")
 
-    def create_order(
-        self, amount: str, currency: str, request_id: str | None = None
-    ) -> PaymentIntent:
+    def create_order(self, amount: str, currency: str) -> PaymentIntent:
         access_token = self._transport.access_token()
         response = self._transport.create_order(
             amount=amount,
@@ -77,8 +67,6 @@ class PayPalPaymentProcessor:
             return_url=self._settings.paypal_return_url,
             cancel_url=self._settings.paypal_cancel_url,
             access_token=access_token,
-            request_id=request_id or self._new_request_id(),
-            brand_name=self._settings.paypal_brand_name,
         )
         if response.status_code != 201:
             raise DomainError(
@@ -108,19 +96,6 @@ class PayPalPaymentProcessor:
             paypal_order_id,
         )
 
-    def get_order(self, paypal_order_id: str) -> ProviderOrder:
-        access_token = self._transport.access_token()
-        response = self._transport.get_order(paypal_order_id, access_token=access_token)
-        if response.status_code != 200:
-            raise DomainError(
-                code="PAYMENT_PROVIDER_ERROR",
-                message=f"PayPal get order failed: {response.status_code}",
-            )
-        return self._status_parser.parse(
-            self._require_payload(response, "Invalid JSON in PayPal get order response"),
-            paypal_order_id,
-        )
-
     @staticmethod
     def _require_payload(response: PayPalResponse, message: str) -> object:
         if response.payload is None:
@@ -130,12 +105,6 @@ class PayPalPaymentProcessor:
     @staticmethod
     def _request_id(paypal_order_id: str) -> str:
         return hashlib.sha256(paypal_order_id.encode()).hexdigest()[:36]
-
-    @staticmethod
-    def _new_request_id() -> str:
-        import uuid
-
-        return str(uuid.uuid4())
 
 
 # Registro extensible de modos de procesador de pago (Open/Closed Principle).

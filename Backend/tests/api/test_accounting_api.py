@@ -79,11 +79,7 @@ def test_assistant_endpoint_without_ai_returns_503(deps: FakeDependenciesContain
 
     password_hash = bcrypt.hashpw(b"demo-password", bcrypt.gensalt(rounds=4)).decode()
     app = create_app(
-        settings=Settings(
-            workshop_username="taller",
-            workshop_password_hash=password_hash,
-            enable_workshop_basic_auth=True,
-        ),
+        settings=Settings(workshop_username="taller", workshop_password_hash=password_hash),
         ai_service=deps.ai,
         payment_processor=deps.payment,
         accounting_assistant=UnconfiguredAccountingAssistant(),
@@ -103,11 +99,7 @@ def test_accounting_endpoints_require_workshop_credentials(deps: FakeDependencie
 
     password_hash = bcrypt.hashpw(b"demo-password", bcrypt.gensalt(rounds=4)).decode()
     app = create_app(
-        settings=Settings(
-            workshop_username="taller",
-            workshop_password_hash=password_hash,
-            enable_workshop_basic_auth=True,
-        ),
+        settings=Settings(workshop_username="taller", workshop_password_hash=password_hash),
         ai_service=deps.ai,
         payment_processor=deps.payment,
         accounting_assistant=deps.accounting,

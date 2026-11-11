@@ -15,11 +15,6 @@ dist-ssr
 .env.*
 !.env.example
 
-# Playwright
-test-results
-playwright-report
-blob-report
-
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
@@ -30,4 +25,3 @@ blob-report
 *.njsproj
 *.sln
 *.sw?
-.vercel/
