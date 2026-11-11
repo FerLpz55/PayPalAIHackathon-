@@ -1,19 +1,41 @@
-﻿# TallerClaro
+# TallerClaro
 
-TallerClaro is a PayPal AI Hackathon project for carpentry workshops. It is designed to collect customer project requests, prepare and review estimates, track workshop orders, and accept customer payments through PayPal. It also includes an illustrative accounting view and an AI assistant for workshop totals.
+**AI quoting, PayPal payments and plain-language bookkeeping for small carpentry workshops.**
 
-This repository contains a React frontend, a FastAPI backend, and PostgreSQL schema/migration files. Source code for an integration does not prove that a deployed service is configured or operational. Status below reflects the local frontend verification and fake-backed backend suite run on November 9, 2026; live service availability remains unverified.
+A customer describes a piece of furniture by text or voice; AI turns it into an itemized quote grounded in live material prices (Channel3); the workshop reviews it; the customer approves and pays a 50% deposit and later the balance with PayPal; and the workshop asks an AI bookkeeper how much money is still pending.
+
+This repository contains a React frontend, a FastAPI backend, and PostgreSQL schema/migration files. Built for the PayPal AI Hackathon 2026.
+
+## Live demo and judge access
+
+| | |
+|---|---|
+| **App** | https://tallerclaro.vercel.app |
+| **API health** | https://tallerclaro-backend.onrender.com/api/health |
+| **Workshop login** | user `taller` / password `TallerClaro2026!` |
+| **PayPal Sandbox buyer** | `sb-yfmgc53787589@personal.example.com` / `<y6)O4-4` |
+
+The API runs on Render's free tier: the first request after a period of inactivity can take about 50 seconds while the server wakes up. All payments use **PayPal Sandbox**; no real money is moved.
+
+**Suggested end-to-end test (about 5 minutes):**
+
+1. **Customer** (normal window): open https://tallerclaro.vercel.app/#/customer/new, describe a piece (e.g. *"Two-door white melamine wardrobe, 1.20 m wide, 1.80 m tall, 0.55 m deep"*), enter a name and email, and submit. The page shows *Waiting for the workshop*. Keep this window open and do not reload it: the customer access token lives in this tab.
+2. **Workshop** (private/incognito window): open https://tallerclaro.vercel.app/#/dashboard, press **Sign in** with the workshop login above, go to **Quotes**, and press **Generate with AI** on the new request.
+3. **Customer:** press **Check for updates**, review the itemized quote, and press **Approve quote**.
+4. Press **Start PayPal Checkout** once, then **1. Open PayPal Checkout**. Log in with the Sandbox buyer and pay. PayPal returns to a TallerClaro tab that says *Payment attempt unavailable*; this is expected because that new tab has no customer token. Close it.
+5. Back in the original customer tab, press **2. Verify & Confirm Payment**. The backend captures and verifies the payment with PayPal, and the tracking page shows the order (e.g. `TC-1022`) **In production** with the deposit paid.
+6. Optional: on the tracking page, pay the remaining balance the same way; the balance becomes $0.
+7. **Workshop:** open **Orders** and **Accounting**, and ask the assistant *"How much money is still pending?"*.
 
 ## Project status
 
-- The frontend has an explicit browser-only DEMO mode and a REAL mode that calls the configured API.
-- The backend has source implementations for quote, order, payment, accounting, AI, price lookup, and PostgreSQL operations.
-- PostgreSQL, an AI provider, Channel3, PayPal Sandbox, and a deployed API have not been verified as live services.
-- The frontend now offers workshop Basic sign-in held in memory for the current page session. A local HTTP stub verified positive/negative login, logout, 401 expiry, and fail-closed behavior; FastAPI authentication and deployment TLS/CORS remain unverified.
-- Quote creation and generation error states are explicit in the frontend. Generation remains workshop-protected and requires an authorized workshop session; no real AI proposal or full customer journey was verified.
-- The frontend has no server-backed receipt upload or expense ledger. Demo receipt selection stores only a filename.
-- No PayPal webhooks, refunds, backend cancellation route, or background payment reconciliation were found.
-- Local verification: backend fake-backed suite 327 passed; frontend Vitest (39), ESLint and production build passed. No deployed-service request was made.
+Verified in production on November 11, 2026 (Vercel frontend + Render API + Supabase PostgreSQL + AI provider + Channel3 + PayPal Sandbox):
+
+- Customer request → AI quote generation by the workshop → customer approval → PayPal deposit (create, approve, server-side capture) → order automatically moves to *In production* → PayPal balance payment → balance $0.
+- Workshop sign-in, request inbox, orders and accounting dashboard against the live API and database.
+- AI bookkeeping assistant answering in plain language from aggregated, verified payment totals.
+- Live material price references from Channel3 on the quote page.
+- Automated checks: backend **327 tests** passed; frontend **39 Vitest tests**, ESLint and production build passed.
 
 ## Features in source
 
@@ -23,22 +45,20 @@ This repository contains a React frontend, a FastAPI backend, and PostgreSQL sch
 - Workshop order listing, status updates, customer order tracking, and payment summaries.
 - Server-side PayPal Orders v2 create/capture flow with validation of capture status, identifier, currency, and amount.
 - Workshop financial summary based on persisted orders and completed payments; AI assistant that explains aggregated figures.
-- Optional Channel3 price search implementation.
+- Live Channel3 price search for material references.
 - Browser-only demo data and simulated payment/accounting/receipt behavior.
 - Vercel frontend configuration and Render backend configuration.
 
-These features are not all verified at runtime. See the integration and limitation sections below.
+See *Integration status* and *Known limitations* below for what is verified in production.
 
 ## Intended user flow
 
-1. A customer submits a project request. The backend creates a customer, a draft quote, and a customer token.
-2. The workshop generates a proposal. The backend validates the AI response and calculates the total.
-3. The customer reviews, approves, or rejects the quote. Approval creates one order with a 50% deposit.
-4. The customer starts PayPal checkout. The backend creates the PayPal order, and the frontend uses its approval URL.
-5. The backend captures and verifies the payment. A PayPal return URL alone does not mark an order as paid.
-6. The workshop updates production status. Delivery is guarded by full verified payment in the backend.
-
-**Current flow gaps:** quote generation is protected by workshop Basic and requires an authorized workshop session; client clarification still lacks an appropriate customer-authenticated contract. Customer tokens remain in browser session storage and no email delivery or cross-device recovery flow was found. A complete customer journey must not be presented as verified.
+1. A customer submits a project request. The backend creates a customer, a draft quote, and a signed customer token.
+2. The request appears in the workshop inbox (`GET /api/quotes`). The workshop generates the proposal with AI; the backend validates the AI response and calculates the total.
+3. The customer reviews, approves, or rejects the quote. Approval creates one order with a short code (`TC-<1000 + quote id>`) and a 50% deposit.
+4. The customer starts PayPal checkout. The backend creates the PayPal order, and the frontend opens its approval URL.
+5. The backend captures and verifies the payment. A PayPal return URL alone never marks an order as paid. A confirmed deposit moves the order to *In production*.
+6. The customer pays the remaining balance the same way. The workshop updates delivery status; delivery is guarded by full verified payment.
 
 ## Architecture
 
@@ -193,7 +213,7 @@ Then configure frontend/.env with VITE_APP_MODE=real and VITE_API_BASE_URL set t
 
 The backend startup connects to PostgreSQL and rejects an invalid or missing workshop password hash. AI and PayPal default to none; their endpoints remain unavailable until configured. Configure an explicit CORS allowlist for the frontend origin.
 
-**REAL mode limitations:** workshop Basic credentials are entered through the frontend sign-in dialog and held in memory until logout, a 401, or page reload. The client sends them only over HTTPS except for loopback development. This is a transitional browser authentication design, not an HttpOnly session. Quote generation remains workshop-protected. Use HTTPS, explicit CORS origins, and an authorized staging account before integration verification.
+**REAL mode notes:** workshop credentials are entered through the sign-in dialog and held in memory until logout, a 401, or page reload, and are sent only over HTTPS (except loopback development). Quote generation is a workshop action. Set explicit CORS origins as a JSON list, e.g. `TALLERCLARO_CORS_ORIGINS=["https://tallerclaro.vercel.app"]`.
 
 ## API overview
 
@@ -217,55 +237,47 @@ All routes use the /api prefix. Route source is in Backend/src/tallerclaro/prese
 | GET | /api/accounting/summary | Aggregated order/payment totals; workshop Basic Auth |
 | POST | /api/accounting/assistant | AI explanation of aggregate totals; workshop Basic Auth |
 
-There is no receipt upload, expense, refund, webhook, quote-list, or payment-cancellation endpoint in the current route source.
+There is no receipt upload, expense, refund, webhook, or payment-cancellation endpoint yet.
 
 ## Integration status
 
-| Integration | Implemented in source | Runtime verification |
+| Integration | Implementation | Runtime verification (Nov 11, 2026) |
 |---|---|---|
-| Frontend to FastAPI | Fetch client, mode guards, adapters, request headers; selected flows exercised against loopback HTTP stubs | No compatibility run against FastAPI or a deployed API |
-| PostgreSQL/Supabase | psycopg pool, SQL repositories, schema and migrations | Not verified against a live database |
-| AI quote generation | HTTPX OpenAI-compatible Chat Completions adapter | Provider defaults to none; real API not verified |
-| Accounting assistant | HTTPX OpenAI-compatible service | Provider defaults to none; real API not verified |
-| Channel3 | HTTPX price-search implementation | Provider defaults to none; no live lookup verified |
-| PayPal | Server-side OAuth and Orders v2 create/capture parsing | Sandbox round trip not verified |
-| Vercel/Render | Deployment configuration is checked in | Deployments not verified |
+| Frontend ↔ FastAPI | Fetch client, adapters, workshop sign-in, customer token headers | Verified in production (Vercel ↔ Render) |
+| PostgreSQL / Supabase | psycopg pool, SQL repositories, schema and migrations | Verified in production |
+| AI quote generation | OpenAI-compatible Chat Completions adapter with structured output validation | Verified in production |
+| Accounting assistant | OpenAI-compatible service over aggregated totals only | Verified in production |
+| Channel3 | Live product/price search for material references | Verified in production |
+| PayPal | Server-side OAuth, Orders v2 create, approve, capture and verification | Deposit and balance verified end to end in PayPal Sandbox |
+| Vercel / Render | `frontend/vercel.json`, `render.yaml` | Deployed and serving |
 
-PayPal capture checks server-returned order/capture identifiers, status, amount, and currency. Capture reservations and request IDs exist in source, but provider idempotency and concurrent database capture behavior remain unverified. No webhook or background reconciliation was found.
+PayPal capture checks server-returned order/capture identifiers, status, amount, and currency. Capture reservations and PayPal request IDs prevent double capture. No webhook or background reconciliation is implemented yet.
 
 ## Known limitations
 
-- Workshop Basic Auth is currently held in page memory; it has not been verified against a real API and remains readable by JavaScript on the page. A server-side session/BFF remains a production hardening option.
-- Customer quote creation stores the returned customer token in sessionStorage. No email delivery or cross-device token recovery flow was found.
-- Customer quote generation/refinement calls a workshop-only route. Failed generation is shown as an incomplete draft with an explicit error/retry path; customer clarification still lacks a customer-authorized backend contract.
-- Quotes screen is not backed by a quote-list API; quote lookup by ID now hydrates the requested quote, but workshop lookup still needs a valid Basic session.
-- Workshop order detail now fetches by ID and renders payment records from the response; it was exercised against a local stub, not FastAPI/PostgreSQL. Workshop PATCH can set order status manually; a paid status is not proof of PayPal capture.
-- Order list requests subsequent pages and displays the range/total; pagination was exercised against a local stub, not FastAPI/PostgreSQL.
-- Payment recovery depends on browser session storage. There is no endpoint to list or reconcile a customer's pending attempts by order, no webhook, no refund endpoint, and no backend payment-cancellation endpoint.
-- Receipt upload and expense persistence are not implemented. Demo stores filenames and illustrative amounts only.
-- Dashboard/accounting show request errors and unavailable values instead of substituting zero when the API fails. The backend summary covers orders and completed payments, not expenses or profit.
-- Customer tokens are returned by quote creation but the repository has no email delivery path. The token service checks the used flag; source does not consume it on verification.
-- The CORS code default is wildcard; deployments must set an explicit allowlist.
-- frontend/docs/API_CONTRACT.md and frontend/docs/DEMO_VS_REAL_FUNCTIONALITY.md are historical snapshots and contain superseded claims. Use current routers/schemas and README status instead.
+- The customer access token lives in the browser tab's session storage; there is no email delivery or cross-device recovery yet. The PayPal return tab therefore cannot verify the payment by itself; the customer confirms it from the original tab.
+- If the AI asks for more information, the workshop adds the details from its inbox and regenerates; the customer cannot yet answer clarification questions directly.
+- Workshop credentials are held in page memory (HTTP Basic over HTTPS). A server-side HttpOnly session is the planned hardening.
+- No PayPal webhooks, refunds, or payment-cancellation endpoint yet. Press the PayPal checkout button once per payment.
+- Receipt upload and expense tracking are not implemented; the accounting view covers orders and verified payments, not expenses or profit.
+- Render's free tier sleeps when idle; the first request can take about 50 seconds.
 
 ## Tests and verification
 
-The frontend scripts, defined in frontend/package.json:
+Frontend (scripts in frontend/package.json):
 
     cd frontend
+    pnpm install
     pnpm run test
     pnpm run lint
     pnpm run build
-    pnpm run preview
 
-The backend pytest configuration is in Backend/pyproject.toml. After installing the development extra and activating the virtual environment:
+Backend (pytest configuration in Backend/pyproject.toml):
 
     cd Backend
-    python -m pytest
+    uv run --extra dev pytest -q
 
-Backend tests use fakes and do not establish live PostgreSQL, AI, or PayPal behavior. The SQL acceptance file is database/tests/schema_test.sql; run it only against an isolated test database because it executes SQL, even though the script rolls back its transaction.
-
-No browser E2E script or CI workflow is defined. On November 9, 2026, the fake-backed backend suite passed **314 tests** using a workspace-local pytest temp directory; frontend ESLint and Vite build passed when invoked directly from installed binaries. Vitest did not run because its binary is absent, and `pnpm run` could not acquire the global store lock in the restricted environment. These checks do not verify staging API/DB, AI, Channel3, PayPal Sandbox, or persistence. Reproducible outcomes are recorded in docs/informes/INFORME_PRUEBAS_E2E.md.
+Results on November 11, 2026: backend **327 passed**; frontend **39 passed**, ESLint clean, production build OK. Backend unit/API tests use fakes; the live integrations were verified manually end to end in production (see *Project status*). The SQL acceptance file is database/tests/schema_test.sql; run it only against an isolated test database.
 
 ## Deployment
 
@@ -282,7 +294,6 @@ No browser E2E script or CI workflow is defined. On November 9, 2026, the fake-b
 - [Frontend/backend matrix](docs/informes/MATRIZ_FUNCIONAL_FRONTEND_BACKEND.md)
 - [Issue acceptance matrix](docs/informes/MATRIZ_ISSUES_Y_CRITERIOS_ACEPTACION.md)
 - [E2E verification report](docs/informes/INFORME_PRUEBAS_E2E.md)
-- [Infrastructure blockers](docs/informes/PENDIENTES_INFRAESTRUCTURA_Y_CREDENCIALES.md)
 - [Full MVP flow tracking issue #19](https://github.com/FerLpz55/PayPalAIHackathon-/issues/19)
 - [OWASP review tracking issue #23](https://github.com/FerLpz55/PayPalAIHackathon-/issues/23)
 - [Repository instructions](AGENTS.md)
