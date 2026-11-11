@@ -1,64 +1,99 @@
-import { useCallback, useEffect, useState } from 'react'
-import { apiClient, isDemoMode, isConfigurationMissing } from '../services/apiClient.js'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { apiClient, getSession, isDemoMode, isConfigurationMissing } from '../services/apiClient.js'
 
-export function useDemoData({ customerMode = false } = {}) {
-  const [orders, setOrders] = useState([])
-  const [quote, setQuote] = useState(null)
-  const [loading, setLoading] = useState(true)
-  const [notice, setNotice] = useState('')
-  const [error, setError] = useState('')
+function sessionScopeFingerprint(token) {
+  if (!token) return 'anonymous'
+  let hash = 2166136261
+  for (let index = 0; index < token.length; index += 1) {
+    hash = Math.imul(hash ^ token.charCodeAt(index), 16777619)
+  }
+  return (hash >>> 0).toString(36)
+}
+
+export function useDemoData({ customerMode = false, quoteId = null, enabled = true, authScope = 0 } = {}) {
+  const customerSession = customerMode ? getSession() : null
+  const scope = customerMode
+    ? `customer:${String(quoteId ?? customerSession.activeQuoteId ?? 'active')}:${sessionScopeFingerprint(customerSession.customerToken)}`
+    : `workshop:${authScope}`
+  const [ordersRecord, setOrdersRecord] = useState({ scope, value: [] })
+  const [quoteRecord, setQuoteRecord] = useState({ scope, value: null })
+  const [loadingRecord, setLoadingRecord] = useState({ scope, value: true })
+  const [noticeRecord, setNoticeRecord] = useState({ scope, value: '' })
+  const [errorRecord, setErrorRecord] = useState({ scope, value: '' })
+  const requestSequence = useRef(0)
+  const orders = enabled && ordersRecord.scope === scope ? ordersRecord.value : []
+  const quote = enabled && quoteRecord.scope === scope ? quoteRecord.value : null
+  const loading = enabled && loadingRecord.scope === scope ? loadingRecord.value : enabled
+  const notice = enabled && noticeRecord.scope === scope ? noticeRecord.value : ''
+  const error = enabled && errorRecord.scope === scope ? errorRecord.value : ''
 
   const refresh = useCallback(async () => {
-    setLoading(true)
+    const requestId = ++requestSequence.current
+    const isCurrentRequest = () => requestId === requestSequence.current
+    if (!enabled) return
+    setLoadingRecord({ scope, value: true })
     if (isConfigurationMissing) {
-      setOrders([])
-      setQuote(null)
-      setError('Backend connection is not configured. Set VITE_API_BASE_URL, or explicitly select VITE_APP_MODE=demo to view sample data.')
-      setLoading(false)
+      setOrdersRecord({ scope, value: [] })
+      setQuoteRecord({ scope, value: null })
+      setErrorRecord({ scope, value: 'Backend connection is not configured. Set VITE_API_BASE_URL, or explicitly select VITE_APP_MODE=demo to view sample data.' })
+      setLoadingRecord({ scope, value: false })
       return
     }
     try {
-      const quoteData = await apiClient.getQuote()
+      const quoteData = await apiClient.getQuote(quoteId)
       const orderData = customerMode && quoteData && apiClient.getCustomerOrder
         ? await apiClient.getCustomerOrder(quoteData.numericId || quoteData.id)
         : customerMode
           ? null
           : await apiClient.listOrders()
-      setOrders(Array.isArray(orderData) ? orderData : orderData ? [orderData] : customerMode && isDemoMode ? await apiClient.listOrders() : [])
-      setQuote(quoteData)
-      setError('')
+      const resolvedOrders = Array.isArray(orderData) ? orderData : orderData ? [orderData] : customerMode && isDemoMode ? await apiClient.listOrders() : []
+      if (!isCurrentRequest()) return
+      setOrdersRecord({ scope, value: resolvedOrders })
+      setQuoteRecord({ scope, value: quoteData })
+      setErrorRecord({ scope, value: '' })
     } catch (caught) {
-      setError(caught?.message || 'Your data could not be loaded. Refresh the page to try again.')
+      if (isCurrentRequest()) {
+        if (caught?.status === 401 || caught?.status === 403) {
+          setOrdersRecord({ scope, value: [] })
+          setQuoteRecord({ scope, value: null })
+        }
+        setErrorRecord({ scope, value: caught?.message || 'Your data could not be loaded. Refresh the page to try again.' })
+      }
     } finally {
-      setLoading(false)
+      if (isCurrentRequest()) setLoadingRecord({ scope, value: false })
     }
-  }, [customerMode])
+  }, [customerMode, quoteId, scope, enabled])
 
   useEffect(() => {
+    if (!enabled) return undefined
     const timer = window.setTimeout(() => { void refresh() }, 0)
     return () => window.clearTimeout(timer)
-  }, [refresh])
+  }, [refresh, enabled])
 
   useEffect(() => {
     if (!notice) return undefined
-    const timer = window.setTimeout(() => setNotice(''), 3600)
+    const timer = window.setTimeout(() => {
+      setNoticeRecord((current) => current.scope === scope ? { ...current, value: '' } : current)
+    }, 3600)
     return () => window.clearTimeout(timer)
-  }, [notice])
+  }, [notice, scope])
 
   const mutate = async (action, success) => {
-    setError('')
+    setErrorRecord({ scope, value: '' })
     try {
-      await action()
+      const result = await action()
       await refresh()
-      setNotice(success)
+      setNoticeRecord({ scope, value: success })
+      return result ?? true
     } catch (caught) {
-      setError(caught.message || 'Something went wrong. Please try again.')
+      setErrorRecord({ scope, value: caught.message || 'Something went wrong. Please try again.' })
+      return false
     }
   }
 
   const dismiss = () => {
-    setError('')
-    setNotice('')
+    setErrorRecord({ scope, value: '' })
+    setNoticeRecord({ scope, value: '' })
   }
 
   return { orders, quote, loading, notice, error, refresh, mutate, dismiss }

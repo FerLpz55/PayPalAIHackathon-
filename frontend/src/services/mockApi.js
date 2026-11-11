@@ -1,4 +1,5 @@
 import { ORDER_STATUS_TRANSITIONS } from '../utils/constants.js'
+import { extractMeasurements } from './adapters.js'
 
 const STORAGE_KEY = 'tallerclaro.demo.v1'
 
@@ -27,13 +28,21 @@ const delay = (value) => new Promise((resolve) => window.setTimeout(() => resolv
 
 export const mockApi = {
   async listOrders() { return delay(state.orders) },
-  async getQuote() { return delay(state.quote) },
+  async getQuote(quoteId) {
+    if (!state.quote) return delay(null)
+    if (quoteId != null) {
+      const requested = String(quoteId).trim()
+      const matches = requested === String(state.quote.id) || requested.replace(/\D/g, '') === String(state.quote.id).replace(/\D/g, '')
+      if (!matches) return delay(null)
+    }
+    return delay(state.quote)
+  },
   async createQuote(input) {
     const quote = {
       id: `TC-${1050 + state.orders.filter((order) => Number(order.id.slice(3)) >= 1050).length}`,
       customer: input.customer.trim(), email: input.email.trim(), description: input.description.trim(),
       project: input.project || 'Custom wardrobe', total: 1200, deposit: 600, balance: 600,
-      measurements: { width: '1.20 m', height: '1.80 m', depth: '0.55 m' },
+      measurements: extractMeasurements(input.description),
       items: [
         { label: 'Melamine boards 18 mm · 3 sheets', amount: 360, kind: 'material' },
         { label: 'Edging · 12 m', amount: 40, kind: 'material' },
@@ -45,6 +54,21 @@ export const mockApi = {
     state.quote = quote
     persist()
     return delay(quote)
+  },
+  async submitMissingInfo(additionalInfo) {
+    if (!state.quote) throw new Error('Create a quote before adding details.')
+    state.quote = {
+      ...state.quote,
+      description: `${state.quote.description} | Additional details: ${additionalInfo}`,
+    }
+    persist()
+    return delay(state.quote)
+  },
+  async rejectQuote() {
+    if (!state.quote) throw new Error('Create a quote before rejecting it.')
+    state.quote = { ...state.quote, status: 'rejected' }
+    persist()
+    return delay(state.quote)
   },
   async approveQuote() {
     if (!state.quote) throw new Error('Create a quote before approving it.')

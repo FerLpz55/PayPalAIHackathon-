@@ -168,6 +168,47 @@ class PostgresQuoteRepository:
         quote.line_items = self._load_line_items(quote_id)
         return quote
 
+    def list_by_carpenter(
+        self,
+        carpenter_id: CarpenterId,
+        statuses: tuple[str, ...] | None,
+        limit: int,
+        offset: int,
+    ) -> list[Quote]:
+        status_filter = list(statuses) if statuses else None
+        rows = self._conn.execute(
+            """
+            SELECT id_cotizacion, id_cliente, id_carpintero, solicitud, descripcion,
+                   monto_total, estado, moneda, fecha_creacion, ultima_actualizacion,
+                   supuestos, informacion_faltante
+            FROM tallerclaro.cotizacion
+            WHERE id_carpintero = %s
+              AND (%s::text[] IS NULL OR estado = ANY(%s::text[]))
+            ORDER BY fecha_creacion DESC, id_cotizacion DESC
+            LIMIT %s OFFSET %s
+            """,
+            (carpenter_id, status_filter, status_filter, limit, offset),
+        ).fetchall()
+        quotes = [self._row_to_quote(row) for row in rows]
+        for quote in quotes:
+            quote.line_items = self._load_line_items(quote.id)
+        return quotes
+
+    def count_by_carpenter(
+        self, carpenter_id: CarpenterId, statuses: tuple[str, ...] | None
+    ) -> int:
+        status_filter = list(statuses) if statuses else None
+        row = self._conn.execute(
+            """
+            SELECT COUNT(*)
+            FROM tallerclaro.cotizacion
+            WHERE id_carpintero = %s
+              AND (%s::text[] IS NULL OR estado = ANY(%s::text[]))
+            """,
+            (carpenter_id, status_filter, status_filter),
+        ).fetchone()
+        return row[0] if row is not None else 0
+
     def _save_quote_header(self, quote: Quote) -> None:
         assumptions = list(quote.assumptions or [])
         missing_info = list(quote.missing_info or [])

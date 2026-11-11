@@ -10,9 +10,10 @@ from tallerclaro.application.use_cases import (
     CreateQuote,
     GenerateQuoteProposal,
     GetQuote,
+    ListQuotes,
     RejectQuote,
 )
-from tallerclaro.domain.entities import QUOTE_STATUS_NEEDS_INFORMATION, QuoteId
+from tallerclaro.domain.entities import QUOTE_STATUS_NEEDS_INFORMATION, CarpenterId, QuoteId
 from tallerclaro.presentation.http.dependencies import (
     AIServiceDep,
     PriceLookupServiceDep,
@@ -31,6 +32,8 @@ from tallerclaro.presentation.http.schemas.quotes import (
     CreateQuoteRequest,
     GenerateQuoteRequest,
     QuoteGenerateResponse,
+    QuoteListItemResponse,
+    QuoteListResponse,
     QuoteResponse,
 )
 
@@ -59,6 +62,38 @@ def create_quote(
     return _to_quote_response(
         result.quote, customer_token=result.customer_token, suggested_products=suggestions
     )
+
+
+@router.get("/quotes")
+def list_quotes(
+    principal: WorkshopCarpenterDep,
+    uow: UnitOfWorkDep,
+    status_filter: list[str] | None = Query(
+        None,
+        alias="status",
+        description="Estados a incluir (repetible o separados por coma), p. ej. draft,needs_information",
+    ),
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+) -> QuoteListResponse:
+    """Bandeja del taller: solicitudes y cotizaciones propias. Requiere Basic Auth del taller."""
+    statuses = tuple(
+        part.strip()
+        for raw in (status_filter or [])
+        for part in raw.split(",")
+        if part.strip()
+    ) or None
+    carpenter_id = CarpenterId(principal.carpenter_id)
+    enriched, total = ListQuotes(uow).execute(carpenter_id, statuses, limit, offset)
+    items = [
+        QuoteListItemResponse(
+            **_to_quote_response(quote).model_dump(),
+            customer_name=customer_name,
+            customer_email=customer_email,
+        )
+        for quote, customer_name, customer_email in enriched
+    ]
+    return QuoteListResponse(quotes=items, total=total, limit=limit, offset=offset)
 
 
 @router.get("/quotes/{quote_id}")

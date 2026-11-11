@@ -18,7 +18,9 @@ function paymentError(error, operation) {
   return `The server could not ${operation}. No success is shown without server confirmation.`
 }
 
-function PayPalCheckout({ orderId, type, refresh }) {
+const COMPLETION_REDIRECT_MS = 1500
+
+function PayPalCheckout({ orderId, type, refresh, onCompleted }) {
   const [payment, setPayment] = useState(() => apiClient.getPendingPayment(orderId, type))
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
@@ -45,6 +47,7 @@ function PayPalCheckout({ orderId, type, refresh }) {
         apiClient.clearPendingPayment(pending.paymentId)
         setPayment({ ...pending, status: 'completed' })
         void refresh?.()
+        if (onCompleted) window.setTimeout(onCompleted, COMPLETION_REDIRECT_MS)
       } else if (['failed', 'cancelled'].includes(String(result?.status || '').toLowerCase())) {
         apiClient.discardPendingPayment(pending.paymentId)
         setPayment({ ...pending, status: String(result.status).toLowerCase() })
@@ -58,7 +61,7 @@ function PayPalCheckout({ orderId, type, refresh }) {
       if (active) setError(paymentError(caught, 'read this payment'))
     })
     return () => { active = false }
-  }, [orderId, type, refresh])
+  }, [orderId, type, refresh, onCompleted])
 
   const startPayment = async () => {
     setBusy(true)
@@ -91,7 +94,8 @@ function PayPalCheckout({ orderId, type, refresh }) {
         setMessage('Payment successfully verified and confirmed by PayPal.')
         apiClient.clearPendingPayment(payment.paymentId)
         setPayment({ ...payment, status: 'completed' })
-        void refresh?.()
+        await refresh?.()
+        if (onCompleted) window.setTimeout(onCompleted, COMPLETION_REDIRECT_MS)
       } else {
         setMessage('Capture pending confirmation from PayPal. Please try again.')
       }
@@ -131,7 +135,7 @@ function PayPalCheckout({ orderId, type, refresh }) {
       {payment && !completed && ['failed', 'cancelled'].includes(String(payment.status || '').toLowerCase()) && <Button variant="paypal" className="full" disabled={busy} onClick={() => { setPayment(null); setMessage('Starting a new attempt.'); void startPayment() }}>Start a new payment attempt</Button>}
       {message && <p role="status" className="status-help">{message}</p>}
       {error && <p role="alert" className="error-message">{error}</p>}
-      {completed && <p role="status" className="status-paid">Payment verified & confirmed by workshop.</p>}
+      {completed && <p role="status" className="status-paid">Payment verified & confirmed by workshop.{onCompleted ? ' Opening your order tracking…' : ''}</p>}
     </section>
   )
 }

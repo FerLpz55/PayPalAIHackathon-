@@ -113,6 +113,13 @@ function PaymentReturnPage({ cancelled = false, go, refresh }) {
     void verify({ shouldCapture: !cancelled })
   }, [cancelled, verify])
 
+  // Pago confirmado por el backend ⇒ llevar al cliente al seguimiento del pedido.
+  useEffect(() => {
+    if (phase !== 'confirmed') return undefined
+    const timer = window.setTimeout(() => go('customer/tracking'), 1500)
+    return () => window.clearTimeout(timer)
+  }, [phase, go])
+
   const retryPayment = () => {
     const saved = apiClient.getAnyPendingPayment()
     if (!saved) return

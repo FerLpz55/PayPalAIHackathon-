@@ -533,8 +533,7 @@ def test_payment_capture_when_order_in_progress_does_not_crash():
     dep_intent = CreateOrderPayment(uow, processor).execute(order.id, "deposit", authorized_quote_id=qid)
     CapturePayment(uow, processor).execute(dep_intent.payment_id, authorized_quote_id=qid)
 
-    # Taller inicia trabajo
-    UpdateOrder(uow).execute(order.id, carpenter_id=CarpenterId(1), input=UpdateOrderInput(status=ORDER_STATUS_IN_PROGRESS))
+    # Al confirmarse el anticipo el pedido pasa solo a in_progress
     with uow:
         order_in_prog = uow.orders.get_by_id(order.id)
     assert order_in_prog.status == ORDER_STATUS_IN_PROGRESS

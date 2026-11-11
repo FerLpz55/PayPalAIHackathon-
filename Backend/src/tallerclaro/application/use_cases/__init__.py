@@ -8,6 +8,7 @@ from tallerclaro.application.use_cases.quotes import (
     CreateQuote,
     GenerateQuoteProposal,
     GetQuote,
+    ListQuotes,
     RejectQuote,
     VerifyCustomerToken,
 )
@@ -17,6 +18,7 @@ __all__ = [
     "AskAccountingAssistant",
     "CreateQuote",
     "GetQuote",
+    "ListQuotes",
     "GenerateQuoteProposal",
     "ApproveQuote",
     "RejectQuote",

@@ -5,6 +5,7 @@ import {
   adaptAccountingSummary,
   parseNumericId,
   extractMeasurements,
+  getRemainingBalance,
 } from '../adapters.js'
 
 describe('parseNumericId', () => {
@@ -29,16 +30,23 @@ describe('extractMeasurements', () => {
     expect(result.depth).toBe('0.60 m')
   })
 
-  it('provides sensible defaults when text is empty', () => {
+  it('extracts dimensions described in English', () => {
+    const result = extractMeasurements('Desk 120 cm wide, 75 cm tall, and 55 cm deep')
+    expect(result.width).toBe('120 cm')
+    expect(result.height).toBe('75 cm')
+    expect(result.depth).toBe('55 cm')
+  })
+
+  it('leaves unreported dimensions blank instead of inventing defaults', () => {
     const result = extractMeasurements('')
-    expect(result.width).toBe('1.20 m')
-    expect(result.height).toBe('1.80 m')
-    expect(result.depth).toBe('0.55 m')
+    expect(result.width).toBeNull()
+    expect(result.height).toBeNull()
+    expect(result.depth).toBeNull()
   })
 })
 
 describe('adaptQuoteResponse', () => {
-  it('normalizes total, 50% deposit and remaining balance', () => {
+  it('normalizes amounts and does not infer missing deposit or balance values', () => {
     const raw = {
       id: 55,
       code: 'TC-55',
@@ -55,11 +63,16 @@ describe('adaptQuoteResponse', () => {
     const adapted = adaptQuoteResponse(raw)
     expect(adapted.numericId).toBe(55)
     expect(adapted.total).toBe(1200)
-    expect(adapted.deposit).toBe(600)
-    expect(adapted.balance).toBe(600)
+    expect(adapted.deposit).toBeNull()
+    expect(adapted.balance).toBeNull()
     expect(adapted.items).toHaveLength(2)
     expect(adapted.items[0].kind).toBe('material')
     expect(adapted.items[1].kind).toBe('labor')
+  })
+
+  it('keeps blank and malformed totals unknown', () => {
+    expect(adaptQuoteResponse({ id: 56, status: 'draft', total: '', items: [] }).total).toBeNull()
+    expect(adaptQuoteResponse({ id: 57, status: 'draft', total: 'not-a-number', items: [] }).total).toBeNull()
   })
 
   it('returns null for an empty payload', () => {
@@ -68,7 +81,7 @@ describe('adaptQuoteResponse', () => {
 })
 
 describe('adaptOrderResponse', () => {
-  it('normalizes order identifiers and balances', () => {
+  it('normalizes order identifiers without inferring payment splits', () => {
     const adapted = adaptOrderResponse({
       id: 77,
       code: 'TC-77',
@@ -81,13 +94,19 @@ describe('adaptOrderResponse', () => {
     expect(adapted.id).toBe('TC-77')
     expect(adapted.orderId).toBe(77)
     expect(adapted.quoteId).toBe(12)
-    expect(adapted.deposit).toBe(450)
+    expect(adapted.deposit).toBeNull()
     expect(adapted.remainingBalance).toBe(450)
+  })
+
+  it('derives a remaining balance only when total and paid amounts are known', () => {
+    expect(getRemainingBalance({ amount: 1000, paid: 350 })).toBe(650)
+    expect(getRemainingBalance({ amount: 1000, paid: 1200 })).toBe(0)
+    expect(getRemainingBalance({ amount: 1000, paid: null })).toBeNull()
   })
 })
 
 describe('adaptAccountingSummary', () => {
-  it('normalizes financial summary fields with defaults', () => {
+  it('normalizes financial summary fields', () => {
     const summary = adaptAccountingSummary({
       currency: 'USD',
       orders_count: 5,
@@ -105,10 +124,10 @@ describe('adaptAccountingSummary', () => {
     expect(summary.pendingToCollect).toBe(1750.25)
   })
 
-  it('handles empty input gracefully', () => {
+  it('keeps absent financial values unknown', () => {
     const summary = adaptAccountingSummary()
     expect(summary.currency).toBe('USD')
-    expect(summary.ordersCount).toBe(0)
-    expect(summary.totalContracted).toBe(0)
+    expect(summary.ordersCount).toBeNull()
+    expect(summary.totalContracted).toBeNull()
   })
 })

@@ -461,13 +461,7 @@ def test_adversarial_two_stage_payment_lifecycle():
     cap_dep = CapturePayment(uow, processor).execute(intent_dep.payment_id, authorized_quote_id=qid)
     assert cap_dep.status == "completed"
 
-    # Order remains pending because only 50% paid
-    with uow:
-        order_after_dep = uow.orders.get_by_id(order.id)
-    assert order_after_dep.status == ORDER_STATUS_PENDING
-
-    # 2. Workshop begins work
-    UpdateOrder(uow).execute(order.id, carpenter_id=CarpenterId(1), input=UpdateOrderInput(status="in_progress"))
+    # 2. Confirmed deposit moves the order to in_progress automatically
     with uow:
         order_in_progress = uow.orders.get_by_id(order.id)
     assert order_in_progress.status == ORDER_STATUS_IN_PROGRESS

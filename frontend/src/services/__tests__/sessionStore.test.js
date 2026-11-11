@@ -6,9 +6,12 @@ import {
   getCompletedPayment,
   getPendingPayment,
   getSession,
+  clearWorkshopCredentials,
+  getWorkshopCredentials,
   readPendingPayment,
   savePendingPayment,
   saveSession,
+  setWorkshopCredentials,
 } from '../sessionStore.js'
 
 describe('sessionStore', () => {
@@ -16,6 +19,7 @@ describe('sessionStore', () => {
 
   beforeEach(() => {
     mockStore = {}
+    clearWorkshopCredentials()
     globalThis.sessionStorage = {
       getItem(key) {
         return Object.prototype.hasOwnProperty.call(mockStore, key) ? mockStore[key] : null
@@ -30,6 +34,28 @@ describe('sessionStore', () => {
         mockStore = {}
       },
     }
+  })
+
+  it('keeps workshop Basic credentials in memory only', () => {
+    const authorization = setWorkshopCredentials('workshop-user', 'fake-password')
+
+    expect(getWorkshopCredentials()).toBe(authorization)
+    expect(atob(authorization)).toBe('workshop-user:fake-password')
+    expect(mockStore).toEqual({})
+
+    clearWorkshopCredentials()
+    expect(getWorkshopCredentials()).toBeNull()
+  })
+
+  it('rejects an invalid Basic username or empty password', () => {
+    expect(() => setWorkshopCredentials('user:name', 'fake-password')).toThrow()
+    expect(() => setWorkshopCredentials('workshop-user', '')).toThrow()
+    expect(getWorkshopCredentials()).toBeNull()
+  })
+
+  it('does not reuse workshop credentials stored in sessionStorage', () => {
+    mockStore['tallerclaro.session.v1'] = JSON.stringify({ workshopCredentials: 'c3RhbGU=' })
+    expect(getWorkshopCredentials()).toBeNull()
   })
 
   it('manages session lifecycle (save, get, clear)', () => {

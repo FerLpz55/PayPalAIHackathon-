@@ -73,7 +73,7 @@ pnpm run test && pnpm run lint && pnpm run build
 - La reserva se confirma antes de llamar a PayPal y se libera al persistir la captura completada. Los errores mantienen el bloqueo para otros pagos del pedido.
 - El procesador usa una clave de idempotencia estable por orden y consulta la orden tras un HTTP de captura no exitoso. Un timeout requiere reintentar el mismo pago. No hay conciliación en segundo plano ni herramienta de resolución manual.
 - Las pruebas con dobles no demuestran capturas simultáneas en PostgreSQL ni idempotencia real de PayPal.
-- El frontend aún usa credenciales guardadas o `taller:demo-password` para rutas de taller. Su flujo de cliente llama a generación protegida por Basic; documentar esta limitación y no habilitar credenciales demo en el backend como solución.
+- El frontend usa la sesión del taller (diálogo de inicio de sesión) para rutas de taller. La generación con IA es acción del taller: el cliente crea la solicitud y el taller la genera desde la bandeja `GET /api/quotes` (página Quotes). No habilitar credenciales demo en el backend.
 - Verificación local: 120 pruebas backend aprobadas y una advertencia de `pytest-asyncio`. TestClient se bloqueó en el sandbox y pasó fuera de él con pytest normal. No atribuir el bloqueo a plugins sin evidencia.
 
 ## Gestión de issues

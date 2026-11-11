@@ -15,8 +15,6 @@ from tallerclaro.application.exceptions import (
 )
 from tallerclaro.application.interfaces import PaymentProcessor, UnitOfWork
 from tallerclaro.domain.entities import (
-    ORDER_STATUS_PAID,
-    ORDER_STATUS_PENDING,
     PAYMENT_STATUS_COMPLETED,
     PAYMENT_STATUS_PENDING,
     Money,
@@ -212,8 +210,7 @@ class CapturePayment:
 
     def _maybe_mark_order_paid(self, order: Order) -> None:
         payments = self._uow.payments.list_by_order(order.id)
-        if order.is_fully_paid(payments) and order.status == ORDER_STATUS_PENDING:
-            order.update_status(ORDER_STATUS_PAID)
+        order.advance_after_payment(payments)
 
     @staticmethod
     def _ensure_payment_is_pending(payment: Payment) -> None:

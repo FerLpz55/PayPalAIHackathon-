@@ -1,307 +1,195 @@
-# TallerClaro backend
+﻿# TallerClaro Backend
 
-Monolito FastAPI organizado por capas para cotizaciones, pedidos y pagos de TallerClaro.
+FastAPI backend for carpentry quotes, workshop orders, PayPal payments, and workshop financial summaries. It is a layered monolith. The code includes integration adapters, but the presence of an adapter does not prove that its provider or deployment is available.
 
-## Estado actual
+## Status and verification boundary
 
-- Arquitectura por capas: `domain`, `application`, `infrastructure`, `presentation`, `bootstrap`.
-- Entidades de dominio con `Decimal`, estados validados y reglas de negocio.
-- Casos de uso para cotizaciones, pedidos, pagos y asistente contable.
-- Repositorios PostgreSQL, servicios de IA (cotizaciones y asistente contable) y procesador de PayPal desacoplados mediante interfaces de aplicación; el procesador PayPal delega transporte HTTP y parseo de respuestas en colaboradores independientes.
-- Asistente contable con IA: resume totales verificados en dominio (sin datos personales de clientes) y explica las cifras en lenguaje simple fuera de las transacciones SQL.
-- Reserva de captura separada del contrato general de pedidos mediante un protocolo dedicado expuesto por el Unit of Work.
-- Cálculo de importes y elegibilidad de pagos centralizados en el dominio; los casos de uso solo cargan datos, autorizan, coordinan y persisten.
-- Endpoints HTTP documentados en OpenAPI bajo `/api`.
-- Pruebas unitarias, de aplicación y de API con dobles de memoria (298 pruebas aprobadas).
+Source includes domain rules, use cases, PostgreSQL repositories, workshop authentication, customer tokens, OpenAI-compatible AI services, Channel3 price search, and a server-side PayPal REST integration.
 
-**Pendiente de conexión real:**
+Local verification on November 9, 2026 ran the fake-backed pytest suite: **327 passed**. This does not establish PostgreSQL persistence or external availability. PostgreSQL, AI, Channel3, PayPal Sandbox, and a deployed API were not contacted; actual SQL behavior, PayPal idempotency, and concurrent database captures remain unverified.
 
-- PostgreSQL en Supabase: configurar `DATABASE_URL` y verificar conexión y esquema.
-- IA: configurar `TALLERCLARO_AI_PROVIDER`, `TALLERCLARO_AI_API_KEY` y `TALLERCLARO_AI_MODEL`.
-- PayPal Sandbox: configurar `TALLERCLARO_PAYPAL_MODE=sandbox`, `TALLERCLARO_PAYPAL_CLIENT_ID`, `TALLERCLARO_PAYPAL_CLIENT_SECRET` y las URL HTTPS de retorno/cancelación.
-- Verificar concurrencia con PostgreSQL y recuperación operativa de capturas inciertas; los dobles de memoria no prueban estas integraciones.
+Important integration gaps:
 
-## Desarrollo
+- Backend startup requires a reachable PostgreSQL database and valid workshop bcrypt hash.
+- Workshop authentication uses HTTP Basic. The frontend now has a sign-in flow that keeps credentials in page memory and validates them through the existing read-only orders endpoint. It was checked only against a local HTTP stub, not FastAPI; quote generation remains workshop-protected when initiated from the customer flow.
+- Customer tokens are returned from quote creation, but no email delivery or cross-device recovery path is included.
+- No webhook, refund, payment-cancel endpoint, background reconciliation, receipt upload, or expense ledger was found. Workshop PATCH can set order status; a manually assigned paid status must not be treated as proof of a PayPal capture.
+- The CORS setting defaults to wildcard in source; set explicit frontend origins for deployments.
+- The current API health route is liveness only; it does not check PostgreSQL.
 
-Desde `Backend/`, con Python 3.11 o superior y `uv`:
+## Architecture
 
-```bash
-uv venv .venv
-source .venv/bin/activate
-uv pip install -e '.[dev]'
-```
+    src/tallerclaro/
+      main.py                         FastAPI composition and lifespan
+      bootstrap/settings.py           Environment-backed settings
+      domain/                         Entities, values, money and status rules
+      application/                    DTOs, interfaces, errors and use cases
+        use_cases/                    Quotes, orders, payments, accounting, authorization
+      infrastructure/
+        db/                            psycopg pool, repositories, unit of work
+        ai/                            Quote AI, accounting assistant, Channel3 lookup
+        payment/                       PayPal processor, HTTP transport and response parsers
+        security/                      Workshop bcrypt and customer token services
+      presentation/http/
+        routers/                       API route handlers
+        schemas/                       Pydantic wire contracts
+        dependencies.py                Authentication and dependency wiring
+        exception_handlers.py          Domain/validation error mapping
+        mappers.py                     Domain-to-response mapping
+      tests/                           pytest suites and in-memory fakes
 
-Copia la plantilla de configuración:
+The domain owns money calculations, eligibility, and order state transitions. Application use cases coordinate repositories and provider interfaces. Routers handle HTTP/authentication and delegate to use cases. Infrastructure implements SQL and external HTTP calls. There is no ORM.
 
-```bash
-cp .env.example .env
-# Edita .env con los valores reales.
-```
+AI and PayPal calls are designed to happen outside SQL transactions. Payment capture uses a reservation, provider request ID, strict response parsing, and persisted verification before a payment counts as complete.
 
-Configura `TALLERCLARO_WORKSHOP_PASSWORD_HASH` con un hash bcrypt válido; el
-servidor rechaza un hash ausente o inválido al arrancar. Para generarlo sin
-introducir la contraseña en el historial de comandos, desde `Backend/` ejecuta:
+## Requirements
 
-```bash
-.venv/bin/python -c 'import bcrypt, getpass; print(bcrypt.hashpw(getpass.getpass().encode(), bcrypt.gensalt()).decode())'
-```
+- Python 3.11 or newer.
+- uv for local environment setup.
+- PostgreSQL 15 or newer as documented by the database guide; Supabase is the managed option.
+- A valid workshop bcrypt password hash.
+- A database schema compatible with the checked-in repositories.
+- Optional provider credentials for AI, Channel3 price search, and PayPal.
 
-Si PostgreSQL no está disponible al arrancar, el proceso falla y debe reiniciarse.
+The Render service configuration selects Python 3.11.10. The local .python-version file also specifies 3.11.10. The project dependency ranges are in pyproject.toml; requirements.txt contains an editable project install.
 
-Arranca el servidor local con FastAPI CLI (`fastapi[standard]`):
+## Install and start locally
 
-```bash
-fastapi dev src/tallerclaro/main.py
-```
+From the repository root:
 
-Documentación interactiva: <http://127.0.0.1:8000/docs>
+    cd Backend
+    uv venv .venv
 
-### Conexión a PostgreSQL en Supabase
+Activate the virtual environment:
 
-Al ejecutar desde `Backend/`, el backend carga automáticamente `.env`. Puedes
-mantener la URL de tu base de Supabase en `DATABASE_URL` usando el **Session Pooler**
-(puerto `5432`, compatible con IPv4 y sesiones persistentes de FastAPI), por
-ejemplo con valores ficticios:
+    # macOS/Linux
+    source .venv/bin/activate
 
-```dotenv
-DATABASE_URL=postgresql://postgres.<project-ref>:example%402026@aws-0-us-east-1.pooler.supabase.com:5432/postgres?sslmode=require
-```
+    # Windows PowerShell
+    .venv\Scripts\Activate.ps1
 
-El pool de conexiones (`Database`) desactiva prepared statements automáticos
-(`prepare_threshold=None`) y `PostgresUnitOfWork` aplica `SET LOCAL TRANSACTION ISOLATION LEVEL SERIALIZABLE`
-al abrir cada transacción. La conexión recomendada es el Session Pooler
-(`5432`); la compatibilidad real del entorno desplegado requiere verificación.
+Install runtime and development dependencies:
 
-Se mantiene `TALLERCLARO_DATABASE_URL` por compatibilidad. Dentro de cada fuente
-de configuración gana `DATABASE_URL`; las variables del proceso prevalecen sobre
-`.env`, y los argumentos explícitos de `Settings` prevalecen sobre ambas.
-Si no hay URL, se usan los campos `TALLERCLARO_DATABASE_*` de la plantilla.
+    uv pip install -e '.[dev]'
 
-La URL tiene prioridad sobre esos campos: usuario, base, puerto y SSL se toman
-de la propia URL. El backend normaliza en memoria los `@` sin escapar de la
-contraseña y conserva los ya codificados como `%40`, sin modificar `.env`.
-Los demás caracteres reservados deben estar codificados en la URL.
+Prepare Backend/.env from Backend/.env.example and configure a real PostgreSQL connection plus a valid bcrypt workshop password hash. In PowerShell, from Backend, start with Copy-Item .env.example .env. Do not commit .env or real credentials. The backend loads .env from the working directory. Generate the bcrypt hash locally with an approved password-management process; only the hash belongs in TALLERCLARO_WORKSHOP_PASSWORD_HASH. Start the API from Backend:
 
-`GET /api/health` comprueba la disponibilidad HTTP; no verifica PostgreSQL.
-La conexión real se comprueba por separado con consultas de solo lectura y
-revisando que existan el esquema y las migraciones necesarias. No aplicar
-migraciones automáticamente contra la base desplegada.
+    fastapi dev src/tallerclaro/main.py
 
-En Windows PowerShell, activar con `.venv\Scripts\Activate.ps1`.
+The API is served locally on 127.0.0.1:8000 by FastAPI CLI. Interactive API documentation is available at /docs. The backend fails startup when the workshop password hash is missing/invalid or the initial PostgreSQL connection fails.
 
-## Pruebas
+To create a bcrypt hash, use an approved local password-management process and place only the hash in TALLERCLARO_WORKSHOP_PASSWORD_HASH. Frontend Basic credentials are entered by a workshop user and held only in browser memory; they are not a backend default or a substitute for a properly configured hash.
 
-```bash
-python -m pytest
-# o
-uv run pytest
-```
+## Configuration
 
-Las pruebas usan dobles en memoria y no requieren PostgreSQL ni PayPal.
-Su configuración se aísla del `.env` local y de las variables de credenciales
-del proceso para evitar conexiones accidentales a servicios reales.
+The settings are defined in src/tallerclaro/bootstrap/settings.py; the template is .env.example. Process environment variables take precedence over .env values. DATABASE_URL and TALLERCLARO_DATABASE_URL are accepted aliases; DATABASE_URL takes precedence if both are set in one source.
 
-Verificación local del 2026-11-08: `Backend/.venv/bin/pytest Backend` produjo 298 pruebas
-aprobadas y una advertencia de deprecación de `pytest-asyncio` con Python 3.14.
-No se validaron servicios reales ni capturas simultáneas contra PostgreSQL.
+| Variable | Requiredness | Purpose |
+|---|---|---|
+| DATABASE_URL or TALLERCLARO_DATABASE_URL | Required for deployed DB use | PostgreSQL DSN; recommended Supabase Session Pooler with SSL. |
+| TALLERCLARO_DATABASE_HOST | Required only if no DSN is set | PostgreSQL host; default localhost. |
+| TALLERCLARO_DATABASE_PORT | Optional with local DB settings | PostgreSQL port; default 5432. |
+| TALLERCLARO_DATABASE_NAME | Optional with local DB settings | Database name; default tallerclaro. |
+| TALLERCLARO_DATABASE_USER | Optional with local DB settings | Database role; template uses tallerclaro_app. |
+| TALLERCLARO_DATABASE_PASSWORD | Required for password-authenticated local DB settings | Database password. |
+| TALLERCLARO_DATABASE_SSL_MODE | Optional | PostgreSQL SSL mode; template default is prefer. |
+| TALLERCLARO_DATABASE_POOL_MIN_SIZE / TALLERCLARO_DATABASE_POOL_MAX_SIZE | Optional | Pool sizing; template defaults are 2 and 10. |
+| TALLERCLARO_APP_NAME | Optional | FastAPI title. |
+| TALLERCLARO_WORKSHOP_USERNAME | Optional | Workshop username; template default is taller. |
+| TALLERCLARO_WORKSHOP_CARPENTER_ID | Optional | Carpenter scope; source default is 1. |
+| TALLERCLARO_WORKSHOP_PASSWORD_HASH | Required at startup | Valid bcrypt hash. No usable default is provided. |
+| TALLERCLARO_CUSTOMER_TOKEN_SECRET | Required for secure deployment | Strong secret for customer token hashing. Source/template placeholder must be replaced. |
+| TALLERCLARO_CUSTOMER_TOKEN_TTL_HOURS | Optional | Token TTL in hours; default 72. |
+| TALLERCLARO_CORS_ORIGINS | Required for secured cross-origin deployment | Comma-separated origins or JSON array. Set explicit frontend origins; source default is wildcard. |
+| TALLERCLARO_AI_PROVIDER | Optional; default none | Supported values: none, openai, openrouter. |
+| TALLERCLARO_AI_API_KEY | Required when AI is enabled | Provider API key. |
+| TALLERCLARO_AI_MODEL | Optional | Model name; source fallback is gpt-4o-mini. |
+| TALLERCLARO_AI_BASE_URL | Optional | OpenAI-compatible API base. Source default is OpenAI API base. |
+| TALLERCLARO_PRICE_LOOKUP_PROVIDER | Optional; default none | Implemented factories: none and channel3. The web value in comments is not implemented. |
+| TALLERCLARO_PRICE_LOOKUP_API_KEY | Required for Channel3 | Channel3 server-side key. |
+| TALLERCLARO_PRICE_LOOKUP_BASE_URL | Optional | Channel3 API base; source has a provider default. |
+| TALLERCLARO_PAYPAL_MODE | Optional; default none | Supported values: none, sandbox, live. |
+| TALLERCLARO_PAYPAL_CLIENT_ID / TALLERCLARO_PAYPAL_CLIENT_SECRET | Required when PayPal is enabled | PayPal REST OAuth credentials; server-side only. |
+| TALLERCLARO_PAYPAL_BASE_URL | Optional | Override inferred base URL. |
+| TALLERCLARO_PAYPAL_RETURN_URL / TALLERCLARO_PAYPAL_CANCEL_URL | Required when PayPal is enabled | HTTPS frontend return/cancel routes. |
 
-## Estructura
+The Render config also declares PYTHON_VERSION and the host supplies PORT. Do not expose AI, database, PayPal, or token secrets in VITE_* variables.
 
-```text
-Backend/
-  pyproject.toml
-  .env.example
-  src/tallerclaro/
-    main.py
-    bootstrap/
-      settings.py
-    domain/
-      entities.py
-      value_objects.py
-      accounting.py
-      exceptions.py
-    application/
-      interfaces.py
-      dtos.py
-      exceptions.py
-      use_cases/
-        authorization.py
-        quotes.py
-        orders.py
-        payments.py
-        accounting.py
-    infrastructure/
-      db/
-        connection.py
-        unit_of_work.py
-        repositories.py
-      ai/
-        service.py
-        accounting_service.py
-      payment/
-        paypal_processor.py
-        paypal_transport.py
-        paypal_parsing.py
-      security/
-        token_service.py
-        workshop_auth.py
-    presentation/http/
-      routers/
-        health.py
-        quotes.py
-        orders.py
-        payments.py
-        accounting.py
-      schemas/
-        health.py
-        quotes.py
-        orders.py
-        payments.py
-        accounting.py
-        common.py
-      dependencies.py
-      exception_handlers.py
-      mappers.py
-  tests/
-    domain/
-    application/
-    api/
-    unit/
-    fakes.py
-```
+## Database setup
 
-## API
+Supabase is used only as managed PostgreSQL. The app connects directly with psycopg using DATABASE_URL; it does not use Supabase Auth, PostgREST, Edge Functions, or Supabase SDKs.
 
-Prefijo: `/api`
+For a new database, see ../database/README.md and apply database/schema.sql using the SQL Editor or psql. For an existing database, inspect the schema and apply only missing numbered migrations under an approved database change process. There is no migration runner. Startup does not automatically apply migrations.
 
-| Método | Endpoint | Descripción |
-| --- | --- | --- |
-| GET | `/health` | Comprobación de vida |
-| POST | `/quotes` | Crear cliente y cotización draft |
-| GET | `/quotes/{id}` | Consultar cotización |
-| POST | `/quotes/{id}/generate` | Generar propuesta con IA |
-| POST | `/quotes/{id}/approve` | Aprobar cotización y crear pedido |
-| POST | `/quotes/{id}/reject` | Rechazar cotización |
-| GET | `/orders` | Listar pedidos del taller |
-| GET | `/orders/{id}` | Consultar pedido con pagos y saldo |
-| PATCH | `/orders/{id}` | Actualizar estado/fecha estimada |
-| POST | `/orders/{id}/payments` | Crear intento de pago PayPal |
-| POST | `/payments/{id}/capture` | Capturar pago en PayPal |
-| GET | `/payments/{id}` | Consultar intento de pago |
-| GET | `/accounting/summary` | Resumen financiero del taller |
-| POST | `/accounting/assistant` | Preguntar al asistente contable |
+The pool disables automatic prepared statements for Supavisor compatibility and the unit of work sets SERIALIZABLE isolation. A successful GET /api/health does not verify the database.
 
-### Autorización
+## API routes and access
 
-- Sin autenticación: `GET /api/health` y `POST /api/quotes`; esta última devuelve el token del cliente.
-- Taller: `GET /api/orders`, `PATCH /api/orders/{id}`, `POST /api/quotes/{id}/generate`, `GET /api/accounting/summary` y `POST /api/accounting/assistant` requieren Basic Auth; el servidor verifica la contraseña contra `TALLERCLARO_WORKSHOP_PASSWORD_HASH`.
-- Cliente: crear, consultar y capturar pagos requieren `X-Customer-Token` o `Authorization: Bearer`.
-- Lectura, aprobación y rechazo de cotizaciones, y detalle de pedido, aceptan token del cliente o Basic del taller mediante `PrincipalDep`, con validación de pertenencia en aplicación.
+All routes use the /api prefix.
 
-## Configuración
+| Method | Endpoint | Access | Purpose |
+|---|---|---|---|
+| GET | /api/health | Public | Application liveness; not DB readiness |
+| GET | /api/quotes | Workshop Basic | Workshop inbox; optional `status` filter (repeatable or comma-separated), `limit`, `offset` |
+| POST | /api/quotes | Public | Create customer and draft quote; returns customer_token |
+| GET | /api/quotes/{id} | Customer token or workshop Basic | Read quote; optional q query triggers price lookup |
+| POST | /api/quotes/{id}/generate | Workshop Basic | AI quote generation/refinement |
+| POST | /api/quotes/{id}/approve | Customer token or workshop Basic | Approve quote and create one order |
+| POST | /api/quotes/{id}/reject | Customer token or workshop Basic | Reject quote |
+| GET | /api/orders | Workshop Basic | Paginated workshop order list |
+| GET | /api/orders/{id} | Customer token or workshop Basic | Order details, payment summaries, paid and remaining amounts |
+| PATCH | /api/orders/{id} | Workshop Basic | Update status and/or estimated delivery date |
+| POST | /api/orders/{id}/payments | Customer token | Create a PayPal payment intent |
+| GET | /api/payments/{id} | Customer token | Read payment attempt |
+| POST | /api/payments/{id}/capture | Customer token | Capture and verify payment with PayPal |
+| GET | /api/accounting/summary | Workshop Basic | Aggregated order/payment totals |
+| POST | /api/accounting/assistant | Workshop Basic | Ask AI to explain aggregate totals |
 
-La configuración se define en `bootstrap/settings.py` y la plantilla es `.env.example`.
-Se usa el prefijo `TALLERCLARO_`, con `DATABASE_URL` como alias recomendado para PostgreSQL.
-El hash del taller no tiene un valor predeterminado utilizable. Cambia también el
-secreto de tokens de ejemplo y configura `TALLERCLARO_CORS_ORIGINS` para el frontend.
+Workshop authentication is HTTP Basic verified against TALLERCLARO_WORKSHOP_PASSWORD_HASH. Customer access uses X-Customer-Token or Authorization: Bearer. Quote and order access is checked against the principal in application use cases. Payment use cases receive the authorized quote scope from the token and validate its relationship to the payment/order.
 
-No incluir secretos en el código ni en variables `VITE_*`.
+No quote-list endpoint, receipt endpoint, expense endpoint, refund endpoint, PayPal webhook endpoint, or payment-cancellation endpoint is present in the current routers.
 
-## PostgreSQL
+## Integrations
 
-El esquema fuente de verdad está en [`database/schema.sql`](../database/schema.sql).
-Incluye 001–002 y la columna de reserva de 003 al crear tablas nuevas. En bases
-existentes, `CREATE TABLE IF NOT EXISTS` no añade esa columna: aplica la migración
-003 por separado antes del despliegue, con autorización explícita. No hay runner
-automático; consulta [`database/README.md`](../database/README.md).
+### AI
 
-Antes de aplicar una migración en el servidor desplegado, verifica de forma de solo lectura:
+Quote generation and the accounting assistant use HTTPX with an OpenAI-compatible Chat Completions API. The quote parser validates JSON and line items; the domain calculates totals. The accounting assistant sends aggregate facts, not customer names or email addresses, according to the implementation. The timeout is 60 seconds. No provider credential or live response was verified.
 
-```bash
-psql -h <host> -U <user> -d <db> -c "SELECT version();"
-psql -h <host> -U <user> -d <db> -c "\dt tallerclaro.*"
-psql -h <host> -U <user> -d <db> -c "\d tallerclaro.cotizacion"
-```
+### Channel3
 
-No ejecutes migraciones ni pruebas que escriban contra el servidor desplegado sin confirmar el entorno.
-
-## Reglas de negocio clave
-
-- Moneda única: USD.
-- Cálculo de importes con `Decimal` y redondeo a dos decimales.
-- La IA propone partidas; el servidor valida y calcula el total.
-- Una cotización debe estar en `pending_review` para aprobarse o rechazarse.
-- Al aprobarse, se crea como máximo un pedido con anticipo del 50 %.
-- Los pagos se confirman solo tras verificar la respuesta de PayPal en el servidor.
-- No se entrega un pedido sin el pago total verificado.
-
-## Integraciones
-
-### IA
-
-Configura un proveedor compatible con OpenAI. Si no hay credenciales, el servicio devuelve un error `SERVICE_UNAVAILABLE` claro.
+The price lookup service uses HTTPX against Channel3 search, with a v0 fallback when v1 returns 404. Its timeout is 10 seconds. It is disabled by default and returns no results when no key is configured. The web provider mentioned in comments has no registered implementation.
 
 ### PayPal
 
-Configura modo `sandbox` con credenciales reales de Sandbox. Si no hay credenciales, el procesador devuelve `SERVICE_UNAVAILABLE`. No se simulan pagos exitosos en la API real.
+The backend performs OAuth client-credentials and PayPal Orders v2 REST calls. It creates CAPTURE orders, obtains approval links, captures orders, and queries an order after a non-successful capture response. A stable PayPal-Request-Id is derived from the PayPal order ID.
 
-Define `TALLERCLARO_PAYPAL_RETURN_URL` y `TALLERCLARO_PAYPAL_CANCEL_URL` como
-URL HTTPS del frontend, por ejemplo `https://example.org/#/customer/payment/return`
-y `https://example.org/#/customer/payment/cancel`. Se validan al construir el
-procesador; con PayPal habilitado, una URL ausente o inválida impide el arranque.
+The parser/use case validate completed status, order and capture IDs, currency, and exact expected amount before persisting a completed payment. A database capture reservation is implemented in source. Live Sandbox behavior, provider idempotency, and concurrent database captures remain unverified. There are no webhooks, refunds, backend cancellation route, background reconciliation, or manual resolution tool.
 
-Antes de capturar se persiste `pedido.captura_en_curso`. Otros pagos del pedido
-quedan bloqueados hasta completar y guardar el intento reservado. El POST de
-captura lleva una clave `PayPal-Request-Id` estable por orden PayPal. Tras una
-respuesta HTTP no exitosa se consulta la orden y se valida una captura completada.
-Un fallo de conexión, timeout o protocolo HTTP se normaliza a
-`PAYMENT_PROVIDER_ERROR` (HTTP 502), sin exponer secretos ni excepciones HTTPX.
-No dispara una consulta adicional: requiere reintentar el mismo pago;
-no hay conciliación en segundo plano, liberación automática por vencimiento ni
-herramienta de resolución manual. Los errores mantienen la reserva. La
-recuperación local se probó con dobles, y la idempotencia del proveedor y la
-concurrencia real siguen pendientes de validación en Sandbox/PostgreSQL.
+## Business rules and persistence
 
-## Arquitectura
+- Currency is USD; monetary values use Decimal and are rounded to two decimals.
+- AI proposes line items; server validates and calculates the total.
+- Quote approval creates at most one order (code `TC-<1000 + quote id>`) and a 50% deposit.
+- A confirmed deposit moves a `pending` order to `in_progress`; a full payment on a `pending` order marks it `paid`.
+- A payment counts only after backend verification with PayPal.
+- Delivery requires fully verified payment.
+- Customer token values are stored hashed in PostgreSQL; the plaintext token is returned by quote creation.
+- No receipt/expense records, AI conversation history, or payment reconciliation history are implemented.
 
-- `domain`: Python puro, entidades y reglas. No depende de FastAPI, Pydantic, ORM ni SDK.
-- `application`: casos de uso e interfaces `Protocol` documentadas. Depende solo del dominio y de sus DTOs.
-- `infrastructure`: repositorios PostgreSQL, integraciones de IA y pagos que implementan las interfaces. El procesador PayPal es una fachada sobre `paypal_transport.py` (HTTP/OAuth) y `paypal_parsing.py` (validación pura de respuestas). `infrastructure/security/workshop_auth.py` concentra bcrypt y la validación del hash usada en arranque y autenticación.
-- `presentation/http`: routers, esquemas Pydantic, extracción de credenciales HTTP y autorización. Delega a los casos de uso; no calcula dinero.
-- `bootstrap` y `main.py`: configuración, composición mediante factorías registrables y arranque.
-- Los protocolos de repositorios, servicios, pagos y reserva de captura describen precondiciones, resultados, errores y semántica transaccional; los dobles de `tests/fakes.py` respetan las mismas firmas y la misma semántica de commit/rollback.
+## Testing
 
-## Matriz de aceptación local S.O.L.I.D
+Install the dev extra as above, activate the virtual environment, and from Backend run:
 
-Esta matriz documenta los criterios de la especificación SDD del refactor. Las
-firmas son comprobaciones auxiliares; el comportamiento se verifica con los
-escenarios enlazados. Las pruebas SQL usan cursores controlados, no un servidor:
-no certifican constraints, ejecución SQL ni concurrencia real de PostgreSQL.
+    python -m pytest
 
-| ID | Implementación | Evidencia local |
-| --- | --- | --- |
-| S1 | `Order` centraliza pagado, saldo, importe solicitado y elegibilidad; aplicación coordina | [Reglas monetarias](tests/domain/test_payment_rules.py), [captura](tests/application/test_capture_contract.py) |
-| S2 | PayPal separa fachada, transporte y parsers puros | [Parsing](tests/unit/test_paypal_parsing.py), [fallos de transporte](tests/unit/test_paypal_transport_errors.py) |
-| S3 | `workshop_auth.py` concentra bcrypt para arranque y autenticación | [Autenticación](tests/unit/test_workshop_auth_hash.py), [arranque](tests/unit/test_database_startup.py) |
-| S4 | `WorkshopFinancialSummary` agrega importes en dominio y `AccountingFactsFormatter` formatea texto sin I/O | [Resumen financiero](tests/domain/test_financial_summary.py), [asistente contable](tests/unit/test_accounting_service.py) |
-| O1 | Registros de factorías de IA y pagos con dependencias inyectadas | [Extensión de factorías](tests/unit/test_factory_registration.py) |
-| O2 | Registro de factorías de asistente contable (`build_accounting_assistant`) | [Servicio contable](tests/unit/test_accounting_service.py) |
-| L1 | Errores de transporte normalizados; repositorios del UoW se resuelven solo en contexto; tokens con reloj y vencimiento | [UoW](tests/unit/test_unit_of_work_contract.py), [tokens](tests/unit/test_customer_token_contract.py), [repositorios](tests/unit/test_repository_contracts.py), [HTTP 502](tests/api/test_payments.py) |
-| I1 | `CaptureReservationRepository` separado de pedidos; contratos sin lookup de pago no consumido | [Reservas](tests/unit/test_capture_reservation_contract.py), [firmas auxiliares](tests/unit/test_protocol_conformance.py) |
-| I2 | `AccountingAssistant` segregado de `AIService` para explicaciones de finanzas | [Firmas de protocolo](tests/unit/test_protocol_conformance.py) |
-| D1 | Dominio y aplicación independientes de frameworks, configuración e infraestructura | [Dependencias de capas](tests/unit/test_architecture_dependencies.py) |
+The configured pytest testpaths are tests. Suites cover domain, application, API behavior, and architecture/infrastructure contracts using fakes. They do not require live PostgreSQL, AI, or PayPal; passing tests cannot certify those external integrations.
 
-Resolver repositorios mediante un UoW, así como hacer commit o rollback, exige
-contexto activo en PostgreSQL y en el fake. Esto no invalida automáticamente
-referencias de repositorios obtenidas previamente. La preparación de fixtures
-del fake usa contextos explícitos y commit; la lectura usa contextos propios.
+The database acceptance script is database/tests/schema_test.sql. Run it only against a disposable test database because it executes SQL, even though its transaction rolls back. Do not run it against a deployed database without explicit approval.
 
-Los tokens se rechazan si son desconocidos, alterados, usados o si su vencimiento
-es anterior al instante UTC actual. El instante exacto de vencimiento conserva
-el comportamiento existente (`expiration < now`). Ambos servicios aceptan un
-reloj opcional por nombre; el rollback del fake restaura datos sin copiar el reloj.
+No live-provider integration test or deployment smoke command is defined here. Validate database connectivity, AI, Channel3, and PayPal Sandbox separately in an approved staging environment. This README does not claim any tests were run.
 
-La compatibilidad de rutas y campos de pagos se comprueba en
-[contrato HTTP](tests/api/test_http_contract.py); las pruebas de autenticación
-conservan la separación taller/cliente. No se cambian las limitaciones del
-frontend ni se añade resolución operativa de capturas.
+## Deployment
+
+render.yaml sets Backend as the service root, installs requirements.txt, starts Uvicorn on the platform PORT, and uses /api/health as the health-check path. Configure required variables in the Render environment. Do not assume health-check success means PostgreSQL is available.
+
+For database setup/migrations, see ../database/README.md. For frontend environment and Vercel setup, see ../frontend/README.md. For project overview, see ../README.md.

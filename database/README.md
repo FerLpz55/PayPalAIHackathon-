@@ -1,151 +1,113 @@
-# Base de datos — PostgreSQL (Supabase)
+﻿# TallerClaro Database
 
-Directorio central para el esquema SQL y los archivos relacionados con PostgreSQL
-(Supabase) de TallerClaro.
+PostgreSQL schema and operational notes for TallerClaro. Supabase is used only as a managed PostgreSQL host. The backend connects directly through psycopg and DATABASE_URL; this project does not use Supabase Auth, PostgREST, Edge Functions, or Supabase SDKs.
 
-## Estado actual
+Database provisioning, migrations, seeds, and SQL acceptance tests were not run. The backend's 314 passing unit/API tests use fakes and do not prove PostgreSQL persistence or that a deployed database matches the checked-in schema.
 
-- [x] Esquema inicial y actualización del esquema existente en `schema.sql`.
-- [x] Datos de demostración en `seeds/demo.sql`.
-- [x] Pruebas de aceptación del esquema en `tests/schema_test.sql`.
-- [x] Implementación de conexión con FastAPI y repositorios PostgreSQL preparados para Supabase Pooler (Supavisor); operación real pendiente de verificar.
-- [x] Migraciones numeradas en `migrations/`.
-- [ ] Verificar permisos y esquema del PostgreSQL en Supabase; verificar IA/PayPal.
+## Contents
 
-## Organización
+    database/
+      schema.sql
+      migrations/
+        001_add_customer_link_tokens.sql
+        002_add_quote_clarification_fields.sql
+        003_reserve_payment_capture.sql
+        004_add_cancelled_order_status.sql
+      seeds/demo.sql
+      tests/schema_test.sql
 
-```text
-database/
-  README.md                 este archivo
-  schema.sql                inicializacion y actualizacion del esquema tallerclaro
-  seeds/demo.sql            datos ficticios de ejemplo
-  tests/schema_test.sql     pruebas SQL que revierten sus datos al finalizar
-  migrations/               cambios posteriores numerados
-    001_add_customer_link_tokens.sql
-    002_add_quote_clarification_fields.sql
-    003_reserve_payment_capture.sql
-```
+## Requirements
 
-`schema.sql` incorpora 001–002 y la columna de 003 al crear tablas nuevas.
-Sobre una base existente, `CREATE TABLE IF NOT EXISTS` no añade esa columna:
-aplica 003 por separado. El esquema no sustituye futuras migraciones ni comprueba
-automáticamente todas las diferencias de una base modificada manualmente.
+- PostgreSQL 15 or newer; Supabase is the documented managed service.
+- Supabase SQL Editor or psql.
+- Backend connection through a PostgreSQL URL, preferably the Supabase Session Pooler documented in the project guide.
+- TLS for deployed database connections.
 
-## Requisitos
+The backend uses schema tallerclaro rather than public. PostgREST/Data API is not part of the application architecture.
 
-- Proyecto en **Supabase** (PostgreSQL 15+) o PostgreSQL 15–18 compatible.
-- SQL Editor de Supabase o cliente `psql` disponible.
+## Schema
 
-## Esquema
+The current schema has seven tables:
 
-- Base: en Supabase la base por defecto es `postgres`.
-- Esquema dedicado: `tallerclaro` (aislado de `public` y de PostgREST / Data API).
-- Seis tablas de negocio (`cliente`, `carpintero`, `cotizacion`,
-  `detalle_cotizacion`, `pedido`, `pago`) y `cliente_token`.
-- Convenciones: columnas en español, `snake_case`, PK `bigint GENERATED ALWAYS AS
-  IDENTITY`, importes `numeric(14,2)`, cantidades `numeric(12,3)`, moneda `USD`,
-  fechas `timestamptz`, estados como `text` con `CHECK`, nombres calificados.
+| Table | Purpose |
+|---|---|
+| cliente | Customer contact details |
+| carpintero | Workshop/carpenter identity |
+| cotizacion | Customer request, quote status, total, assumptions, missing information |
+| detalle_cotizacion | Quote material/labor/other line items |
+| pedido | Approved workshop order, deposit, status and capture reservation |
+| pago | Deposit/balance payment attempt and verified PayPal capture identifiers |
+| cliente_token | Hash of temporary customer access token, associated customer/quote and expiry |
 
-### Cambios respecto al diagrama original
+Amounts use numeric columns in USD; timestamps use timestamptz. Foreign keys, unique constraints, status checks, and amount checks enforce database integrity. Quote detail rows can be marked inactive instead of physically deleted. The schema includes the current customer token, clarification, capture-reservation, and cancelled/deleted order state fields for a new database.
 
-- `email` se normalizo a `correo` en `cliente` y `carpintero`.
-- Se agregaron `moneda` en `cotizacion`, `pedido` y `pago`.
-- Se agregaron `ultima_actualizacion` en `cotizacion`, `pedido` y `pago`;
-  `fecha_creacion` en `pago`.
-- Se agrego `paypal_capture_id` en `pago`.
-- `cotizacion.monto_total` y `cotizacion.descripcion` son NULL en borradores.
-- `pago.fecha_pago` es NULL hasta que la captura se confirma.
-- `pedido` usa una FK compuesta `(id_cotizacion, id_carpintero)` para garantizar
-  que el pedido pertenezca al mismo carpintero de la cotizacion.
+The customer token table stores a hash rather than the raw token. The API returns the plaintext token once when the quote is created. No email delivery or cross-device token recovery service is implemented.
 
-## Inicializar en Supabase (Recomendado)
+## New database setup
 
-1. Crea un proyecto en Supabase y abre el **SQL Editor** (o conéctate mediante `psql` usando el URI del **Session Pooler** en el puerto `5432`).
-2. Ejecuta el contenido de `database/schema.sql`.
-3. (Opcional) Ejecuta `database/seeds/demo.sql` para cargar los talleres y datos de demostración.
-4. En el **Table Editor** de Supabase, selecciona el esquema `tallerclaro` en el desplegable superior izquierdo para visualizar las tablas.
+Use an empty development/test database or a newly provisioned Supabase project. From the repository root, configure DATABASE_URL in your shell without committing its value, then apply the schema:
 
-Con `psql` y tu `DATABASE_URL` de Supabase:
+    psql -X "$DATABASE_URL" -v ON_ERROR_STOP=1 -f database/schema.sql
 
-```bash
-# Aplicar esquema
-psql -X "$DATABASE_URL" -v ON_ERROR_STOP=1 -f database/schema.sql
+The schema creates the tallerclaro tables, functions, triggers, indexes and grants in a transaction. It revokes privileges from PUBLIC and, when present, Supabase roles anon and authenticated. If role tallerclaro_app exists, it grants USAGE on the schema, SELECT/INSERT/UPDATE on the seven tables, and sequence usage; it does not grant DELETE.
 
-# (Opcional) Cargar datos de demo
-psql -X "$DATABASE_URL" -v ON_ERROR_STOP=1 -f database/seeds/demo.sql
+Optionally load sample data into a disposable database:
 
-# (Opcional) Ejecutar pruebas de aceptación del esquema (hacen ROLLBACK al final)
-psql -X "$DATABASE_URL" -v ON_ERROR_STOP=1 -f database/tests/schema_test.sql
-```
+    psql -X "$DATABASE_URL" -v ON_ERROR_STOP=1 -f database/seeds/demo.sql
 
-No escribir contrasenas en el SQL ni en archivos versionados. `schema.sql` ya
-contiene la transaccion; no combinarlo con `--single-transaction`.
+The seed contains fictitious demo records. Never use those records as production customer or financial data.
 
-## Roles y permisos
+## Existing database migrations
 
-- **Supabase (`postgres`)**: al ejecutar `schema.sql` en Supabase, el script
-  revoca automáticamente cualquier privilegio de `PUBLIC` y de los roles de la
-  Data API de Supabase (`anon`, `authenticated`) sobre el esquema `tallerclaro`,
-  sus tablas y secuencias. Además, al no estar en `public`, PostgREST no expone
-  las tablas públicamente.
-- **`tallerclaro_app` (opcional)**: si decides crear un rol dedicado con `LOGIN`
-  (`CREATE ROLE tallerclaro_app LOGIN PASSWORD '...'`), `schema.sql` detecta su
-  existencia y le concede únicamente `USAGE` del esquema, `SELECT/INSERT/UPDATE`
-  sobre las siete tablas y `USAGE` en sus secuencias identity (sin `DELETE`,
-  `CREATE` ni `TRUNCATE`). Este rol SQL no sustituye la autorización de acceso
-  por carpintero o token de cliente en FastAPI.
+There is no migration runner and no migration-history table. Track applied migrations in the deployment process. Do not apply every file blindly.
 
-## Integracion con el backend
+For an existing database:
 
-Los repositorios y modelos de persistencia Python viven en
-`Backend/src/tallerclaro/infrastructure/`. El dominio y los casos de uso
-permanecen independientes de PostgreSQL y del ORM.
+1. Confirm the target environment and take an appropriate backup.
+2. Use read-only queries to inspect PostgreSQL version, schema, columns, constraints, and existing token/payment data.
+3. Compare the deployed schema against schema.sql and migrations 001-004.
+4. Apply only missing, compatible migration files in order using the approved database-owner process.
+5. Verify the resulting schema with read-only queries before deploying a backend that depends on the new fields.
 
-Proporcionar las credenciales mediante configuracion local (`Backend/.env`) o
-variables de entorno (`DATABASE_URL`). No guardar contrasenas, cadenas de
-conexion reales, dumps ni copias de seguridad en Git. Las plantillas de
-configuracion deben contener unicamente valores ficticios.
+Migration notes:
 
-## Migraciones
+- 001 creates customer link-token storage and is not written as a repeatable migration. Do not rerun it if the table already exists.
+- 002 adds quote assumptions/missing-information and active detail-line fields. These changes are also included in schema.sql for new databases.
+- 003 adds pedido.captura_en_curso for capture reservation. CREATE TABLE IF NOT EXISTS does not add it to an existing pedido table; apply migration 003 if missing before deploying the matching backend.
+- 004 expands the order status constraint to include cancelled and deleted; schema.sql contains the current constraint for new databases.
+- schema.sql includes the current shape needed for a new database. It is not a general schema-diff or migration tool for manually modified databases.
 
-`schema.sql` incluye 001–002 y la columna de 003 para tablas nuevas. Puede
-ejecutarse en el SQL Editor o con `psql`; su ejecución es transaccional. Las
-actualizaciones de bases existentes deben revisar las migraciones por separado.
+Do not apply migrations or seed data to a deployed database without explicit approval and a backup.
 
-No ejecutes la migración 001 después de aplicar `schema.sql`: su `CREATE TABLE`
-no es repetible. La migración 002 ya está incorporada. Conserva las migraciones
-para bases inicializadas antes de esta actualización; los cambios posteriores
-seguirán en archivos numerados.
+## Read-only inspection
 
-En bases existentes, aplica `003_reserve_payment_capture.sql` antes de desplegar
-el backend que reserva capturas; la migración es repetible. El seed autocontenido
-incluye la columna al crear la tabla, pero no actualiza tablas ya existentes.
+These commands inspect a configured database and do not apply schema changes. Run them only after confirming that DATABASE_URL points to the intended environment:
 
-Ejemplo de aplicación por CLI:
+    psql -X "$DATABASE_URL" -c "SELECT version();"
+    psql -X "$DATABASE_URL" -c "\dt tallerclaro.*"
+    psql -X "$DATABASE_URL" -c "\d tallerclaro.pedido"
 
-```bash
-psql -X "$DATABASE_URL" -v ON_ERROR_STOP=1 -f database/schema.sql
-```
+These checks do not prove that all constraints, grants, triggers, or application behavior are correct.
 
-## Verificación antes de aplicar migraciones
+## SQL acceptance test
 
-Antes de tocar el PostgreSQL desplegado en Supabase, comprueba de forma de solo
-lectura la versión, las tablas y el esquema:
+database/tests/schema_test.sql contains acceptance checks that run in a transaction and roll back. It executes SQL and should only be run against an isolated disposable test database:
 
-```bash
-# Versión del servidor
-psql "$DATABASE_URL" -c "SELECT version();"
+    psql -X "$DATABASE_URL" -v ON_ERROR_STOP=1 -f database/tests/schema_test.sql
 
-# Tablas del esquema tallerclaro
-psql "$DATABASE_URL" -c "\dt tallerclaro.*"
+Do not run it against production or shared data. No SQL test was run for this documentation update.
 
-# Estructura de una tabla
-psql "$DATABASE_URL" -c "\d tallerclaro.cotizacion"
+## Backend database configuration
 
-# Verificar si una migración ya fue aplicada
-psql "$DATABASE_URL" -c \
-  "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'tallerclaro' AND table_name = 'cliente_token');"
-```
+Settings live in Backend/src/tallerclaro/bootstrap/settings.py. Configure either DATABASE_URL (preferred; TALLERCLARO_DATABASE_URL is an alias) or the individual TALLERCLARO_DATABASE_HOST, PORT, NAME, USER, PASSWORD, and SSL_MODE fields. DATABASE_URL takes precedence over those fields. The backend pool defaults to min size 2 and max size 10.
 
-Nunca ejecutes migraciones ni pruebas que escriban contra la base desplegada sin
-confirmar primero el entorno y tener un respaldo.
+For Supabase, the repository recommends a Session Pooler URL using port 5432 and sslmode=require. Put the actual connection string only in Backend/.env or the backend deployment environment. Never put it in frontend VITE_* variables or commit it.
+
+The backend fails startup if PostgreSQL is unavailable. GET /api/health is an HTTP liveness check and does not test the database. The application uses a per-request unit of work and SERIALIZABLE transactions; it disables automatic prepared statements for Supavisor compatibility.
+
+## Related documentation
+
+- [Project setup and API overview](../README.md)
+- [Backend configuration and routes](../Backend/BACKENDREADME.md)
+- [Frontend REAL/DEMO modes](../frontend/README.md)
+- [Repository instructions](../AGENTS.md)

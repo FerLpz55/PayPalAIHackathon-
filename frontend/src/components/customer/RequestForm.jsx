@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import Button from '../ui/Button.jsx'
 import { isConnectedMode, isDemoMode } from '../../services/apiClient.js'
 import Icon from '../ui/Icon.jsx'
+import DemoNotice from '../ui/DemoNotice.jsx'
 import { useQuoteRequest } from '../../hooks/useQuoteRequest.js'
 import { useSpeechInput } from '../../hooks/useSpeechInput.js'
 
@@ -33,6 +34,7 @@ function RequestForm({ onQuoteCreated }) {
 
   return (
     <form className="panel request-form" onSubmit={handleSubmit} noValidate>
+      {isDemoMode && <DemoNotice text="Demo request only. It is saved in this browser and does not call the workshop backend or generate a real AI estimate." />}
       {!isConnectedMode && !isDemoMode && (
         <p className="inline-error" role="status">Backend connection is not configured. This request cannot be submitted.</p>
       )}

@@ -1,26 +1,49 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import Button from '../components/ui/Button.jsx'
 import ConfirmDialog from '../components/ui/ConfirmDialog.jsx'
 import DataLine from '../components/ui/DataLine.jsx'
+import DemoNotice from '../components/ui/DemoNotice.jsx'
 import EmptyState from '../components/ui/EmptyState.jsx'
 import LoadingState from '../components/ui/LoadingState.jsx'
 import PageHeading from '../components/ui/PageHeading.jsx'
 import Status from '../components/ui/Status.jsx'
-import { apiClient } from '../services/apiClient.js'
+import { apiClient, isDemoMode } from '../services/apiClient.js'
+import { getRemainingBalance } from '../services/adapters.js'
 import { ORDER_STATUS_TRANSITIONS, STATUS_LABELS } from '../utils/constants.js'
 import { formatMoney } from '../utils/format.js'
 
 function OrderDetailPage({ id, orders, loading, go, mutate }) {
   const [pendingStatus, setPendingStatus] = useState('')
   const [confirmDelete, setConfirmDelete] = useState(false)
-  const order = orders.find((item) => item.id === id || String(item.orderId) === String(id))
-  if (loading) return <div className="page-content"><LoadingState /></div>
+  const [detailState, setDetailState] = useState({ id: null, loading: true, order: null, error: '' })
+  const [retry, setRetry] = useState(0)
+  const detailIsCurrent = String(detailState.id) === String(id)
+  const order = detailIsCurrent ? detailState.order : null
+  const detailLoading = !detailIsCurrent || detailState.loading
+  const detailError = detailIsCurrent ? detailState.error : ''
+
+  useEffect(() => {
+    let active = true
+    apiClient.getOrder(id, { customer: false })
+      .then((detail) => {
+        if (active) {
+          setDetailState({ id, loading: false, order: detail, error: detail ? '' : 'This order could not be found.' })
+        }
+      })
+      .catch((error) => {
+        if (active) setDetailState({ id, loading: false, order: null, error: error?.message || 'The order details could not be loaded. Try again.' })
+      })
+    return () => { active = false }
+  }, [id, orders, retry])
+
+  if (loading || detailLoading) return <div className="page-content"><LoadingState /></div>
   if (!order) {
-    return <div className="page-content"><EmptyState title="Order not found" text="This order could not be loaded." action={<Button onClick={() => go('orders')}>Back to orders</Button>} /></div>
+    return <div className="page-content"><EmptyState title="Order details unavailable" text={detailError || 'This order could not be loaded.'} action={<div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}><Button variant="secondary" onClick={() => { setDetailState({ id, loading: true, order: null, error: '' }); setRetry((value) => value + 1) }}>Retry</Button><Button onClick={() => go('orders')}>Back to orders</Button></div>} /></div>
   }
   const transitions = ORDER_STATUS_TRANSITIONS[order.status] || []
   const availableTransitions = transitions
   const targetOrderId = order.orderId || order.id
+  const remainingBalance = getRemainingBalance(order)
 
   const saveStatus = () => {
     const nextStatus = pendingStatus
@@ -38,6 +61,7 @@ function OrderDetailPage({ id, orders, loading, go, mutate }) {
 
   return (
     <div className="page-content">
+      {isDemoMode && <DemoNotice text="Sample order data only. Amounts are illustrative and no PayPal transaction history is included." />}
       <PageHeading
         title={order.id}
         description={`${order.customer} · ${order.project}`}
@@ -52,15 +76,15 @@ function OrderDetailPage({ id, orders, loading, go, mutate }) {
           </div>
         }
       />
-      
+
       <div className="detail-grid">
         <section className="panel detail-panel">
           <div className="section-head"><div><h2>Project & Financial Details</h2><p>Official order breakdown</p></div></div>
           <DataLine label="Project" value={order.project} />
           <DataLine label="Customer" value={order.customer} />
           <DataLine label="Contracted total" value={formatMoney(order.amount)} />
-          <DataLine label="Paid via PayPal" value={formatMoney(order.paid)} />
-          <DataLine label="Remaining balance" value={formatMoney(Math.max(order.remainingBalance ?? (order.amount - order.paid), 0))} />
+          <DataLine label={isDemoMode ? 'Sample paid amount' : 'Paid via PayPal'} value={formatMoney(order.paid)} />
+          <DataLine label="Remaining balance" value={formatMoney(remainingBalance)} />
           <div className="status-editor" style={{ marginTop: 20 }}>
             <label htmlFor="order-status-select" style={{ fontWeight: 600 }}>Update production milestone</label>
             <select id="order-status-select" value={order.status} disabled={!availableTransitions.length} onChange={(event) => setPendingStatus(event.target.value)}>
@@ -87,31 +111,17 @@ function OrderDetailPage({ id, orders, loading, go, mutate }) {
             </Button>
           </div>
         </section>
-        
-        <section className="panel detail-panel">
-          <h2>Payment Records & PayPal History</h2>
-          <p>Verified transactions credited to this order:</p>
-          <div style={{ display: 'grid', gap: 10, marginTop: 14 }}>
-            <div style={{ padding: 12, border: '1px solid var(--line)', borderRadius: 8, background: '#f8fbff' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                <strong>Deposit (50%)</strong>
-                <span className={order.paid > 0 ? 'status-paid' : 'status-pending'} style={{ padding: '2px 8px', borderRadius: 999, fontSize: 11, fontWeight: 600 }}>
-                  {order.paid > 0 ? 'Confirmed via PayPal' : 'Awaiting Payment'}
-                </span>
-              </div>
-              <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--navy)' }}>{formatMoney(order.deposit)}</span>
-            </div>
 
-            <div style={{ padding: 12, border: '1px solid var(--line)', borderRadius: 8, background: '#f8fbff' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                <strong>Final Balance (50%)</strong>
-                <span className={order.status === 'paid' || order.status === 'delivered' ? 'status-paid' : 'status-pending'} style={{ padding: '2px 8px', borderRadius: 999, fontSize: 11, fontWeight: 600 }}>
-                  {order.status === 'paid' || order.status === 'delivered' ? 'Confirmed via PayPal' : 'Due upon completion'}
-                </span>
-              </div>
-              <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--navy)' }}>{formatMoney(order.balance)}</span>
+        <section className="panel detail-panel">
+          <h2>Payment Records</h2>
+          <p>{isDemoMode ? 'This sample does not include transaction records.' : 'Transactions returned for this order by the backend.'}</p>
+          {order.payments?.length ? (
+            <div style={{ display: 'grid', gap: 10, marginTop: 14 }}>
+              {order.payments.map((payment) => (
+                <DataLine key={payment.id} label={`${payment.type || 'Payment'} · ${payment.status || 'Status unavailable'}`} value={formatMoney(payment.amount)} />
+              ))}
             </div>
-          </div>
+          ) : <p className="status-help" role="status">No payment records are available for this order.</p>}
         </section>
       </div>
       {pendingStatus && (
