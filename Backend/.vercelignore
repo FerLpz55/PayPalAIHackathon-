@@ -1,0 +1,12 @@
+# Local secrets and Vercel link metadata
+.env
+.env.*
+.vercel/
+
+# Local environments, caches, and test-only artifacts
+.venv/
+.pytest_cache/
+**/__pycache__/
+*.py[cod]
+*.egg-info/
+tests/
