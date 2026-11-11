@@ -51,7 +51,7 @@ AI and PayPal calls are designed to happen outside SQL transactions. Payment cap
 - A database schema compatible with the checked-in repositories.
 - Optional provider credentials for AI, Channel3 price search, and PayPal.
 
-The project supports Python 3.11 or newer. The local `.python-version` and the legacy Render definition select Python 3.11.10; Vercel selects a supported Python runtime from `pyproject.toml`. Dependency ranges live in `pyproject.toml`, and `requirements.txt` installs the project itself.
+The project supports Python 3.11 or newer. The local `.python-version` selects Python 3.12 for Vercel's FastAPI runtime; the legacy Render definition still selects Python 3.11.10. Dependency ranges live in `pyproject.toml`, and `requirements.txt` installs the project itself.
 
 ## Install and start locally
 
