@@ -73,22 +73,22 @@ Expected: all commands PASS without warnings introduced by the change.
 - Consumes: `VITE_API_BASE_URL=https://tallerclaro-backend.vercel.app` and the deployed backend health/API routes.
 - Produces: production build with `VITE_APP_MODE=real` at `https://tallerclaro-frontend.vercel.app`.
 
-- [ ] **Step 1: Verify backend liveness and production variable names**
+- [x] **Step 1: Verify backend liveness and production variable names**
 
 Confirm `GET https://tallerclaro-backend.vercel.app/api/health` returns `200`, and confirm the frontend production environment contains `VITE_API_BASE_URL` without printing secret values.
 
-- [ ] **Step 2: Set connected production mode and deploy**
+- [x] **Step 2: Set connected production mode and deploy**
 
 Set `VITE_APP_MODE=real` for Production and run the Vercel production deployment from `frontend/`.
 
-- [ ] **Step 3: Smoke-test the deployed entry route**
+- [x] **Step 3: Smoke-test the deployed entry route**
 
 Open the production frontend without a hash and assert the public request form is visible and the workshop login is absent. Confirm explicit `#/dashboard` remains protected.
 
-- [ ] **Step 4: Report verification boundaries**
+- [x] **Step 4: Report verification boundaries**
 
 Report mocked end-to-end coverage separately from live health/UI checks. Do not claim live AI, Channel3, PayPal, or PostgreSQL success unless the real customer flow was exercised and its provider-backed results were observed.
 
-- [ ] **Step 5: Commit and push**
+- [x] **Step 5: Commit and push**
 
 Commit the source/tests/docs with a focused message and push `main` only after verification passes.
