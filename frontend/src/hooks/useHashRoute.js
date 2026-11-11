@@ -16,7 +16,7 @@ const ROUTE_TITLES = {
 
 function readLocation() {
   const [path = '', query = ''] = window.location.hash.replace(/^#\/?/, '').split('?')
-  return { route: path || 'dashboard', query }
+  return { route: path || 'customer/new', query }
 }
 
 function titleForRoute(route) {
