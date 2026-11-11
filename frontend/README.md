@@ -1,152 +1,156 @@
-﻿# TallerClaro Frontend
+# TallerClaro Frontend
 
-React frontend for carpentry project requests, quote review, order views, customer tracking, PayPal checkout, and workshop summaries. The checked-in application provides an explicit browser-only DEMO mode and a REAL mode that calls the configured FastAPI API. Source integration is not evidence of runtime availability.
+React 19 + Vite frontend for carpentry project requests, quote review, workshop orders, customer tracking, PayPal checkout, and accounting summaries. It has three explicit states: browser-only DEMO, REAL connected to the FastAPI API, and UNCONFIGURED. Backend errors never fall back silently to demo data.
 
 ## Current implementation status
 
-| Area | Source status | Runtime status |
-|---|---|---|
-| Demo data and simulated flows | Implemented with mockApi and localStorage | Browser-only; no backend or PayPal charge |
-| API client | Fetch client, adapters, error handling, demo/real/unconfigured mode guards | No deployed API was verified in the audit |
-| Customer request/quote | Create/read/approve routes are called; generation errors and draft state are explicit | Partial: generation is workshop-protected; client clarification still lacks a customer-authorized contract |
-| Workshop orders | Paginated list and PATCH calls exist | Page consumes limit/offset and renders page controls; API behavior was checked only with a local stub |
-| Workshop order detail | GET by ID and PATCH are used | Detail/payment rendering was checked with a local stub, not FastAPI or PostgreSQL |
-| Customer tracking/payment | Payment intent/status/capture paths exist | PayPal Sandbox and cross-session recovery not verified |
-| Accounting summary/assistant | API calls exist | Summary failure is visible with unavailable values; real DB/AI responses remain unverified |
-| Receipts/expenses | Demo filename preview only | No backend upload or expense ledger |
-| Speech input | Browser Web Speech API when available | No transcription guarantee across browsers; not an AI quote service |
+| Classification | Current frontend features |
+| --- | --- |
+| **REAL** | Quote request/review, customer-link recovery, paginated workshop quote/order views, PayPal payment creation and explicit `sync`/`cancel`, workshop cookie session with CSRF, and the accounting assistant. |
+| **DEMO** | Sample customer, quote, order, tracking, simulated payment, dashboard, receipt-name, assistant, and accounting flows stored in the browser. No PayPal charge is made. |
+| **UNCONFIGURED** | If no API URL is set and demo was not selected, sample data stays hidden and the UI explains how to configure a mode. |
+| **PARTIAL** | Voice-to-text uses the browser Web Speech API where available; it only transcribes into the request form. |
+| **NOT IMPLEMENTED** | Receipt upload and accounting reports backed by server data. |
 
-Frontend behavior has also been exercised in Chromium against local fixtures and HTTP stubs. Those checks do not establish compatibility with FastAPI, PostgreSQL, AI, Channel3, PayPal Sandbox, deployed CORS, or a hosted API. The historical documents under docs/API_CONTRACT.md and docs/DEMO_VS_REAL_FUNCTIONALITY.md contain superseded statements; check current backend routers and schemas.
+Workshop authentication uses a revocable `HttpOnly` cookie created by `POST /api/auth/login`. Mutating workshop requests include `X-CSRF-Token`, obtained from login/session and stored in `sessionStorage`, plus an allowed `Origin`. The frontend does not send HTTP Basic credentials.
+
+Customer links contain `?token=...`. The frontend adopts the token into `sessionStorage`, cleans it from the URL, and calls `GET /api/customer/context` to recover the quote, order, and payments. Only the workshop can reissue a link.
+
+Payments are created with `POST /api/orders/{id}/payments`, reconciled with `POST /api/payments/{id}/sync`, and closed with `POST /api/payments/{id}/cancel`. The frontend never calls `/capture` and does not mark an order paid from a return URL alone.
+
+Source integration and mocked browser tests do not establish that PostgreSQL, AI, or PayPal Sandbox are configured in a deployed environment. The API contract and feature matrix under `docs/` are historical snapshots; consult the current backend routers and schemas.
 
 ## Requirements
 
-- Node.js 24.x (from package.json engines).
-- pnpm 12.14.0 (from packageManager and pnpm-lock.yaml).
-- A browser with JavaScript enabled.
-- Backend services are not required for DEMO. REAL mode requires a reachable FastAPI backend and its database/configuration.
+- Node.js 24.x, as declared in `package.json`.
+- pnpm from the `packageManager` field and `pnpm-lock.yaml`; do not use npm or yarn.
+- A JavaScript-enabled browser.
+- A reachable FastAPI backend for REAL mode. DEMO does not need backend services.
 
 ## Install and run
 
 From the repository root:
 
-    cd frontend
-    pnpm install --frozen-lockfile
+```bash
+cd frontend
+pnpm install --frozen-lockfile
+cp .env.example .env
+pnpm run dev
+```
 
-Copy frontend/.env.example to frontend/.env and select exactly the mode you intend to use. For Windows PowerShell:
+On Windows PowerShell, use `Copy-Item .env.example .env`.
 
-    Copy-Item .env.example .env
-
-Run the Vite development server:
-
-    pnpm run dev
-
-Available package scripts, confirmed in package.json:
+Available scripts:
 
 | Command | Purpose |
-|---|---|
-| pnpm run dev | Start Vite development server |
-| pnpm run test | Run the Vitest suite once (non-watch mode) |
-| pnpm run lint | Run ESLint |
-| pnpm run build | Create a production build |
-| pnpm run preview | Preview an existing Vite build |
+| --- | --- |
+| `pnpm run dev` | Start the Vite development server. |
+| `pnpm run test` | Run Vitest once. |
+| `pnpm run lint` | Run ESLint. |
+| `pnpm run build` | Create the production build in `dist/`. |
+| `pnpm run preview` | Preview an existing build. |
+| `pnpm run test:e2e` | Start Vite and run the Playwright critical-flow suite. |
 
-No command above was run as part of this documentation update.
+## End-to-end tests
 
-## Modes and frontend environment
+Playwright mocks `/api/**` at the HTTP layer, so it does not need PostgreSQL, AI, or PayPal credentials:
+
+```bash
+pnpm exec playwright install chromium   # first run only
+pnpm run test:e2e
+```
+
+The suite covers a customer-token link that approves a quote and reconciles a mocked deposit, plus the workshop cookie-session gate and sign out. It is separate from Vitest.
+
+## Modes and environment
 
 | Variable | Required | Meaning |
-|---|---|---|
-| VITE_APP_MODE | Explicitly set to demo for DEMO; optional for REAL when API URL is present | demo selects mockApi. A non-demo value does not by itself configure the API. |
-| VITE_API_BASE_URL | Required for REAL mode | Backend origin only, without /api suffix or trailing slash. |
+| --- | --- | --- |
+| `VITE_APP_MODE` | Set to `demo` for DEMO; use `real` for a connected deployment. | Selects the explicit application mode. A non-demo value does not configure an API by itself. |
+| `VITE_API_BASE_URL` | Required for REAL. | Backend origin only, with no `/api` suffix or trailing slash. |
 
-Example mode settings without secrets:
+```dotenv
+# Browser-only sample data
+VITE_APP_MODE=demo
+VITE_API_BASE_URL=
 
-    # Browser-only sample data
-    VITE_APP_MODE=demo
-    VITE_API_BASE_URL=
+# Connected mode
+VITE_APP_MODE=real
+VITE_API_BASE_URL=https://your-backend-origin
+```
 
-    # Connected mode
-    VITE_APP_MODE=real
-    VITE_API_BASE_URL=https://your-backend-origin
-
-All VITE_* variables are included in public frontend assets. Never place database, PayPal, AI, or other private credentials in them. Vercel variables are applied at build time; redeploy after changes.
+All `VITE_*` values are compiled into public assets. Never place database, PayPal, AI, workshop-password, or customer-token secrets in them. Redeploy after changing a build-time variable.
 
 ### DEMO
 
-Set VITE_APP_MODE=demo and run pnpm run dev. The frontend uses sample workshop/customer/order data and localStorage key tallerclaro.demo.v1. Order edits and simulated payments remain in that browser. DEMO does not call PayPal and must not be used as a financial record. Receipt selection stores the filename only; it does not upload or retain file contents. Demo accounting and AI responses are illustrative.
+With `VITE_APP_MODE=demo`, sample state persists under `localStorage` key `tallerclaro.demo.v1`. Payments and accounting output are illustrative. Receipt selection stores only the filename.
 
 ### REAL
 
-Set VITE_APP_MODE=real and VITE_API_BASE_URL to the backend origin. The API client calls the /api routes and does not silently fall back to demo data. If the URL is missing and DEMO is not explicitly selected, the app shows an unconfigured state.
+With `VITE_APP_MODE=real` and `VITE_API_BASE_URL` set, the client calls the backend and propagates failures. If the URL is absent, the app enters UNCONFIGURED instead of exposing mock data.
 
-REAL mode currently has important blockers:
+Known limitations remain:
 
-- Workshop sign-in holds Basic credentials in page memory until logout, 401, or reload. This was verified against a local stub only; credentials remain readable to JavaScript on the page and the flow needs HTTPS outside loopback.
-- The customer request flow calls workshop-protected quote generation. Errors are visible and an incomplete draft is not offered for approval; customer clarification still lacks an authorized customer contract.
-- Customer tokens are stored in sessionStorage; no email delivery or cross-device recovery flow is included.
-- The quote lookup query does not reliably hydrate the requested quote. The workshop quote lookup does not add Basic Auth.
-- Workshop order detail calls the detail endpoint and renders returned payments; the wire flow was checked against a stub, not a real backend.
-- PayPal recovery depends on the current browser session. If storage is lost, there is no API to list the customer's pending attempts.
-- Accounting summary errors are shown as unavailable/error states rather than being represented as financial zeroes.
-- Receipts and expense reports have no backend support.
+- Customer and payment recovery tokens live in `sessionStorage`; there is no email delivery flow.
+- Receipt upload and expense reports have no backend implementation.
+- PostgreSQL, AI, and PayPal Sandbox require separate live acceptance tests; mocked tests do not validate those providers.
+- Accounting service failures are displayed as unavailable, never converted to financial zeroes.
 
-Treat REAL mode as a local integration path, not a verified production customer experience. No PostgreSQL, deployed API, AI provider, Channel3, or PayPal Sandbox was contacted.
+## Project structure
+
+```text
+src/
+  App.jsx                 Layout and hash routing
+  components/             Shared UI, workshop auth, orders, customer, accounting
+  pages/                  Workshop and customer screens
+  hooks/                  Data, routing, session, speech, and assistant state
+  services/
+    apiClient.js          Demo/connected/unconfigured facade
+    http.js               Fetch transport with cookies, CSRF, and ApiError
+    adapters.js           API-to-UI normalization
+    sessionStore.js       Customer token, CSRF, and payment recovery session state
+    mockApi.js            Browser-only demo service
+  styles/                 Global and application styles
+e2e/
+  critical-flows.spec.js  Playwright customer and workshop flows
+docs/                     Historical contract, feature matrix, and PayPal URL notes
+```
+
+Keep demo operations isolated in `src/services/mockApi.js`; server-side pricing and payment verification remain authoritative.
 
 ## Routes
 
-The app uses hash routing in useHashRoute.js.
+The app uses hash routing.
 
 | Hash route | Screen |
-|---|---|
-| #/dashboard | Workshop dashboard |
-| #/orders | Searchable/filterable workshop order list |
-| #/quotes | Quote lookup and pending-order view |
-| #/receipts | Demo-only receipt filename preview |
-| #/accounting | Workshop summary and AI assistant |
-| #/customer/new | Customer project request |
-| #/customer/quote | Quote review, approval, and deposit checkout |
-| #/customer/tracking | Order tracking and balance checkout |
-| #/customer/payment/return | Backend payment verification/capture return |
-| #/customer/payment/cancel | Cancellation return and checkout resume |
-| #/order/{id} | Workshop order detail view |
+| --- | --- |
+| `#/dashboard` | Workshop dashboard. |
+| `#/orders` | Workshop order list. |
+| `#/quotes` | Workshop quote inbox. |
+| `#/receipts` | Demo receipt-name view. |
+| `#/accounting` | Workshop summary and assistant. |
+| `#/order/{id}` | Workshop order detail. |
+| `#/customer/new` | Customer project request. |
+| `#/customer/quote` | Quote review, approval, and deposit checkout. |
+| `#/customer/tracking` | Order tracking and balance checkout. |
+| `#/customer/payment/return` | Payment reconciliation return. |
+| `#/customer/payment/cancel` | Cancellation return and checkout resume. |
 
-The sidebar also uses a customer/request hash that falls through to the request screen.
+## Separate Vercel deployment
 
-## Data and API
+The frontend and FastAPI backend are separate Vercel projects. This directory is the frontend project root; `vercel.json` defines the frozen-lockfile install, Vite build, `dist` output, security headers, and immutable caching for hashed assets.
 
-Frontend transport is in src/services/http.js; mode selection and API operations are in src/services/apiClient.js; wire adapters are in src/services/adapters.js. Demo fixtures and mutations are in src/services/mockApi.js. Session/payment recovery storage is in src/services/sessionStore.js.
-
-REAL mode uses these backend routes:
-
-- Quotes: POST /api/quotes; GET /api/quotes/{id}; POST generate, approve, and reject.
-- Orders: GET /api/orders; GET /api/orders/{id}; PATCH /api/orders/{id}.
-- Payments: POST /api/orders/{id}/payments; GET /api/payments/{id}; POST /api/payments/{id}/capture.
-- Accounting: GET /api/accounting/summary; POST /api/accounting/assistant.
-
-The backend is authoritative for pricing and payment verification. The frontend never marks an order paid based only on the PayPal return URL.
-
-## Testing
-
-Frontend test files are under src/**/__tests__ and are intended to run with `pnpm run test`. In the November 9, 2026 local verification, Node 24.13.1 and pnpm 12.16.1 were available; pnpm commands could not acquire the global store lock in the restricted environment, and Vitest was absent from `node_modules`. Direct local ESLint and Vite build commands passed. There is no browser E2E script in package.json; the manual Chromium/stub evidence is documented in the phase reports and `docs/informes/INFORME_PRUEBAS_E2E.md`.
-
-For REAL integration acceptance, separately verify the configured backend origin, CORS preflight, customer/workshop authorization, quote generation, order detail, PayPal Sandbox capture, and recovery behavior. No live service checks are implied by the local frontend tests.
-
-## Vercel deployment
-
-The checked-in frontend/vercel.json declares Vite, frozen-lockfile install, pnpm build, dist output, security headers, and immutable caching for hashed assets.
-
-- Set Vercel Root Directory to frontend.
-- Use Node 24.x and pnpm 12.14.0. ENABLE_EXPERIMENTAL_COREPACK=1 is documented for Vercel to honor packageManager.
-- Set VITE_APP_MODE at build time.
-- Set VITE_API_BASE_URL for REAL mode.
-- Add the exact deployed frontend origin to backend TALLERCLARO_CORS_ORIGINS.
-- Configure PayPal return/cancel URLs in backend to the HTTPS frontend routes.
-- Preview deployments use distinct origins; only enable REAL mode there when CORS and credentials are deliberately configured.
+- Use Node 24.x and enable Corepack so Vercel honors `packageManager`.
+- Set `VITE_APP_MODE=real` and `VITE_API_BASE_URL` to the production backend origin.
+- Add the exact frontend origin to backend `TALLERCLARO_CORS_ORIGINS`.
+- Point backend PayPal return/cancel URLs to the frontend HTTPS hash routes.
+- Because the two projects use different sites, set `TALLERCLARO_WORKSHOP_SESSION_COOKIE_SAMESITE=none`; HTTPS is mandatory. If both later share one site, `lax` is preferred.
+- Preview deployments have distinct origins. Use DEMO there unless those origins are deliberately added to CORS.
 
 ## Related documentation
 
-- Root project guide: ../README.md
-- Backend guide: ../Backend/BACKENDREADME.md
-- Database guide: ../database/README.md
-- PayPal return URL setup: docs/PAYPAL_RETURN_URLS.md
-- Repository instructions: ../AGENTS.md
+- Root guide: `../README.md`
+- Backend guide: `../Backend/BACKENDREADME.md`
+- Database guide: `../database/README.md`
+- PayPal return URL setup: `docs/PAYPAL_RETURN_URLS.md`
+- Repository instructions: `../AGENTS.md`

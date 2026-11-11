@@ -1,5 +1,5 @@
 """Resultados de repositorios y mapeo SQL local. No ejecuta PostgreSQL."""
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from unittest.mock import MagicMock
 
@@ -164,7 +164,8 @@ def test_order_save_lookup_workshop_filter_and_pagination(kind):
 def payment_row(payment):
     return (payment.id, payment.order_id, payment.type, payment.amount.amount, payment.currency,
             payment.status, payment.paypal_order_id, payment.paypal_capture_id,
-            payment.created_at or NOW, payment.updated_at or NOW, payment.paid_at)
+            payment.created_at or NOW, payment.updated_at or NOW, payment.paid_at,
+            payment.idempotency_key, payment.request_fingerprint, payment.approval_url)
 
 
 @pytest.mark.parametrize('kind', ['fake', 'postgres'])
@@ -181,7 +182,43 @@ def test_payment_save_read_and_order_listing(kind):
     assert (read.amount, read.currency, read.paypal_order_id, read.paypal_capture_id, read.paid_at) == (Money('100'), 'USD', 'PP-1', 'CAP-1', NOW)
     assert [p.id for p in repo.list_by_order(7)] == [saved.id]
     if kind == 'postgres':
-        assert conn.calls[0][1] == (7, 'deposit', Decimal('100'), 'USD', 'completed', 'PP-1', 'CAP-1', NOW)
+        assert conn.calls[0][1] == (7, 'deposit', Decimal('100'), 'USD', 'completed', 'PP-1', 'CAP-1', NOW, None, None, None)
         assert conn.calls[-1][1] == (7,)
         assert 'WHERE id_pedido = %s' in conn.calls[-1][0]
         assert conn.responses == []
+
+
+@pytest.mark.parametrize('kind', ['fake', 'postgres'])
+def test_payment_lookup_by_paypal_order_and_stale_pending(kind):
+    stale_at = NOW - timedelta(minutes=10)
+    payment = Payment(None, 7, 'deposit', Money('100'), 'USD', 'pending',
+                      'PP-1', None, None, stale_at, None)
+    if kind == 'fake':
+        repo = FakePaymentRepository()
+        saved = repo.save(payment)
+        saved.updated_at = stale_at
+        found = repo.get_by_paypal_order_id('PP-1')
+        assert found is not None and found.paypal_order_id == 'PP-1'
+        assert repo.get_by_paypal_order_id('PP-UNKNOWN') is None
+        assert [p.id for p in repo.list_stale_pending(NOW, 10)] == [saved.id]
+        assert repo.list_stale_pending(NOW - timedelta(minutes=30), 10) == []
+        return
+
+    row = payment_row(payment)
+    lookup_conn = ScriptedConnection(row, None)
+    lookup_repo = PostgresPaymentRepository(lookup_conn)
+    found = lookup_repo.get_by_paypal_order_id('PP-1')
+    assert found is not None and found.paypal_order_id == 'PP-1'
+    assert lookup_repo.get_by_paypal_order_id('PP-UNKNOWN') is None
+    assert 'WHERE paypal_order_id = %s' in lookup_conn.calls[0][0]
+    assert lookup_conn.calls[0][1] == ('PP-1',)
+    assert lookup_conn.responses == []
+
+    stale_conn = ScriptedConnection([row], [])
+    stale_repo = PostgresPaymentRepository(stale_conn)
+    listed = stale_repo.list_stale_pending(NOW, 10)
+    stale_repo.list_stale_pending(NOW - timedelta(minutes=30), 10)
+    assert [p.id for p in listed] == [payment.id]
+    assert "estado = 'pending'" in stale_conn.calls[0][0]
+    assert stale_conn.calls[0][1] == (NOW, 10)
+    assert stale_conn.responses == []

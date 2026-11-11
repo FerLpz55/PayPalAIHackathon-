@@ -46,6 +46,7 @@ def client(deps: FakeDependenciesContainer) -> TestClient:
     def override_principal():
         return AccessPrincipal(kind="workshop", carpenter_id=CarpenterId(1))
 
+    app.state.webhook_verifier = deps.webhook
     app.dependency_overrides[get_unit_of_work] = override_uow
     app.dependency_overrides[require_workshop_credentials] = override_workshop_credentials
     app.dependency_overrides[require_customer_token] = override_customer_token

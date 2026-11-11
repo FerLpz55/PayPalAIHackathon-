@@ -307,6 +307,7 @@ def adversarial_app():
         workshop_password_hash=__import__("bcrypt").hashpw(b"demo-password", __import__("bcrypt").gensalt(rounds=4)).decode(),
         workshop_carpenter_id=1,
         cors_origins=["http://localhost:5173", "https://tallerclaro.com"],
+        enable_workshop_basic_auth=True,
     )
     expiring_tokens = ExpiringFakeCustomerTokenRepository()
     uow = FakeUnitOfWork(tokens=expiring_tokens)
@@ -523,6 +524,16 @@ class StrictlyClosedUnitOfWorkWrapper:
         self._check_open()
         return self._inner.tokens
 
+    @property
+    def sessions(self):
+        self._check_open()
+        return self._inner.sessions
+
+    @property
+    def rate_limits(self):
+        self._check_open()
+        return self._inner.rate_limits
+
     def commit(self):
         self._check_open()
         self._inner.commit()
@@ -530,6 +541,12 @@ class StrictlyClosedUnitOfWorkWrapper:
     def rollback(self):
         self._check_open()
         self._inner.rollback()
+
+    def execute_sql(self, operation, *, attempts: int = 3):
+        with self:
+            result = operation(self)
+            self.commit()
+        return result
 
 
 def test_closed_connection_simulation_get_order_executes_cleanly(adversarial_app):
@@ -810,15 +827,33 @@ def test_adversarial_auth_cross_role_access_boundaries(adversarial_app):
     # 1. Customer token CANNOT access workshop-only routes
     resp = client.get("/api/orders", headers={"X-Customer-Token": token})
     assert resp.status_code == 401
-    assert "Workshop credentials required" in resp.json()["detail"]
+    assert "Workshop session required" in resp.json()["detail"]
 
-    resp = client.post("/api/quotes/1/generate", headers={"X-Customer-Token": token})
-    assert resp.status_code == 401
-    assert "Workshop credentials required" in resp.json()["detail"]
+    # El cliente propietario sí puede generar su propia cotización.
+    owner_generate = client.post(
+        "/api/quotes/1/generate", headers={"X-Customer-Token": token}
+    )
+    assert owner_generate.status_code == 200
+
+    # Otro token de cliente no puede generar una cotización ajena.
+    other = client.post(
+        "/api/quotes",
+        json={
+            "customer": {"name": "Delta", "email": "delta@example.com"},
+            "carpenter_id": 1,
+            "request": "Mesa",
+        },
+    )
+    other_token = other.json()["customer_token"]
+    forbidden = client.post(
+        "/api/quotes/1/generate", headers={"X-Customer-Token": other_token}
+    )
+    assert forbidden.status_code == 403
+    assert "Not authorized" in forbidden.json()["message"]
 
     resp = client.patch("/api/orders/1", json={"status": "in_progress"}, headers={"X-Customer-Token": token})
     assert resp.status_code == 401
-    assert "Workshop credentials required" in resp.json()["detail"]
+    assert "Workshop session required" in resp.json()["detail"]
 
     # 2. Workshop credentials CANNOT access customer payment routes
     resp = client.post("/api/orders/1/payments", json={"type": "deposit"}, auth=("taller", "demo-password"))

@@ -7,6 +7,10 @@ from tests.fakes import FakeAIService, FakePaymentProcessor
 
 EXPECTED_OPERATIONS = {
     ("get", "/api/health"),
+    ("post", "/api/auth/login"),
+    ("get", "/api/auth/session"),
+    ("post", "/api/auth/logout"),
+    ("get", "/api/customer/context"),
     ("get", "/api/accounting/summary"),
     ("post", "/api/accounting/assistant"),
     ("get", "/api/quotes"),
@@ -15,12 +19,16 @@ EXPECTED_OPERATIONS = {
     ("post", "/api/quotes/{quote_id}/generate"),
     ("post", "/api/quotes/{quote_id}/approve"),
     ("post", "/api/quotes/{quote_id}/reject"),
+    ("post", "/api/quotes/{quote_id}/customer-access"),
     ("get", "/api/orders"),
     ("get", "/api/orders/{order_id}"),
     ("patch", "/api/orders/{order_id}"),
     ("post", "/api/orders/{order_id}/payments"),
     ("get", "/api/payments/{payment_id}"),
     ("post", "/api/payments/{payment_id}/capture"),
+    ("post", "/api/payments/{payment_id}/sync"),
+    ("post", "/api/payments/{payment_id}/cancel"),
+    ("post", "/api/payments/webhook/paypal"),
 }
 
 

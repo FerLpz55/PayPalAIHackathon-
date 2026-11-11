@@ -4,6 +4,7 @@ import ConfirmDialog from '../ui/ConfirmDialog.jsx'
 import EmptyState from '../ui/EmptyState.jsx'
 import Status from '../ui/Status.jsx'
 import { apiClient } from '../../services/apiClient.js'
+import { FINANCIAL_STATUS_LABELS } from '../../utils/constants.js'
 import { formatMoney } from '../../utils/format.js'
 
 function OrdersTable({ orders, go, mutate, emptyTitle = 'No orders yet', emptyText = 'Create a quote to see its order here.', emptyAction = true }) {
@@ -42,7 +43,12 @@ function OrdersTable({ orders, go, mutate, emptyTitle = 'No orders yet', emptyTe
               </td>
               <td>{order.customer}</td>
               <td className="amount-cell">{formatMoney(order.amount)}</td>
-              <td><Status value={order.status} /></td>
+              <td>
+                <Status value={order.status} />
+                <span className="project-cell" style={{ display: 'block', marginTop: 4 }}>
+                  {FINANCIAL_STATUS_LABELS[order.financialStatus] || 'Financial status unknown'}
+                </span>
+              </td>
               <td>
                 <div className="table-actions">
                   <button

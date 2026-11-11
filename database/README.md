@@ -2,7 +2,7 @@
 
 PostgreSQL schema and operational notes for TallerClaro. Supabase is used only as a managed PostgreSQL host. The backend connects directly through psycopg and DATABASE_URL; this project does not use Supabase Auth, PostgREST, Edge Functions, or Supabase SDKs.
 
-Database provisioning, migrations, seeds, and SQL acceptance tests were not run. The backend's 314 passing unit/API tests use fakes and do not prove PostgreSQL persistence or that a deployed database matches the checked-in schema.
+Database provisioning, migrations, seeds, and SQL acceptance tests were not run. The backend's 481 passing unit/API tests use fakes and do not prove PostgreSQL persistence or that a deployed database matches the checked-in schema.
 
 ## Contents
 
@@ -23,21 +23,54 @@ Database provisioning, migrations, seeds, and SQL acceptance tests were not run.
 - Backend connection through a PostgreSQL URL, preferably the Supabase Session Pooler documented in the project guide.
 - TLS for deployed database connections.
 
+The current files are:
+
+```text
+database/
+  README.md                 este archivo
+  schema.sql                inicializacion y actualizacion del esquema tallerclaro
+  seeds/demo.sql            datos ficticios de ejemplo
+  tests/schema_test.sql     pruebas SQL que revierten sus datos al finalizar
+  tests/verify_privileges.sql  verificación de solo lectura del rol y el esquema
+  migrations/               cambios posteriores numerados
+    001_add_customer_link_tokens.sql
+    002_add_quote_clarification_fields.sql
+    003_reserve_payment_capture.sql
+    004_add_cancelled_order_status.sql
+    005_add_workshop_sessions.sql
+    006_add_rate_limits.sql
+    007_add_payment_idempotency.sql
+    008_add_paypal_webhook_events.sql
+```
+
+`schema.sql` incorpora 001–002, la columna de 003 y las tablas de 005–006 al
+crear tablas nuevas. Sobre una base existente, `CREATE TABLE IF NOT EXISTS` no
+añade columnas: aplica 003 por separado. Las tablas `sesion_taller` y
+`limite_consumo` deben crearse con las migraciones 005 y 006. Las columnas de
+idempotencia de pago (`clave_idempotencia`, `huella_solicitud`,
+`paypal_approval_url`) y los índices únicos requieren la migración 007; antes de
+crearlos, normaliza los intentos pendientes duplicados por pedido y tipo. La
+tabla `evento_paypal` (webhooks deduplicados) requiere la migración 008. El
+esquema no sustituye futuras migraciones ni comprueba automáticamente todas las
+diferencias de una base modificada manualmente.
+
 The backend uses schema tallerclaro rather than public. PostgREST/Data API is not part of the application architecture.
 
 ## Schema
 
-The current schema has seven tables:
+The application tables include:
 
-| Table | Purpose |
-|---|---|
-| cliente | Customer contact details |
-| carpintero | Workshop/carpenter identity |
-| cotizacion | Customer request, quote status, total, assumptions, missing information |
-| detalle_cotizacion | Quote material/labor/other line items |
-| pedido | Approved workshop order, deposit, status and capture reservation |
-| pago | Deposit/balance payment attempt and verified PayPal capture identifiers |
-| cliente_token | Hash of temporary customer access token, associated customer/quote and expiry |
+- Base: en Supabase la base por defecto es `postgres`.
+- Esquema dedicado: `tallerclaro` (aislado de `public` y de PostgREST / Data API).
+- Seis tablas de negocio (`cliente`, `carpintero`, `cotizacion`,
+  `detalle_cotizacion`, `pedido`, `pago`), `cliente_token`,
+  `sesion_taller` (sesiones opacas del taller, migración 005),
+  `limite_consumo` (contadores de abuso, migración 006), las columnas de
+  idempotencia de `pago` (migración 007) y `evento_paypal` (webhooks,
+  migración 008).
+- Convenciones: columnas en español, `snake_case`, PK `bigint GENERATED ALWAYS AS
+  IDENTITY`, importes `numeric(14,2)`, cantidades `numeric(12,3)`, moneda `USD`,
+  fechas `timestamptz`, estados como `text` con `CHECK`, nombres calificados.
 
 Amounts use numeric columns in USD; timestamps use timestamptz. Foreign keys, unique constraints, status checks, and amount checks enforce database integrity. Quote detail rows can be marked inactive instead of physically deleted. The schema includes the current customer token, clarification, capture-reservation, and cancelled/deleted order state fields for a new database.
 
@@ -63,9 +96,29 @@ There is no migration runner and no migration-history table. Track applied migra
 
 For an existing database:
 
+### Aprovisionar el rol de aplicación sin secretos en scripts
+
+No escribas contraseñas en SQL versionado ni en scripts. Crea el rol una sola
+vez desde el SQL Editor de Supabase o con `psql` y asigna la contraseña de forma
+interactiva:
+
+```sql
+CREATE ROLE tallerclaro_app LOGIN;
+```
+
+```bash
+psql "$DATABASE_URL" -c "\password tallerclaro_app"
+```
+
+Después ejecuta `schema.sql` (o reaplica únicamente los `GRANT`) y verifica el
+resultado con [`tests/verify_privileges.sql`](tests/verify_privileges.sql).
+El backend rechaza el arranque en `TALLERCLARO_ENVIRONMENT=release` si el rol
+efectivo es superusuario o conserva `DELETE` sobre alguna tabla de negocio.
+
+
 1. Confirm the target environment and take an appropriate backup.
 2. Use read-only queries to inspect PostgreSQL version, schema, columns, constraints, and existing token/payment data.
-3. Compare the deployed schema against schema.sql and migrations 001-004.
+3. Compare the deployed schema against schema.sql and migrations 001-008.
 4. Apply only missing, compatible migration files in order using the approved database-owner process.
 5. Verify the resulting schema with read-only queries before deploying a backend that depends on the new fields.
 
@@ -75,6 +128,10 @@ Migration notes:
 - 002 adds quote assumptions/missing-information and active detail-line fields. These changes are also included in schema.sql for new databases.
 - 003 adds pedido.captura_en_curso for capture reservation. CREATE TABLE IF NOT EXISTS does not add it to an existing pedido table; apply migration 003 if missing before deploying the matching backend.
 - 004 expands the order status constraint to include cancelled and deleted; schema.sql contains the current constraint for new databases.
+- 005 adds revocable workshop sessions.
+- 006 adds persistent abuse-rate counters.
+- 007 adds payment idempotency fields and unique pending-attempt indexes.
+- 008 adds deduplicated PayPal webhook events.
 - schema.sql includes the current shape needed for a new database. It is not a general schema-diff or migration tool for manually modified databases.
 
 Do not apply migrations or seed data to a deployed database without explicit approval and a backup.

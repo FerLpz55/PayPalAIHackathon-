@@ -63,6 +63,15 @@ class CreatedQuoteResult:
 
 
 @dataclass
+class CustomerContext:
+    """Recursos vinculados al token de un cliente autorizado."""
+
+    quote: Quote
+    order: Order | None
+    payments: list[Payment]
+
+
+@dataclass
 class OrderDetailResult:
     order: Order
     payments: list[Payment]
@@ -154,6 +163,36 @@ class CapturedPayment:
     amount: Decimal
     currency: str
     paid_at: str
+
+
+@dataclass(frozen=True)
+class ProviderOrder:
+    """Estado actual de una orden en PayPal tal como lo devuelve ``GET``.
+
+    ``status`` usa los valores de PayPal (``CREATED``, ``APPROVED``,
+    ``COMPLETED``, ``VOIDED``...). ``capture`` solo viene informado cuando la
+    orden ya está ``COMPLETED`` y el cuerpo incluye la captura completada.
+    """
+
+    paypal_order_id: str
+    status: str
+    approval_url: str | None = None
+    capture: CapturedPayment | None = None
+
+
+@dataclass(frozen=True)
+class WebhookEvent:
+    """Evento de PayPal ya verificado y reducido a lo que el backend necesita.
+
+    No transporta el cuerpo crudo: solo el identificador para deduplicar, el
+    tipo, la orden afectada y la captura si el evento la incluye.
+    """
+
+    id: str
+    type: str
+    paypal_order_id: str | None = None
+    capture: CapturedPayment | None = None
+    summary: str = ""
 
 
 @dataclass(frozen=True)

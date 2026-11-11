@@ -1,5 +1,6 @@
 """Aplicación FastAPI de TallerClaro."""
 
+import asyncio
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -11,14 +12,37 @@ from tallerclaro.infrastructure.ai.accounting_service import build_accounting_as
 from tallerclaro.infrastructure.ai.service import build_ai_service
 from tallerclaro.infrastructure.db.connection import Database
 from tallerclaro.infrastructure.db.unit_of_work import PostgresUnitOfWork
+from tallerclaro.application.use_cases import ReconcileStalePayments
 from tallerclaro.infrastructure.payment.paypal_processor import build_payment_processor
+from tallerclaro.infrastructure.payment.paypal_webhook import build_webhook_verifier
+from tallerclaro.infrastructure.payment.reconciliation_worker import (
+    PaymentReconciliationWorker,
+)
+from tallerclaro.infrastructure.security.session_service import credential_fingerprint
 from tallerclaro.infrastructure.security.workshop_auth import ensure_workshop_auth_configured
 from tallerclaro.presentation.http.exception_handlers import register as register_exception_handlers
+from tallerclaro.presentation.http.middleware import RequestBodyLimitMiddleware
 from tallerclaro.presentation.http.routers.accounting import router as accounting_router
+from tallerclaro.presentation.http.routers.auth import router as auth_router
+from tallerclaro.presentation.http.routers.customer import router as customer_router
 from tallerclaro.presentation.http.routers.health import router as health_router
 from tallerclaro.presentation.http.routers.orders import router as orders_router
 from tallerclaro.presentation.http.routers.payments import router as payments_router
 from tallerclaro.presentation.http.routers.quotes import router as quotes_router
+
+
+def _enforce_minimal_database_privileges(database: Database) -> None:
+    """En release, el rol de aplicación no puede ser superusuario ni borrar filas."""
+    privileges = database.inspect_privileges()
+    if privileges.is_superuser:
+        raise RuntimeError(
+            "Release requires a dedicated non-superuser role for the backend"
+        )
+    if privileges.tables_with_delete:
+        tables = ", ".join(privileges.tables_with_delete)
+        raise RuntimeError(
+            f"Release role must not have DELETE privileges; revoke them on: {tables}"
+        )
 
 
 @asynccontextmanager
@@ -26,16 +50,25 @@ async def lifespan(app: FastAPI):
     settings: Settings = app.state.settings
     ensure_workshop_auth_configured(settings)
     database = getattr(app.state, "database", None)
+    owned_database = database is None
     if database is None:
         database = Database(settings)
         database.connect()
         app.state.database = database
+
+    if owned_database and settings.is_release:
+        _enforce_minimal_database_privileges(database)
 
     if getattr(app.state, "uow_factory", None) is None:
         app.state.uow_factory = lambda: PostgresUnitOfWork(
             database,
             token_secret=settings.customer_token_secret,
             token_ttl_hours=settings.customer_token_ttl_hours,
+            session_idle_minutes=settings.workshop_session_idle_minutes,
+            session_absolute_hours=settings.workshop_session_absolute_hours,
+            session_credential_fingerprint=credential_fingerprint(
+                settings.workshop_password_hash
+            ),
         )
     if getattr(app.state, "ai_service", None) is None:
         app.state.ai_service = build_ai_service(settings)
@@ -45,8 +78,41 @@ async def lifespan(app: FastAPI):
         app.state.accounting_assistant = build_accounting_assistant(settings)
     if getattr(app.state, "payment_processor", None) is None:
         app.state.payment_processor = build_payment_processor(settings)
-    yield
-    database.close()
+    if getattr(app.state, "webhook_verifier", None) is None:
+        app.state.webhook_verifier = build_webhook_verifier(settings)
+
+    reconciliation_task = _start_reconciliation(settings, app)
+    try:
+        yield
+    finally:
+        if reconciliation_task is not None:
+            reconciliation_task.cancel()
+            try:
+                await reconciliation_task
+            except asyncio.CancelledError:
+                pass
+        database.close()
+
+
+def _start_reconciliation(settings: Settings, app: FastAPI) -> asyncio.Task | None:
+    """Arranca el bucle solo con PayPal configurado y la conciliación habilitada."""
+    if not settings.payment_reconciliation_enabled:
+        return None
+    if (settings.paypal_mode or "").lower().strip() not in {"sandbox", "live"}:
+        return None
+    uow_factory = app.state.uow_factory
+    if not callable(uow_factory):
+        return None
+    worker = PaymentReconciliationWorker(
+        ReconcileStalePayments(
+            uow_factory,
+            app.state.payment_processor,
+            min_age_seconds=settings.payment_reconciliation_min_age_seconds,
+            batch_size=settings.payment_reconciliation_batch_size,
+        ),
+        interval_seconds=settings.payment_reconciliation_interval_seconds,
+    )
+    return asyncio.create_task(worker.run())
 
 
 def create_app(
@@ -71,6 +137,12 @@ def create_app(
     if price_lookup_service is not None:
         app.state.price_lookup_service = price_lookup_service
 
+    # El límite de cuerpo se añade antes de CORS para que este último sea el
+    # middleware más externo y las respuestas 413 conserven sus cabeceras.
+    app.add_middleware(
+        RequestBodyLimitMiddleware,
+        max_body_bytes=settings.max_request_body_bytes,
+    )
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
@@ -82,6 +154,8 @@ def create_app(
     register_exception_handlers(app)
 
     app.include_router(health_router)
+    app.include_router(auth_router)
+    app.include_router(customer_router)
     app.include_router(quotes_router)
     app.include_router(orders_router)
     app.include_router(payments_router)

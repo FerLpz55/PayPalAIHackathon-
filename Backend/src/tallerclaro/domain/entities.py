@@ -67,6 +67,11 @@ PAYMENT_STATUS_FAILED = "failed"
 PAYMENT_STATUS_CANCELLED = "cancelled"
 PaymentStatus = str
 
+FINANCIAL_STATUS_UNPAID = "unpaid"
+FINANCIAL_STATUS_DEPOSIT_PAID = "deposit_paid"
+FINANCIAL_STATUS_PAID = "paid"
+FinancialStatus = str
+
 LINE_ITEM_TYPE_MATERIAL = "material"
 LINE_ITEM_TYPE_LABOR = "labor"
 LINE_ITEM_TYPE_OTHER = "other"
@@ -251,6 +256,23 @@ class Order:
         """Código corto y legible del pedido, único porque hay un pedido por cotización."""
         return f"TC-{1000 + int(quote_id)}"
 
+    def financial_status(self, payments: list[Payment]) -> FinancialStatus:
+        """Estado financiero derivado de los pagos completados, no del estado logístico.
+
+        ``unpaid`` sin pagos completados, ``deposit_paid`` con algún pago
+        completado pero saldo pendiente y ``paid`` al alcanzar el total.
+        """
+        completed = [
+            payment
+            for payment in payments
+            if payment.status == PAYMENT_STATUS_COMPLETED
+        ]
+        if not completed:
+            return FINANCIAL_STATUS_UNPAID
+        if self.is_fully_paid(payments):
+            return FINANCIAL_STATUS_PAID
+        return FINANCIAL_STATUS_DEPOSIT_PAID
+
     def _completed_deposit_exists(self, payments: list[Payment]) -> bool:
         return any(
             p.type == PAYMENT_TYPE_DEPOSIT and p.status == PAYMENT_STATUS_COMPLETED
@@ -319,15 +341,35 @@ class Payment:
     created_at: datetime | None
     updated_at: datetime | None
     paid_at: datetime | None
+    idempotency_key: str | None = None
+    request_fingerprint: str | None = None
+    approval_url: str | None = None
 
     def __post_init__(self) -> None:
         if self.currency != "USD":
             raise ValidationDomainError("Currency must be USD")
 
+    def attach_provider_order(self, paypal_order_id: str, approval_url: str | None) -> None:
+        """Guarda la orden creada en PayPal sin cambiar el estado del intento."""
+        if self.status != PAYMENT_STATUS_PENDING:
+            raise ConflictError(f"Cannot attach provider order from status {self.status}")
+        self.paypal_order_id = paypal_order_id
+        self.approval_url = approval_url
+
     def mark_completed(self, paypal_order_id: str, paypal_capture_id: str, paid_at: datetime) -> None:
+        """Acredita una captura verificada.
+
+        Se permite desde ``pending`` y también desde ``cancelled``/``failed``:
+        si PayPal confirma la captura, el dinero existe aunque el intento local
+        se hubiera cerrado; la conciliación debe reflejarlo.
+        """
         if self.status == PAYMENT_STATUS_COMPLETED:
             return
-        if self.status != PAYMENT_STATUS_PENDING:
+        if self.status not in {
+            PAYMENT_STATUS_PENDING,
+            PAYMENT_STATUS_CANCELLED,
+            PAYMENT_STATUS_FAILED,
+        }:
             raise ConflictError(f"Cannot complete payment from status {self.status}")
         self.status = PAYMENT_STATUS_COMPLETED
         self.paypal_order_id = paypal_order_id

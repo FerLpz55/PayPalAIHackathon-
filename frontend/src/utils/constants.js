@@ -45,6 +45,12 @@ export const ORDER_STATUS_TRANSITIONS = {
   cancelled: [],
 }
 
+export const FINANCIAL_STATUS_LABELS = {
+  unpaid: 'Unpaid',
+  deposit_paid: 'Deposit paid',
+  paid: 'Paid in full',
+}
+
 export const PROGRESS_STATUSES = ['quote_sent', 'paid', 'in_progress', 'ready_to_finish', 'delivered']
 
 export const PROGRESS_STEPS = ['Quote approved', 'Advance paid', 'In production', 'Ready to finish']

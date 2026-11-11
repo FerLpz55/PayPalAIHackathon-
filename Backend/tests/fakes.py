@@ -12,8 +12,10 @@ from tallerclaro.application.dtos import (
     CapturedPayment,
     MarketPriceReference,
     PaymentIntent,
+    ProviderOrder,
     QuoteLineItemInput,
     QuoteProposalResult,
+    WebhookEvent,
 )
 from tallerclaro.application.interfaces import AIService, PaymentProcessor, UnitOfWork
 from tallerclaro.domain.accounting import WorkshopFinancialSummary
@@ -27,6 +29,7 @@ from tallerclaro.domain.entities import (
     OrderId,
     Payment,
     PaymentId,
+    PaymentType,
     Quote,
     QuoteId,
     QuoteLineItem,
@@ -130,6 +133,9 @@ class FakeCaptureReservationRepository:
         if self._captures.get(order_id) == payment_id:
             self._captures.pop(order_id)
 
+    def active_payment_id(self, order_id: OrderId) -> PaymentId | None:
+        return self._captures.get(order_id)
+
 
 class FakeOrderRepository:
     def __init__(self) -> None:
@@ -193,6 +199,74 @@ class FakePaymentRepository:
     def list_by_order(self, order_id: OrderId) -> list[Payment]:
         return [p for p in self._store.values() if p.order_id == order_id]
 
+    def get_by_paypal_order_id(self, paypal_order_id: str) -> Payment | None:
+        for payment in self._store.values():
+            if payment.paypal_order_id == paypal_order_id:
+                return payment
+        return None
+
+    def list_stale_pending(self, updated_before: datetime, limit: int) -> list[Payment]:
+        stale = [
+            payment
+            for payment in self._store.values()
+            if payment.status == "pending"
+            and payment.paypal_order_id is not None
+            and (payment.updated_at or datetime.min.replace(tzinfo=timezone.utc))
+            < updated_before
+        ]
+        stale.sort(key=lambda payment: payment.updated_at or datetime.min.replace(tzinfo=timezone.utc))
+        return stale[:limit]
+
+    def get_pending_by_order_and_type(
+        self, order_id: OrderId, payment_type: PaymentType
+    ) -> Payment | None:
+        pending = [
+            payment
+            for payment in self._store.values()
+            if payment.order_id == order_id
+            and payment.type == payment_type
+            and payment.status == "pending"
+        ]
+        if not pending:
+            return None
+        pending.sort(
+            key=lambda payment: payment.created_at
+            or datetime.min.replace(tzinfo=timezone.utc),
+            reverse=True,
+        )
+        return pending[0]
+
+
+class FakePayPalEventRepository:
+    """Deduplicación de eventos con la misma semántica que PostgreSQL."""
+
+    def __init__(self) -> None:
+        self._states: dict[str, str] = {}
+        self._details: dict[str, str | None] = {}
+
+    def claim(self, event: WebhookEvent) -> str:
+        state = self._states.get(event.id)
+        if state is None:
+            self._states[event.id] = "received"
+            return "new"
+        if state == "failed":
+            self._states[event.id] = "received"
+            self._details.pop(event.id, None)
+            return "retry"
+        return "duplicate"
+
+    def mark_processed(
+        self, event_id: str, outcome: str, detail: str | None = None
+    ) -> None:
+        self._states[event_id] = outcome
+        self._details[event_id] = detail
+
+    def state(self, event_id: str) -> str | None:
+        return self._states.get(event_id)
+
+    def detail(self, event_id: str) -> str | None:
+        return self._details.get(event_id)
+
 
 class FakeCustomerTokenRepository:
     def __init__(self, ttl_hours: int = 72, *, clock: Callable[[], datetime] | None = None) -> None:
@@ -213,11 +287,133 @@ class FakeCustomerTokenRepository:
             return None
         return record['customer_id'], record['quote_id']
 
+    def revoke_for_quote(self, quote_id: QuoteId) -> int:
+        revoked = 0
+        for record in self._tokens.values():
+            if record['quote_id'] == quote_id and not record['used']:
+                record['used'] = True
+                revoked += 1
+        return revoked
+
+
+class FakeRateLimiter:
+    """Contadores en memoria con la misma semántica que PostgreSQL."""
+
+    def __init__(self) -> None:
+        self._counters: dict[tuple[str, int], int] = {}
+
+    @staticmethod
+    def _start(now: datetime, window_seconds: int) -> int:
+        epoch = int(now.timestamp())
+        return epoch - (epoch % window_seconds)
+
+    def retry_after(
+        self, key: str, *, limit: int, window_seconds: int, now: datetime
+    ) -> int | None:
+        start = self._start(now, window_seconds)
+        if self._counters.get((key, start), 0) < limit:
+            return None
+        expires = datetime.fromtimestamp(start + window_seconds, tz=timezone.utc)
+        return max(1, int((expires - now).total_seconds()))
+
+    def hit(self, key: str, *, window_seconds: int, now: datetime) -> int:
+        start = self._start(now, window_seconds)
+        value = self._counters.get((key, start), 0) + 1
+        self._counters[(key, start)] = value
+        return value
+
+    def reset(self, key: str, *, window_seconds: int, now: datetime) -> None:
+        self._counters[(key, self._start(now, window_seconds))] = 0
+
+
+class FakeWorkshopSessionRepository:
+    """Sesiones en memoria con la misma semántica que PostgreSQL.
+
+    Guarda solo el SHA-256 del token; expone ``stored_hashes`` para comprobar que
+    el valor en claro nunca se persiste.
+    """
+
+    def __init__(
+        self,
+        *,
+        idle_minutes: int = 30,
+        absolute_hours: int = 8,
+        credential_fingerprint: str = "test-fingerprint",
+        clock: Callable[[], datetime] | None = None,
+    ) -> None:
+        self._sessions: dict[str, dict] = {}
+        self._idle_minutes = idle_minutes
+        self._absolute_hours = absolute_hours
+        self._credential_fingerprint = credential_fingerprint
+        self._clock = clock if clock is not None else lambda: datetime.now(timezone.utc)
+
+    @property
+    def stored_hashes(self) -> list[str]:
+        return list(self._sessions)
+
+    @staticmethod
+    def _hash(token: str) -> str:
+        import hashlib
+
+        return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+    def create(self, carpenter_id: CarpenterId) -> str:
+        import secrets
+
+        token = secrets.token_urlsafe(32)
+        now = self._clock()
+        self._sessions[self._hash(token)] = {
+            "carpenter_id": carpenter_id,
+            "fingerprint": self._credential_fingerprint,
+            "expires": now + timedelta(hours=self._absolute_hours),
+            "last_used": now,
+            "revoked": False,
+        }
+        return token
+
+    def verify(self, token: str) -> CarpenterId | None:
+        record = self._sessions.get(self._hash(token))
+        if record is None or record["revoked"]:
+            return None
+        if record["fingerprint"] != self._credential_fingerprint:
+            return None
+        now = self._clock()
+        if record["expires"] <= now:
+            return None
+        if record["last_used"] <= now - timedelta(minutes=self._idle_minutes):
+            return None
+        record["last_used"] = now
+        return record["carpenter_id"]
+
+    def revoke(self, token: str) -> bool:
+        record = self._sessions.get(self._hash(token))
+        if record is None or record["revoked"]:
+            return False
+        record["revoked"] = True
+        return True
+
+    def revoke_all(self, carpenter_id: CarpenterId) -> int:
+        revoked = 0
+        for record in self._sessions.values():
+            if record["carpenter_id"] == carpenter_id and not record["revoked"]:
+                record["revoked"] = True
+                revoked += 1
+        return revoked
+
 
 class FakeUnitOfWork:
     """Unidad de trabajo en memoria para pruebas unitarias con soporte real de commit y rollback."""
 
-    def __init__(self, *, tokens=None) -> None:
+    def __init__(
+        self,
+        *,
+        tokens=None,
+        sessions=None,
+        session_clock: Callable[[], datetime] | None = None,
+        session_idle_minutes: int = 30,
+        session_absolute_hours: int = 8,
+        session_credential_fingerprint: str = "test-fingerprint",
+    ) -> None:
         self._customers = FakeCustomerRepository()
         self._carpenters = FakeCarpenterRepository()
         self._quotes = FakeQuoteRepository()
@@ -225,6 +421,18 @@ class FakeUnitOfWork:
         self._capture_reservations = FakeCaptureReservationRepository()
         self._payments = FakePaymentRepository()
         self._tokens = tokens if tokens is not None else FakeCustomerTokenRepository()
+        self._rate_limits = FakeRateLimiter()
+        self._paypal_events = FakePayPalEventRepository()
+        self._sessions = (
+            sessions
+            if sessions is not None
+            else FakeWorkshopSessionRepository(
+                idle_minutes=session_idle_minutes,
+                absolute_hours=session_absolute_hours,
+                credential_fingerprint=session_credential_fingerprint,
+                clock=session_clock,
+            )
+        )
         self._committed = False
         self._frames: list[dict] = []
 
@@ -264,9 +472,24 @@ class FakeUnitOfWork:
         return self._tokens
 
     @property
+    def sessions(self):
+        self._active_frame()
+        return self._sessions
+
+    @property
+    def rate_limits(self):
+        self._active_frame()
+        return self._rate_limits
+
+    @property
     def capture_reservations(self):
         self._active_frame()
         return self._capture_reservations
+
+    @property
+    def paypal_events(self):
+        self._active_frame()
+        return self._paypal_events
 
     def _take_snapshot(self) -> dict:
         return {
@@ -283,6 +506,10 @@ class FakeUnitOfWork:
             "payments_store": copy.deepcopy(self._payments._store),
             "payments_next_id": self._payments._next_id,
             "tokens_dict": copy.deepcopy({key: value for key, value in self._tokens.__dict__.items() if key != '_clock'}),
+            "sessions_store": copy.deepcopy(self._sessions._sessions),
+            "rate_limits": copy.deepcopy(self._rate_limits._counters),
+            "paypal_events": copy.deepcopy(self._paypal_events._states),
+            "paypal_event_details": copy.deepcopy(self._paypal_events._details),
         }
 
     def _restore_snapshot(self, snap: dict) -> None:
@@ -298,6 +525,10 @@ class FakeUnitOfWork:
         self._capture_reservations._captures = copy.deepcopy(snap["capture_reservations"])
         self._payments._store = copy.deepcopy(snap["payments_store"])
         self._payments._next_id = snap["payments_next_id"]
+        self._sessions._sessions = copy.deepcopy(snap["sessions_store"])
+        self._rate_limits._counters = copy.deepcopy(snap["rate_limits"])
+        self._paypal_events._states = copy.deepcopy(snap["paypal_events"])
+        self._paypal_events._details = copy.deepcopy(snap["paypal_event_details"])
         clock = self._tokens.__dict__.get('_clock')
         self._tokens.__dict__.clear()
         self._tokens.__dict__.update(copy.deepcopy(snap["tokens_dict"]))
@@ -337,6 +568,40 @@ class FakeUnitOfWork:
     def get_connection(self):
         raise RuntimeError("FakeUnitOfWork has no database connection")
 
+    def execute_sql(self, operation, *, attempts: int = 3):
+        """Ejecuta la fase en el fake; no hay conflictos de serialización que reintentar."""
+        if attempts < 1:
+            raise ValueError("attempts must be at least 1")
+        with self:
+            result = operation(self)
+            self.commit()
+        return result
+
+
+class FakeWebhookVerifier:
+    """Verificador determinista: devuelve eventos encolados y registra llamadas."""
+
+    def __init__(self) -> None:
+        self.events: list[WebhookEvent] = []
+        self.calls: list[tuple[dict[str, str], bytes]] = []
+        self.error: Exception | None = None
+
+    def queue(self, event: WebhookEvent) -> None:
+        self.events.append(event)
+
+    def verify(self, headers: dict[str, str], body: bytes) -> WebhookEvent:
+        from tallerclaro.domain.exceptions import DomainError
+
+        self.calls.append((dict(headers), body))
+        if self.error is not None:
+            raise self.error
+        if not self.events:
+            raise DomainError(
+                code="UNAUTHORIZED",
+                message="No verified event queued",
+            )
+        return self.events.pop(0)
+
 
 class FakeDependenciesContainer:
     """Contenedor de dependencias de prueba."""
@@ -346,6 +611,7 @@ class FakeDependenciesContainer:
         self.ai = FakeAIService()
         self.payment = FakePaymentProcessor(success=True)
         self.accounting = FakeAccountingAssistant(self.uow)
+        self.webhook = FakeWebhookVerifier()
 
 
 class FakeAIService:
@@ -375,9 +641,20 @@ class FakePaymentProcessor:
     def __init__(self, success: bool = True) -> None:
         self._success = success
         self._orders: dict[str, PaymentIntent] = {}
+        self._request_ids: dict[str, PaymentIntent] = {}
+        self._statuses: dict[str, str] = {}
+        self._captures: dict[str, CapturedPayment] = {}
         self._counter = 0
+        self.create_calls: list[str | None] = []
+        self.capture_calls: list[str] = []
 
-    def create_order(self, amount: str, currency: str) -> PaymentIntent:
+    def create_order(
+        self, amount: str, currency: str, request_id: str | None = None
+    ) -> PaymentIntent:
+        self.create_calls.append(request_id)
+        if request_id is not None and request_id in self._request_ids:
+            # PayPal devuelve la misma orden para el mismo PayPal-Request-Id.
+            return self._request_ids[request_id]
         self._counter += 1
         paypal_order_id = f"PAYPAL-{self._counter}"
         intent = PaymentIntent(
@@ -388,9 +665,13 @@ class FakePaymentProcessor:
             approval_url=f"https://sandbox.paypal.com/checkoutnow?token={paypal_order_id}",
         )
         self._orders[paypal_order_id] = intent
+        self._statuses[paypal_order_id] = "CREATED"
+        if request_id is not None:
+            self._request_ids[request_id] = intent
         return intent
 
     def capture_order(self, paypal_order_id: str) -> CapturedPayment:
+        self.capture_calls.append(paypal_order_id)
         if paypal_order_id not in self._orders:
             from tallerclaro.domain.exceptions import DomainError
 
@@ -399,8 +680,11 @@ class FakePaymentProcessor:
             from tallerclaro.domain.exceptions import DomainError
 
             raise DomainError(code="PAYMENT_FAILED", message="Capture failed")
+        existing = self._captures.get(paypal_order_id)
+        if existing is not None:
+            return existing
         intent = self._orders[paypal_order_id]
-        return CapturedPayment(
+        captured = CapturedPayment(
             payment_id=PaymentId(0),
             status="completed",
             paypal_order_id=paypal_order_id,
@@ -409,6 +693,42 @@ class FakePaymentProcessor:
             currency=intent.currency,
             paid_at=datetime.now(timezone.utc).isoformat(),
         )
+        self._captures[paypal_order_id] = captured
+        self._statuses[paypal_order_id] = "COMPLETED"
+        return captured
+
+    def get_order(self, paypal_order_id: str) -> ProviderOrder:
+        if paypal_order_id not in self._orders:
+            from tallerclaro.domain.exceptions import DomainError
+
+            raise DomainError(code="PAYMENT_NOT_FOUND", message="Order not found")
+        status = self._statuses.get(paypal_order_id, "CREATED")
+        return ProviderOrder(
+            paypal_order_id=paypal_order_id,
+            status=status,
+            approval_url=self._orders[paypal_order_id].approval_url,
+            capture=self._captures.get(paypal_order_id) if status == "COMPLETED" else None,
+        )
+
+    def set_order_status(self, paypal_order_id: str, status: str) -> None:
+        """Fija el estado que devolverá ``get_order`` (para pruebas de sync)."""
+        self._statuses[paypal_order_id] = status
+
+    def mark_completed_externally(self, paypal_order_id: str) -> CapturedPayment:
+        """Simula una captura completada fuera del backend (webhook o panel)."""
+        intent = self._orders[paypal_order_id]
+        captured = CapturedPayment(
+            payment_id=PaymentId(0),
+            status="completed",
+            paypal_order_id=paypal_order_id,
+            paypal_capture_id=f"CAPTURE-{paypal_order_id}",
+            amount=intent.amount,
+            currency=intent.currency,
+            paid_at=datetime.now(timezone.utc).isoformat(),
+        )
+        self._captures[paypal_order_id] = captured
+        self._statuses[paypal_order_id] = "COMPLETED"
+        return captured
 
 
 class FakeAccountingAssistant:

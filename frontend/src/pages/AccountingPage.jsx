@@ -25,7 +25,13 @@ function AccountingPage() {
         if (active) setSummary(data)
       })
       .catch((caught) => {
-        if (active) setError(caught?.message || 'The financial summary could not be loaded.')
+        if (!active) return
+        setSummary(null)
+        setError(
+          caught?.status === 401 || caught?.status === 403
+            ? 'The workshop session is not authorized to read accounting data.'
+            : caught?.message || 'Accounting data could not be loaded from the backend.'
+        )
       })
       .finally(() => {
         if (active) setLoading(false)
@@ -59,6 +65,7 @@ function AccountingPage() {
         <section className="panel" role="alert" style={{ marginTop: 20, padding: 18 }}>
           <h2>Financial summary unavailable</h2>
           <p>{error}</p>
+          <p className="status-help">No sample figures are shown as real accounting data.</p>
           <Button variant="secondary" onClick={() => { setError(''); setLoading(true); setRetry((value) => value + 1) }}>Retry summary</Button>
         </section>
       ) : summary ? (

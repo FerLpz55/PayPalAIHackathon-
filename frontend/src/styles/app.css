@@ -139,6 +139,7 @@ th:first-child, td:first-child { min-width: 210px; } th:nth-child(2), td:nth-chi
 .customer-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin: 18px 0; }
 .customer-fields label { display: grid; gap: 6px; color: var(--muted); font-size: 12px; }
 .customer-fields input { width: 100%; min-height: 44px; padding: 0 10px; border: 1px solid #c8d6e6; border-radius: 7px; color: var(--text); font-size: 13px; }
+.request-form input { width: 100%; min-height: 44px; padding: 0 12px; border: 1px solid #c8d6e6; border-radius: 7px; color: var(--text); font-size: 13px; background: #fff; }
 .request-form > .button { min-height: 44px; } .request-form .demo-notice { align-items: flex-start; margin-top: 15px; }
 .how-panel h2 { margin: 1px 0 17px; font-size: 16px; } .how-panel ol { display: grid; gap: 18px; margin: 0; padding: 0; list-style: none; } .how-panel li { display: flex; align-items: flex-start; gap: 11px; } .how-panel li > span { width: 24px; height: 24px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 50%; color: var(--navy); background: #e8f0ff; font-size: 11px; font-weight: 700; } .how-panel li strong, .how-panel li small { display: block; } .how-panel li strong { font-size: 12px; } .how-panel li small { margin-top: 4px; color: var(--muted); font-size: 11px; line-height: 1.45; }
 .inline-error { margin: 0 0 12px; color: #aa3737; font-size: 12px; }

@@ -19,7 +19,13 @@ def test_paypal_sends_configured_return_urls():
     client.post.side_effect = [MagicMock(status_code=200, json=lambda: {"access_token": "token"}), MagicMock(status_code=201, json=lambda: {"id": "order", "links": []})]
     PayPalPaymentProcessor(settings, client).create_order("10.00", "USD")
     context = client.post.call_args.kwargs["json"]["application_context"]
-    assert context == {"return_url": settings.paypal_return_url, "cancel_url": settings.paypal_cancel_url}
+    assert context == {
+        "return_url": settings.paypal_return_url,
+        "cancel_url": settings.paypal_cancel_url,
+        "user_action": "PAY_NOW",
+        "shipping_preference": "NO_SHIPPING",
+        "brand_name": settings.paypal_brand_name,
+    }
 
 
 def test_paypal_recovers_already_captured_order():

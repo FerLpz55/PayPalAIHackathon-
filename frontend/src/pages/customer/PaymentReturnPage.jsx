@@ -4,6 +4,7 @@ import EmptyState from '../../components/ui/EmptyState.jsx'
 import LoadingState from '../../components/ui/LoadingState.jsx'
 import PageHeading from '../../components/ui/PageHeading.jsx'
 import { apiClient } from '../../services/apiClient.js'
+import { FINANCIAL_STATUS_LABELS } from '../../utils/constants.js'
 import { cleanPayPalUrlParams, isSafePayPalUrl } from '../../utils/security.js'
 
 function readReturnParameters() {
@@ -24,16 +25,53 @@ function safePaymentError(error) {
   return 'The backend could not verify the payment. No success is being shown.'
 }
 
+function matchesSavedPayment(record, saved) {
+  return String(record?.order_id) === String(saved.orderId)
+    && String(record?.paypal_order_id) === String(saved.paypalOrderId)
+}
+
 function PaymentReturnPage({ cancelled = false, go, refresh }) {
   const [phase, setPhase] = useState('checking')
   const [message, setMessage] = useState('Checking the saved payment with the backend…')
   const [error, setError] = useState('')
   const [pending, setPending] = useState(() => apiClient.getAnyPendingPayment())
   const [paymentStatus, setPaymentStatus] = useState('')
+  const [financialStatus, setFinancialStatus] = useState('')
   const started = useRef(false)
   const paypalOrderId = readReturnParameters().paypalOrderId
 
-  const verify = useCallback(async ({ shouldCapture }) => {
+  const loadFinancialStatus = useCallback(async (orderId) => {
+    try {
+      const order = await apiClient.getOrder(orderId)
+      setFinancialStatus(order?.financialStatus || '')
+    } catch {
+      // El estado financiero es informativo; no cambia el resultado del pago.
+    }
+  }, [])
+
+  const finish = useCallback(async (saved, status) => {
+    setPaymentStatus(status)
+    if (status === 'completed') {
+      apiClient.clearPendingPayment(saved.paymentId)
+      setPhase('confirmed')
+      setMessage('The backend reconciled this payment with PayPal and confirmed it as completed.')
+    } else if (status === 'cancelled') {
+      apiClient.discardPendingPayment(saved.paymentId)
+      setPhase('cancelled')
+      setMessage('The backend confirmed this payment attempt as cancelled. No charge was confirmed.')
+    } else if (status === 'failed') {
+      apiClient.discardPendingPayment(saved.paymentId)
+      setPhase('failed')
+      setMessage('The backend reports that this payment attempt failed.')
+    } else {
+      setPhase('pending')
+      setMessage('PayPal has not approved this order yet. The backend will reconcile it again from the webhook or background worker.')
+    }
+    await loadFinancialStatus(saved.orderId)
+    await refresh?.()
+  }, [loadFinancialStatus, refresh])
+
+  const verify = useCallback(async () => {
     const saved = apiClient.getAnyPendingPayment()
     setPending(saved)
     setError('')
@@ -48,70 +86,49 @@ function PaymentReturnPage({ cancelled = false, go, refresh }) {
       return
     }
 
-    setPhase('checking')
-    setMessage('Verifying payment identity and status with the backend…')
     try {
-      const current = await apiClient.getPayment(saved.paymentId)
-      if (String(current?.order_id) !== String(saved.orderId) || String(current?.paypal_order_id) !== String(saved.paypalOrderId)) {
-        setPhase('unavailable')
-        setMessage('The backend payment record does not match this order. No capture was requested.')
-        return
-      }
-      const status = String(current?.status || '').toLowerCase()
-      setPaymentStatus(status)
-      if (status === 'completed') {
-        apiClient.clearPendingPayment(saved.paymentId)
-        setPhase('confirmed')
-        setMessage('The backend confirmed this payment as completed.')
-        await refresh?.()
-        return
-      }
-      if (status === 'failed' || status === 'cancelled') {
-        apiClient.discardPendingPayment(saved.paymentId)
-        setPhase(status)
-        setMessage(status === 'cancelled' ? 'The backend reports this payment attempt as cancelled.' : 'The backend reports that this payment attempt failed.')
-        return
-      }
-      if (status !== 'pending') {
-        setPhase('unavailable')
-        setMessage('The backend returned an unrecognized payment state. No success is being shown.')
-        return
-      }
       if (cancelled) {
-        setPhase('cancelled')
-        setMessage('You returned from PayPal cancellation. The backend still reports a pending attempt; no capture was requested.')
-        return
-      }
-      if (!shouldCapture) {
-        setPhase('pending')
-        setMessage('The payment is still pending. Use the backend verification action to retry capture after PayPal approval.')
+        setPhase('cancelling')
+        setMessage('Cancelling the payment attempt with the backend…')
+        try {
+          const result = await apiClient.cancelPayment(saved.paymentId)
+          await finish(saved, String(result?.status || 'cancelled').toLowerCase())
+        } catch (cancelError) {
+          if (cancelError?.status !== 409) throw cancelError
+          // Puede haber una captura en curso o un pago ya completado: se
+          // consulta el estado real sin volver a capturar ni cancelar.
+          const current = await apiClient.getPayment(saved.paymentId)
+          if (!matchesSavedPayment(current, saved)) {
+            setPhase('unavailable')
+            setMessage('The backend payment record does not match this order. No action was taken.')
+            return
+          }
+          await finish(saved, String(current?.status || '').toLowerCase())
+        }
         return
       }
 
-      setPhase('capturing')
-      setMessage('PayPal returned to the approval route. Asking the backend to capture and verify…')
-      const captured = await apiClient.capturePayment(saved.paymentId)
-      const verified = await apiClient.getPayment(saved.paymentId)
-      if (String(verified?.order_id) !== String(saved.orderId) || String(verified?.paypal_order_id) !== String(saved.paypalOrderId) || String(verified?.status || '').toLowerCase() !== 'completed') {
-        throw new Error('The captured payment is not confirmed by a matching completed backend payment record.')
+      setPhase('syncing')
+      setMessage('Reconciling the payment with PayPal and the workshop backend…')
+      const result = await apiClient.syncPayment(saved.paymentId)
+      if (!matchesSavedPayment(result, saved)) {
+        setPhase('unavailable')
+        setMessage('The backend payment record does not match this order. No success is being shown.')
+        return
       }
-      setPaymentStatus(String(verified.status || captured.status || '').toLowerCase())
-      apiClient.clearPendingPayment(saved.paymentId)
-      setPhase('confirmed')
-      setMessage('The backend verified and captured this payment.')
-      await refresh?.()
+      await finish(saved, String(result?.status || '').toLowerCase())
     } catch (caught) {
       setPhase('error')
       setError(safePaymentError(caught))
     }
-  }, [cancelled, paypalOrderId, refresh])
+  }, [cancelled, finish, paypalOrderId])
 
   useEffect(() => {
     cleanPayPalUrlParams()
     if (started.current) return
     started.current = true
-    void verify({ shouldCapture: !cancelled })
-  }, [cancelled, verify])
+    void verify()
+  }, [verify])
 
   // Pago confirmado por el backend ⇒ llevar al cliente al seguimiento del pedido.
   useEffect(() => {
@@ -120,28 +137,32 @@ function PaymentReturnPage({ cancelled = false, go, refresh }) {
     return () => window.clearTimeout(timer)
   }, [phase, go])
 
-  const retryPayment = () => {
+  const resumeCheckout = () => {
     const saved = apiClient.getAnyPendingPayment()
     if (!saved) return
-    if (cancelled && saved.approvalUrl && isSafePayPalUrl(saved.approvalUrl)) {
+    if (saved.approvalUrl && isSafePayPalUrl(saved.approvalUrl)) {
       window.location.assign(saved.approvalUrl)
       return
     }
-    void verify({ shouldCapture: true })
+    void verify()
   }
+
+  const busy = phase === 'checking' || phase === 'syncing' || phase === 'cancelling'
 
   return (
     <div className="customer-page">
-      <PageHeading title={cancelled ? 'PayPal checkout cancelled' : 'Verifying PayPal payment'} description="Payment status is determined by the workshop backend, not by the return URL." />
+      <PageHeading title={cancelled ? 'PayPal checkout cancelled' : 'Verifying PayPal payment'} description="Payment status is determined by the workshop backend and PayPal, not by the return URL." />
       <section className="panel detail-panel" aria-live="polite">
-        {phase === 'checking' || phase === 'capturing' ? <LoadingState /> : null}
-        {(phase === 'checking' || phase === 'capturing') && <p className="status-help">{phase === 'capturing' ? 'Capturing payment with the backend…' : 'Checking payment with the backend…'}</p>}
+        {busy && <LoadingState />}
+        {phase === 'syncing' && <p className="status-help">Reconciling with PayPal…</p>}
+        {phase === 'cancelling' && <p className="status-help">Cancelling the attempt…</p>}
         <p role={error ? 'alert' : 'status'}>{error || message}</p>
         {paymentStatus && <p>Backend payment state: <strong>{paymentStatus}</strong></p>}
+        {financialStatus && <p>Order financial status: <strong>{FINANCIAL_STATUS_LABELS[financialStatus] || financialStatus}</strong></p>}
         {phase === 'confirmed' && <p className="status-paid">Payment confirmed by the backend.</p>}
-        {(phase === 'cancelled' || phase === 'pending') && pending?.approvalUrl && <Button variant="paypal" onClick={retryPayment}>Resume the same PayPal checkout</Button>}
-        {phase === 'error' && <Button variant="secondary" onClick={() => void verify({ shouldCapture: !cancelled })}>Check payment status again</Button>}
-        {(phase === 'confirmed' || phase === 'cancelled' || phase === 'failed' || phase === 'pending' || phase === 'unavailable' || phase === 'error') && <Button variant="secondary" onClick={() => go('customer/tracking')}>Return to order tracking</Button>}
+        {phase === 'pending' && pending?.approvalUrl && <Button variant="paypal" onClick={resumeCheckout}>Resume the same PayPal checkout</Button>}
+        {phase === 'error' && <Button variant="secondary" onClick={() => void verify()}>Check payment status again</Button>}
+        {!busy && <Button variant="secondary" onClick={() => go('customer/tracking')}>Return to order tracking</Button>}
         {phase === 'unavailable' && <EmptyState title="Payment attempt unavailable" text="Reopen the secure customer link so the payment can be checked with the correct customer token." />}
       </section>
     </div>

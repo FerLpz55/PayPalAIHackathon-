@@ -17,7 +17,8 @@ import {
   getSession,
   saveSession,
   clearSession,
-  getWorkshopCredentials,
+  getWorkshopSession,
+  saveWorkshopSession,
   readPendingPayment,
   savePendingPayment,
   getPendingPayment,
@@ -38,6 +39,7 @@ export {
   getSession,
   saveSession,
   clearSession,
+  getWorkshopSession,
   adaptQuoteResponse,
   adaptOrderResponse,
 }
@@ -46,7 +48,83 @@ const quoteGenerationErrors = new Map()
 
 export const QUOTE_INBOX_STATUSES = ['draft', 'needs_information', 'pending_review']
 
+const PAYMENT_STATUSES = new Set(['pending', 'completed', 'failed', 'cancelled'])
+
+function normalizePaymentStatus(value) {
+  return String(value || '').trim().toLowerCase()
+}
+
+function toWorkshopSession(data) {
+  return {
+    authenticated: true,
+    username: data.username || null,
+    carpenterId: data.carpenter_id ?? null,
+    csrfToken: data.csrf_token || null,
+    idleTimeoutSeconds: data.idle_timeout_seconds ?? null,
+    absoluteTimeoutSeconds: data.absolute_timeout_seconds ?? null,
+  }
+}
+
+function customerRequestOptions() {
+  const session = getSession()
+  return session.customerToken
+    ? { customerToken: session.customerToken }
+    : { workshopSession: true }
+}
+
 export const apiClient = {
+  // --- Sesión del taller (cookie HttpOnly + CSRF) ---
+
+  async loginWorkshop(username, password) {
+    if (isDemoMode) {
+      return { authenticated: true, username: 'demo', carpenterId: 1, demo: true }
+    }
+    const data = await apiRequest('/api/auth/login', {
+      method: 'POST',
+      omitCustomerToken: true,
+      body: JSON.stringify({ username, password }),
+    })
+    const workshopSession = toWorkshopSession(data)
+    saveWorkshopSession(workshopSession)
+    return workshopSession
+  },
+
+  async getWorkshopSession() {
+    if (isDemoMode) {
+      return { authenticated: true, username: 'demo', carpenterId: 1, demo: true }
+    }
+    try {
+      const data = await apiRequest('/api/auth/session', { omitCustomerToken: true })
+      const workshopSession = toWorkshopSession(data)
+      saveWorkshopSession(workshopSession)
+      return workshopSession
+    } catch (error) {
+      if (error?.status === 401) {
+        saveWorkshopSession(null)
+        return null
+      }
+      throw error
+    }
+  },
+
+  async logoutWorkshop() {
+    if (isDemoMode) {
+      clearSession()
+      return
+    }
+    try {
+      await apiRequest('/api/auth/logout', {
+        method: 'POST',
+        workshopSession: true,
+        omitCustomerToken: true,
+      })
+    } finally {
+      saveWorkshopSession(null)
+    }
+  },
+
+  // --- Pedidos y cotizaciones ---
+
   async listOrders() {
     if (isDemoMode) {
       return mockApi.listOrders()
@@ -63,7 +141,7 @@ export const apiClient = {
       const allOrders = await mockApi.listOrders()
       return { orders: allOrders.slice(offset, offset + limit), total: allOrders.length, limit, offset }
     }
-    const data = await apiRequest(`/api/orders?limit=${limit}&offset=${offset}`, { isWorkshopRoute: true })
+    const data = await apiRequest(`/api/orders?limit=${limit}&offset=${offset}`, { workshopSession: true })
     const list = Array.isArray(data?.orders) ? data.orders : (Array.isArray(data) ? data : [])
     const orders = list.map(adaptOrderResponse).filter((order) => order && order.status !== 'deleted')
     const responseTotal = data?.total == null ? Number.NaN : Number(data.total)
@@ -75,7 +153,7 @@ export const apiClient = {
     }
   },
 
-  /** Bandeja del taller: GET /api/quotes (Basic Auth del taller). */
+  /** Bandeja del taller: GET /api/quotes con sesión cookie del taller. */
   async listQuotes({ statuses = QUOTE_INBOX_STATUSES, limit = 50, offset = 0 } = {}) {
     if (isDemoMode) {
       const quote = await mockApi.getQuote()
@@ -84,7 +162,7 @@ export const apiClient = {
     }
     const params = new URLSearchParams({ limit: String(limit), offset: String(offset) })
     if (statuses?.length) params.set('status', statuses.join(','))
-    const data = await apiRequest(`/api/quotes?${params}`, { isWorkshopRoute: true })
+    const data = await apiRequest(`/api/quotes?${params}`, { workshopSession: true })
     const list = Array.isArray(data?.quotes) ? data.quotes : []
     const quotes = list.map((item) => adaptQuoteResponse(
       { ...item, customer_token: null },
@@ -100,7 +178,7 @@ export const apiClient = {
     const note = String(additionalInfo || '').trim()
     await apiRequest(`/api/quotes/${targetId}/generate`, {
       method: 'POST',
-      isWorkshopRoute: true,
+      workshopSession: true,
       body: note ? JSON.stringify({ additional_info: note }) : undefined,
     })
     quoteGenerationErrors.delete(String(targetId))
@@ -117,9 +195,13 @@ export const apiClient = {
 
     try {
       const queryParam = options?.query ? `?q=${encodeURIComponent(options.query)}` : ''
+      const token = options?.customerToken || session.customerToken
       const data = await apiRequest(`/api/quotes/${targetId}${queryParam}`, {
-        customerToken: options?.workshop ? null : options?.customerToken || session.customerToken,
-        isWorkshopRoute: options?.workshop === true,
+        ...(options?.workshop
+          ? { workshopSession: true }
+          : token
+            ? { customerToken: token }
+            : { workshopSession: true }),
       })
       const quote = adaptQuoteResponse(data)
       const generationError = quoteGenerationErrors.get(String(targetId))
@@ -153,6 +235,7 @@ export const apiClient = {
 
     const created = await apiRequest('/api/quotes', {
       method: 'POST',
+      omitCustomerToken: true,
       body: JSON.stringify(createPayload),
     })
 
@@ -166,42 +249,32 @@ export const apiClient = {
       customerEmail,
     })
 
-    // La generación con IA es una acción del taller. Si este navegador no tiene la
-    // sesión del taller, la solicitud queda en la bandeja del taller (GET /api/quotes).
-    let generationError = ''
-    if (getWorkshopCredentials()) {
-      try {
-        await apiRequest(`/api/quotes/${quoteId}/generate`, {
-          method: 'POST',
-          isWorkshopRoute: true,
-        })
-      } catch (error) {
-        generationError = error?.message || 'The workshop could not generate this estimate.'
-      }
+    // El cliente propietario puede generar su propuesta; ya no se usa la ruta
+    // de taller. Un fallo del proveedor se propaga con el enlace ya guardado,
+    // en lugar de dejar una cotización vacía como si estuviera lista.
+    try {
+      await apiRequest(`/api/quotes/${quoteId}/generate`, {
+        method: 'POST',
+        customerToken: token,
+      })
+    } catch (error) {
+      quoteGenerationErrors.set(String(quoteId), error?.message || 'The estimate could not be generated.')
+      const wrapped = new Error(
+        error?.message
+          ? `Your request was saved, but the estimate could not be generated: ${error.message}`
+          : 'Your request was saved, but the estimate could not be generated. Reopen your quote to retry.'
+      )
+      wrapped.status = error?.status
+      wrapped.cause = error
+      throw wrapped
     }
 
-    let fullQuote
-    try {
-      fullQuote = await apiRequest(`/api/quotes/${quoteId}`, { customerToken: token })
-    } catch (error) {
-      fullQuote = {
-        ...created,
-        status: 'draft',
-        total: null,
-        deposit_amount: null,
-        balance_amount: null,
-        items: [],
-      }
-      generationError ||= `The request was saved, but its status could not be confirmed: ${error?.message || 'backend read failed.'}`
-    }
+    const fullQuote = await apiRequest(`/api/quotes/${quoteId}`, {
+      customerToken: token,
+    })
 
     const quote = adaptQuoteResponse(fullQuote, { name: customerName, email: customerEmail })
-    if (quote?.status === 'draft' && generationError) {
-      quoteGenerationErrors.set(String(quoteId), generationError)
-      quote.generationError = generationError
-    } else if (quote) {
-      quoteGenerationErrors.delete(String(quoteId))
-    }
+    if (quote) quoteGenerationErrors.delete(String(quoteId))
     return quote
   },
 
@@ -210,12 +283,12 @@ export const apiClient = {
       throw new Error('Only a confirmed draft can be retried. Refresh the quote status before trying again.')
     }
     const quoteId = quote.numericId
+    const requestOptions = customerRequestOptions()
     await apiRequest(`/api/quotes/${quoteId}/generate`, {
       method: 'POST',
-      isWorkshopRoute: true,
+      ...requestOptions,
     })
-    const token = getSession().customerToken
-    const refreshed = await apiRequest(`/api/quotes/${quoteId}`, { customerToken: token })
+    const refreshed = await apiRequest(`/api/quotes/${quoteId}`, requestOptions)
     const updatedQuote = adaptQuoteResponse(refreshed)
     if (!updatedQuote || !['pending_review', 'needs_information'].includes(updatedQuote.status)) {
       throw new Error('The backend did not confirm a generated quote. Its current status remains unverified.')
@@ -233,19 +306,15 @@ export const apiClient = {
     const targetId = parseNumericId(quoteId || session.activeQuoteId)
     const body = JSON.stringify({ additional_info: additionalInfo })
 
-    const updatedQuoteData = await apiRequest(`/api/quotes/${targetId}/generate`, {
+    await apiRequest(`/api/quotes/${targetId}/generate`, {
       method: 'POST',
-      isWorkshopRoute: true,
+      ...customerRequestOptions(),
       body,
     })
 
     // Refresca la cotización completa para cargar anticipo, saldo y demás campos.
-    try {
-      const fullQuote = await apiRequest(`/api/quotes/${targetId}`)
-      return adaptQuoteResponse(fullQuote)
-    } catch {
-      return adaptQuoteResponse(updatedQuoteData)
-    }
+    const fullQuote = await apiRequest(`/api/quotes/${targetId}`, customerRequestOptions())
+    return adaptQuoteResponse(fullQuote)
   },
 
   async approveQuote(quoteId) {
@@ -257,6 +326,7 @@ export const apiClient = {
     const targetId = parseNumericId(quoteId || session.activeQuoteId)
     const orderData = await apiRequest(`/api/quotes/${targetId}/approve`, {
       method: 'POST',
+      ...customerRequestOptions(),
     })
 
     if (orderData?.id) {
@@ -264,7 +334,7 @@ export const apiClient = {
     }
 
     // Refresca la cotización para reflejar el estado aprobado en la UI.
-    const updatedQuote = await apiRequest(`/api/quotes/${targetId}`)
+    const updatedQuote = await apiRequest(`/api/quotes/${targetId}`, customerRequestOptions())
     return adaptQuoteResponse(updatedQuote)
   },
 
@@ -277,6 +347,7 @@ export const apiClient = {
     const targetId = parseNumericId(quoteId || session.activeQuoteId)
     const updated = await apiRequest(`/api/quotes/${targetId}/reject`, {
       method: 'POST',
+      ...customerRequestOptions(),
     })
     return adaptQuoteResponse(updated)
   },
@@ -289,8 +360,46 @@ export const apiClient = {
     }
 
     const targetId = parseNumericId(orderId)
-    const data = await apiRequest(`/api/orders/${targetId}`, { isWorkshopRoute: !customer })
+    const data = await apiRequest(
+      `/api/orders/${targetId}`,
+      customer ? customerRequestOptions() : { workshopSession: true },
+    )
     return adaptOrderResponse(data)
+  },
+
+  async getCustomerContext() {
+    if (!isConnectedMode) return null
+    const token = getSession().customerToken
+    if (!token) return null
+    let data
+    try {
+      data = await apiRequest('/api/customer/context', { customerToken: token })
+    } catch (error) {
+      // Solo se descarta el enlace de cliente; una sesión de taller en la misma
+      // pestaña no debe cerrarse por un token de cliente inválido.
+      if (error?.status === 401) saveSession({ customerToken: null })
+      throw error
+    }
+    const quote = adaptQuoteResponse(data?.quote)
+    const order = data?.order ? adaptOrderResponse(data.order) : null
+    if (quote?.numericId) {
+      saveSession({
+        activeQuoteId: quote.numericId,
+        customerName: quote.customer,
+        customerEmail: quote.email,
+      })
+    }
+    if (order) {
+      saveSession({
+        activeOrderId: order.orderId,
+        activeOrderQuoteId: quote?.numericId ?? order.quoteId,
+      })
+    }
+    return {
+      quote,
+      order,
+      payments: Array.isArray(data?.payments) ? data.payments : [],
+    }
   },
 
   async getCustomerOrder(quoteId) {
@@ -299,6 +408,8 @@ export const apiClient = {
     if (!session.customerToken || !session.activeOrderId || String(session.activeOrderQuoteId) !== String(parseNumericId(quoteId))) return null
     return this.getOrder(session.activeOrderId, { customer: true })
   },
+
+  // --- Recuperación de pagos en el navegador ---
 
   getPendingPayment(orderId, type) {
     return getPendingPayment(parseNumericId(orderId), type)
@@ -383,15 +494,32 @@ export const apiClient = {
     return apiRequest(`/api/payments/${parseNumericId(paymentId)}`)
   },
 
-  async capturePayment(paymentId) {
-    if (isDemoMode) throw new Error('Payment capture is unavailable in DEMO mode.')
+  async syncPayment(paymentId) {
+    if (isDemoMode) throw new Error('Payment reconciliation is unavailable in DEMO mode.')
     if (isConfigurationMissing) throw new Error('Backend connection is not configured. Payment status cannot be verified.')
-    const captured = await apiRequest(`/api/payments/${parseNumericId(paymentId)}/capture`, { method: 'POST' })
-    if (String(captured?.status || '').toLowerCase() !== 'completed') {
-      throw new Error('The server has not confirmed this payment as completed.')
+    const payment = await apiRequest(`/api/payments/${parseNumericId(paymentId)}/sync`, {
+      method: 'POST',
+    })
+    const status = normalizePaymentStatus(payment?.status)
+    if (!PAYMENT_STATUSES.has(status)) {
+      throw new Error('The backend returned an unrecognized payment state. No success is being shown.')
     }
-    return captured
+    return payment
   },
+
+  async cancelPayment(paymentId) {
+    if (isDemoMode) throw new Error('Payment cancellation is unavailable in DEMO mode.')
+    if (isConfigurationMissing) throw new Error('Backend connection is not configured. Payment status cannot be changed.')
+    const payment = await apiRequest(`/api/payments/${parseNumericId(paymentId)}/cancel`, {
+      method: 'POST',
+    })
+    if (normalizePaymentStatus(payment?.status) !== 'cancelled') {
+      throw new Error('The backend did not confirm the payment attempt as cancelled.')
+    }
+    return payment
+  },
+
+  // --- Taller ---
 
   async updateOrderStatus(orderId, status) {
     if (isDemoMode) {
@@ -401,7 +529,7 @@ export const apiClient = {
     const targetId = parseNumericId(orderId)
     const data = await apiRequest(`/api/orders/${targetId}`, {
       method: 'PATCH',
-      isWorkshopRoute: true,
+      workshopSession: true,
       body: JSON.stringify({ status }),
     })
     return adaptOrderResponse(data)
@@ -423,7 +551,7 @@ export const apiClient = {
     const targetId = parseNumericId(orderId)
     const data = await apiRequest(`/api/orders/${targetId}`, {
       method: 'PATCH',
-      isWorkshopRoute: true,
+      workshopSession: true,
       body: JSON.stringify({ status: 'deleted' }),
     })
     return adaptOrderResponse(data)
@@ -443,6 +571,19 @@ export const apiClient = {
   async recordDemoCompletionNote(orderId) {
     if (!isDemoMode) throw new Error('Demo data is available only when VITE_APP_MODE=demo is explicitly selected.')
     return mockApi.recordDemoCompletionNote(orderId)
+  },
+
+  async reissueCustomerAccess(quoteId) {
+    if (isDemoMode) throw new Error('Customer access links are unavailable in DEMO mode.')
+    const targetId = parseNumericId(quoteId)
+    const data = await apiRequest(`/api/quotes/${targetId}/customer-access`, {
+      method: 'POST',
+      workshopSession: true,
+    })
+    if (!data?.customer_token) {
+      throw new Error('The backend did not return a customer token.')
+    }
+    return { quoteId: parseNumericId(data.quote_id), customerToken: data.customer_token }
   },
 
   async getFinancialSummary() {
@@ -469,7 +610,7 @@ export const apiClient = {
         averageOrderValue: orders.length ? contracted / orders.length : 0,
       }
     }
-    const data = await apiRequest('/api/accounting/summary', { isWorkshopRoute: true })
+    const data = await apiRequest('/api/accounting/summary', { workshopSession: true })
     return adaptAccountingSummary(data)
   },
 
@@ -479,7 +620,7 @@ export const apiClient = {
     }
     const data = await apiRequest('/api/accounting/assistant', {
       method: 'POST',
-      isWorkshopRoute: true,
+      workshopSession: true,
       body: JSON.stringify({ question }),
     })
     return {

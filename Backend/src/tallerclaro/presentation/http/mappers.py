@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
-from tallerclaro.application.dtos import MarketPriceReference, OrderDetailResult
+from tallerclaro.application.dtos import (
+    CustomerContext,
+    MarketPriceReference,
+    OrderDetailResult,
+)
 from tallerclaro.domain.accounting import WorkshopFinancialSummary
 from tallerclaro.domain.entities import Order, Payment, Quote, QuoteLineItem
 from tallerclaro.presentation.http.schemas.accounting import FinancialSummaryResponse
+from tallerclaro.presentation.http.schemas.customer import CustomerContextResponse
 from tallerclaro.presentation.http.schemas.orders import (
     OrderDetailResponse,
     OrderResponse,
@@ -84,6 +89,7 @@ def to_order_response(
     customer_name: str | None = None,
     customer_email: str | None = None,
     project_request: str | None = None,
+    payments: list[Payment] | None = None,
 ) -> OrderResponse:
     return OrderResponse(
         id=str(order.id),
@@ -94,6 +100,9 @@ def to_order_response(
         balance_amount=float(order.balance_amount.amount),
         currency=order.currency,
         status=order.status,
+        financial_status=(
+            order.financial_status(payments) if payments is not None else None
+        ),
         estimated_delivery_date=order.estimated_delivery_date,
         customer_name=customer_name,
         customer_email=customer_email,
@@ -114,6 +123,7 @@ def to_order_detail_response(detail: OrderDetailResult) -> OrderDetailResponse:
         balance_amount=float(order.balance_amount.amount),
         currency=order.currency,
         status=order.status,
+        financial_status=order.financial_status(detail.payments),
         estimated_delivery_date=order.estimated_delivery_date,
         created_at=order.created_at.isoformat() if order.created_at else None,
         updated_at=order.updated_at.isoformat() if order.updated_at else None,
@@ -135,6 +145,19 @@ def to_order_detail_response(detail: OrderDetailResult) -> OrderDetailResponse:
     )
 
 
+def to_customer_context_response(context: CustomerContext) -> CustomerContextResponse:
+    """Expone los recursos del cliente autenticado con los campos existentes."""
+    return CustomerContextResponse(
+        quote=to_quote_response(context.quote, include_missing=True),
+        order=(
+            to_order_response(context.order, payments=context.payments)
+            if context.order is not None
+            else None
+        ),
+        payments=[to_payment_response(payment) for payment in context.payments],
+    )
+
+
 def to_payment_response(payment: Payment) -> PaymentResponse:
     return PaymentResponse(
         id=str(payment.id),
@@ -145,6 +168,7 @@ def to_payment_response(payment: Payment) -> PaymentResponse:
         status=payment.status,
         paypal_order_id=payment.paypal_order_id,
         paypal_capture_id=payment.paypal_capture_id,
+        approval_url=payment.approval_url,
         created_at=payment.created_at.isoformat() if payment.created_at else None,
         paid_at=payment.paid_at.isoformat() if payment.paid_at else None,
     )

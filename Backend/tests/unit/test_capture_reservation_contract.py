@@ -124,5 +124,8 @@ def test_order_protocol_no_longer_carries_capture_reservation_methods():
     assert "release" in CaptureReservationRepository.__dict__
 
 
-def test_payment_protocol_has_no_unconsumed_lookup():
-    assert "get_by_paypal_order_id" not in PaymentRepository.__dict__
+def test_payment_protocol_declares_only_consumed_lookups():
+    # `get_by_paypal_order_id` lo consume el webhook y `list_stale_pending`
+    # la conciliación en segundo plano.
+    assert "get_by_paypal_order_id" in PaymentRepository.__dict__
+    assert "list_stale_pending" in PaymentRepository.__dict__

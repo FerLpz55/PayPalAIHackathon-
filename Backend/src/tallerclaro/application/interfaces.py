@@ -11,13 +11,16 @@ aplicación.
 
 from __future__ import annotations
 
-from typing import Protocol
+from datetime import datetime
+from typing import Any, Callable, Protocol, TypeVar
 
 from tallerclaro.application.dtos import (
     CapturedPayment,
     MarketPriceReference,
     PaymentIntent,
+    ProviderOrder,
     QuoteProposalResult,
+    WebhookEvent,
 )
 from tallerclaro.domain.accounting import WorkshopFinancialSummary
 from tallerclaro.domain.entities import (
@@ -29,6 +32,7 @@ from tallerclaro.domain.entities import (
     OrderId,
     Payment,
     PaymentId,
+    PaymentType,
     Quote,
     QuoteId,
 )
@@ -130,6 +134,10 @@ class CaptureReservationRepository(Protocol):
     def release(self, order_id: OrderId, payment_id: PaymentId) -> None:
         ...
 
+    def active_payment_id(self, order_id: OrderId) -> PaymentId | None:
+        """Pago que posee la reserva activa del pedido, si existe."""
+        ...
+
 
 class PaymentRepository(Protocol):
     """Persistencia de intentos de pago."""
@@ -143,6 +151,28 @@ class PaymentRepository(Protocol):
 
     def list_by_order(self, order_id: OrderId) -> list[Payment]:
         """Devuelve todos los intentos del pedido, incluidos los no completados."""
+        ...
+
+    def get_by_paypal_order_id(self, paypal_order_id: str) -> Payment | None:
+        """Busca un intento por el ID de orden de PayPal; ``None`` si no existe."""
+        ...
+
+    def list_stale_pending(self, updated_before: datetime, limit: int) -> list[Payment]:
+        """Intentos ``pending`` con orden del proveedor y sin actividad reciente.
+
+        Se usan para conciliación en segundo plano; el orden es del más antiguo
+        al más reciente y ``limit`` acota el lote.
+        """
+        ...
+
+    def get_pending_by_order_and_type(
+        self, order_id: OrderId, payment_type: PaymentType
+    ) -> Payment | None:
+        """Devuelve el intento pendiente del pedido y tipo, si existe.
+
+        El esquema garantiza como máximo uno mediante un índice único parcial
+        sobre ``(id_pedido, tipo) WHERE estado = 'pending'``.
+        """
         ...
 
 
@@ -160,6 +190,54 @@ class CustomerTokenRepository(Protocol):
     def verify(self, token: str) -> tuple[CustomerId, QuoteId] | None:
         """Devuelve ``None`` para tokens inválidos, manipulados o expirados."""
         ...
+
+    def revoke_for_quote(self, quote_id: QuoteId) -> int:
+        """Marca como usados los tokens vigentes de la cotización; devuelve cuántos."""
+        ...
+
+
+class WorkshopSessionRepository(Protocol):
+    """Sesiones opacas del taller.
+
+    ``create`` devuelve el token en claro una sola vez y persiste únicamente su
+    hash. ``verify`` valida caducidad de inactividad, caducidad absoluta,
+    revocación y vigencia de la huella de credenciales, y actualiza el último
+    uso de forma atómica. ``revoke`` es idempotente.
+    """
+
+    def create(self, carpenter_id: CarpenterId) -> str:
+        ...
+
+    def verify(self, token: str) -> CarpenterId | None:
+        ...
+
+    def revoke(self, token: str) -> bool:
+        ...
+
+    def revoke_all(self, carpenter_id: CarpenterId) -> int:
+        ...
+
+
+class RateLimiter(Protocol):
+    """Contadores atómicos por clave y ventana fija."""
+
+    def retry_after(
+        self, key: str, *, limit: int, window_seconds: int, now: datetime
+    ) -> int | None:
+        """Segundos de espera si la clave alcanzó el límite; ``None`` si puede usarse."""
+        ...
+
+    def hit(self, key: str, *, window_seconds: int, now: datetime) -> int:
+        """Incrementa el contador y devuelve el valor resultante."""
+        ...
+
+    def reset(self, key: str, *, window_seconds: int, now: datetime) -> None:
+        """Pone el contador de la ventana actual a cero."""
+        ...
+
+
+T = TypeVar("T")
+SqlPhase = Callable[["UnitOfWork"], T]
 
 
 class UnitOfWork(Protocol):
@@ -209,12 +287,34 @@ class UnitOfWork(Protocol):
     def tokens(self) -> CustomerTokenRepository:
         ...
 
+    @property
+    def sessions(self) -> WorkshopSessionRepository:
+        ...
+
+    @property
+    def rate_limits(self) -> RateLimiter:
+        ...
+
+    @property
+    def paypal_events(self) -> PayPalEventRepository:
+        ...
+
     def commit(self) -> None:
         """Confirma la transacción activa; los cambios pasan a ser visibles."""
         ...
 
     def rollback(self) -> None:
         """Revierte la transacción activa sin devolver la conexión todavía."""
+        ...
+
+    def execute_sql(self, operation: "SqlPhase", *, attempts: int = 3) -> Any:
+        """Ejecuta una fase SQL completa con commit y reintento acotado.
+
+        El callback recibe el UoW con la transacción abierta y no debe realizar
+        llamadas de red (IA/PayPal). Solo se reintentan conflictos de
+        serialización de PostgreSQL dentro de la fase; nunca una operación
+        completa que ya haya llamado a un proveedor externo.
+        """
         ...
 
 
@@ -241,6 +341,36 @@ class AccountingAssistant(Protocol):
         ...
 
 
+class PayPalEventRepository(Protocol):
+    """Registro idempotente de eventos de webhook de PayPal.
+
+    ``claim`` reserva el evento de forma atómica y devuelve ``"new"`` la primera
+    vez, ``"retry"`` si la entrega anterior falló (el evento queda reclamado de
+    nuevo) y ``"duplicate"`` si ya se procesó o se está procesando. Gracias a
+    ello una reentrega de PayPal no duplica la conciliación ni un fallo
+    transitorio bloquea el reintento.
+    """
+
+    def claim(self, event: WebhookEvent) -> str:
+        ...
+
+    def mark_processed(self, event_id: str, outcome: str, detail: str | None = None) -> None:
+        ...
+
+
+class WebhookVerifier(Protocol):
+    """Verifica la autenticidad de un webhook de PayPal.
+
+    Recibe las cabeceras y el cuerpo crudo ya decodificado. Devuelve el evento
+    normalizado solo si PayPal confirma la firma; en cualquier otro caso lanza
+    ``DomainError`` (``UNAUTHORIZED``/``SERVICE_UNAVAILABLE``) y el evento no se
+    registra ni se procesa.
+    """
+
+    def verify(self, headers: dict[str, str], body: bytes) -> WebhookEvent:
+        ...
+
+
 class PaymentProcessor(Protocol):
     """Procesador de pagos externo.
 
@@ -254,10 +384,14 @@ class PaymentProcessor(Protocol):
     ``PAYMENT_PROVIDER_ERROR``; no se exponen excepciones del cliente HTTP.
     """
 
-    def create_order(self, amount: str, currency: str) -> PaymentIntent:
+    def create_order(self, amount: str, currency: str, request_id: str | None = None) -> PaymentIntent:
         ...
 
     def capture_order(self, paypal_order_id: str) -> CapturedPayment:
+        ...
+
+    def get_order(self, paypal_order_id: str) -> ProviderOrder:
+        """Consulta el estado actual; nunca captura ni cambia datos locales."""
         ...
 
 
